@@ -8,7 +8,16 @@ no llm calls anywhere yet — that's phase 3, and only for leaders. phase 0 is p
 machines, which is the whole point: a world that runs 24/7 for $0.
 
 design docs live in [`planish/`](planish/). nothing here invents behaviour those docs
-don't call for.
+don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md) is the
+handover doc — status, what's next, and the traps already fallen into.
+
+**where this is**: phase 0 complete and frozen. phase 1 has blackboard, structured
+messaging, resource transfer, clans, clan goals and soft influence — combat and user
+agents outstanding. the phase 3 spatial index got pulled forward because it was the only
+thing genuinely blocking scale. 126 tests, six commits on local `main`, no remote.
+
+still deliberately absent: llm cognition, combat, hard territory, births, procedural 3d,
+user-deployed agents, economy.
 
 ## run it
 

@@ -1,26 +1,94 @@
-Recommended Stack
+# technical architecture
 
-Simulation core: Python (custom ECS or Mesa) + FastAPI.
-Persistence: DuckDB (great for aggregation) or SQLite + Redis for live state.
-Viewer: Three.js / React Three Fiber (browser public viewer).
-Optional heavy simulation: Godot 4 (MultiMesh + Jolt) with state streaming to web, or pure Three.js + ECS.
+## stack — as chosen and built
 
-Core Patterns (from research)
+| layer | decision |
+|:--|:--|
+| simulation core | **custom minimal ecs** in python — chosen over mesa for control over tick determinism and the fsm hot path |
+| persistence | **sqlite**, single file at `data/world.db`. duckdb deferred to analytics, redis only when live state needs it |
+| api | **fastapi** + websocket, full snapshot pushed per tick |
+| viewer | **plain html + vanilla js canvas**. no react, no three.js, no build step — deliberately, until phase 2 |
 
-Hybrid Hierarchical Cognition (mandatory for cost)
-Bottom (majority): FSM + utility / Markov. Zero LLM.
-Middle (clan leaders): lightweight LLM, infrequent.
-Top (empire / crises): frontier LLM, rare.
-Information asymmetry creates realistic politics.
+godot remains the untaken alternative for heavy simulation. nothing depends on it.
 
-Communication
-Primary: Shared Blackboard (world state slices + event log).
-Secondary: Structured JSON message envelopes (type, from, to, content, context).
-Close-range only for social; aggregation for higher levels.
+## the tick
 
-Performance
-Spatial partitioning / chunks.
-MultiMesh / instancing for agents and modular buildings.
-Selective full 3D only when camera is near hero areas.
-Deterministic seeded RNG everywhere.
+fixed timestep, one tick per second, nine systems in a fixed order:
 
+```
+messaging → needs → trade → fsm → movement → build → regrowth → social → blackboard
+```
+
+- **messaging first** so the fsm sees last tick's mail
+- **trade after needs** so hunger is fresh and transferred food is in the inventory before
+  the agent decides
+- **social and blackboard last** so what they publish is read next tick
+
+every social channel therefore has the same one-tick lag. information travels; it does not
+teleport.
+
+## determinism
+
+there is no mutable global rng. every draw comes from `TickRng(seed, tick, system_name)`,
+so a system's randomness is a pure function of *when it runs*. nothing about the rng is
+persisted because there is no stream state to persist — reloading a save at tick n and
+continuing produces byte-identical history to an uninterrupted run.
+
+supporting rules, each of which exists because breaking it caused a real bug:
+
+- `World.query()` returns entity ids **ascending**, so behaviour never depends on dict
+  insertion history
+- the blackboard keeps its keys **sorted**, and the sqlite encoder deliberately does
+  **not** use `json.dumps(sort_keys=True)` — a save must round-trip to the same *iteration
+  order*, not merely the same content
+- the spatial index visits candidates in ascending entity order and compares with a strict
+  `<`, so ties still go to the lowest id exactly as the old linear scan did
+
+`tests/test_determinism.py` asserts all of this against a full save/reload cycle by
+hashing the entire world.
+
+## performance
+
+**spatial partitioning is implemented** (`src/world/spatial.py`) — chunked buckets for
+resource lookup. node positions never change (nodes go dormant, never destroyed), so the
+index is pure position data, rebuilt per tick and queried many times.
+
+| world | before | after |
+|:--|--:|--:|
+| 120 agents | 6.13 ms/tick | 1.55 ms/tick |
+| 300 agents | 16.53 ms/tick | 4.52 ms/tick |
+| 500 agents | 43.51 ms/tick | 6.97 ms/tick |
+
+the win grows with scale because the old path was superlinear in agents × nodes. phase 3
+counts are comfortably in budget.
+
+related ecs decisions: `World.first()` returns a singleton without sorting a whole store
+(the blackboard lookup ran ~105k times per 1000 ticks through `query()`), and
+`World.query()` intersects dict key views in c rather than testing membership per entity.
+
+remaining known debt, neither load-bearing: `build.py` rebuilds its occupied-tile set each
+tick (once per tick, not per agent), and `social.find_clan` scans clans linearly.
+
+## hybrid hierarchical cognition — not built yet
+
+still the plan, and still the reason the sim is affordable:
+
+- **bottom (the vast majority)** — fsm + utility. **zero llm.** this is what exists today.
+- **middle (clan leaders)** — lightweight llm, infrequent. clans, leaders and goals are
+  already in place as the seam; today `social._choose_goal` is a dozen readable lines of
+  rules that an llm call would replace.
+- **top (empire / crises)** — frontier llm, rare.
+
+information asymmetry between tiers is a feature, not a limitation.
+
+**any proposal that puts an llm call in a bottom-tier agent's tick loop is wrong by
+construction.** at 500 agents and one tick per second that is 500 calls/second forever.
+
+## communication
+
+- **primary: shared blackboard** — world state slices and a tick-stamped event log,
+  expired by ttl
+- **secondary: structured json envelopes** — `{from, to, type, content}`, close-range or
+  clan-scoped, persisting until read
+
+higher tiers, when they exist, consume aggregates rather than raw messages.
