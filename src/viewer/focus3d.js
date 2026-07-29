@@ -31,28 +31,84 @@ function hash2(x, y, seed) {
   return h - Math.floor(h);
 }
 
-function valueNoise(x, y, seed) {
+function smooth(t) {
+  // smoothstep keeps the lattice from showing as diamonds
+  return t * t * (3 - 2 * t);
+}
+
+// --- periodic noise, for anything that becomes a tiling texture --------------
+//
+// The lattice wraps, so u=0 and u=1 land on the same lattice point and a texture built
+// from this has no seam. This is the technique the claude-of-duty reference calls out
+// ("periodic noise so everything tiles seamlessly") and it is not optional: with plain
+// non-wrapping noise the plaster albedo jumped 4x its interior gradient at the tile
+// boundary, which is a visible grid line repeated across every wall and the whole ground.
+//
+// cellsX/cellsY are lattice counts across the unit square and must be integers.
+
+function periodicNoise(u, v, seed, cellsX, cellsY) {
+  const x = u * cellsX;
+  const y = v * cellsY;
   const xi = Math.floor(x);
   const yi = Math.floor(y);
-  const xf = x - xi;
-  const yf = y - yi;
-  // smoothstep keeps the lattice from showing as diamonds
-  const u = xf * xf * (3 - 2 * xf);
-  const v = yf * yf * (3 - 2 * yf);
+  const sx = smooth(x - xi);
+  const sy = smooth(y - yi);
+  const wrapX = (i) => ((i % cellsX) + cellsX) % cellsX;
+  const wrapY = (i) => ((i % cellsY) + cellsY) % cellsY;
+  const x0 = wrapX(xi);
+  const x1 = wrapX(xi + 1);
+  const y0 = wrapY(yi);
+  const y1 = wrapY(yi + 1);
+  const a = hash2(x0, y0, seed);
+  const b = hash2(x1, y0, seed);
+  const c = hash2(x0, y1, seed);
+  const d = hash2(x1, y1, seed);
+  return (a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy;
+}
+
+// Each octave doubles the lattice count, so every octave keeps the same period and the
+// sum still tiles. Anisotropic counts let a surface be fine in one axis and coarse in the
+// other — wood grain runs along the plank.
+function fbm(u, v, seed, octaves = 4, cellsX = 4, cellsY = cellsX) {
+  let total = 0;
+  let amplitude = 1;
+  let norm = 0;
+  let cx = cellsX;
+  let cy = cellsY;
+  for (let i = 0; i < octaves; i++) {
+    total += periodicNoise(u, v, seed + i, cx, cy) * amplitude;
+    norm += amplitude;
+    amplitude *= 0.5;
+    cx *= 2;
+    cy *= 2;
+  }
+  return total / norm;
+}
+
+// --- open noise, for terrain -------------------------------------------------
+//
+// Terrain is sampled by world position over one finite plane and is never tiled, so it
+// wants the opposite property: no period at all, or the landscape would visibly repeat.
+
+function openNoise(x, y, seed) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const sx = smooth(x - xi);
+  const sy = smooth(y - yi);
   const a = hash2(xi, yi, seed);
   const b = hash2(xi + 1, yi, seed);
   const c = hash2(xi, yi + 1, seed);
   const d = hash2(xi + 1, yi + 1, seed);
-  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+  return (a * (1 - sx) + b * sx) * (1 - sy) + (c * (1 - sx) + d * sx) * sy;
 }
 
-function fbm(x, y, seed, octaves = 4) {
+function openFbm(x, y, seed, octaves = 4) {
   let total = 0;
   let amplitude = 1;
   let frequency = 1;
   let norm = 0;
   for (let i = 0; i < octaves; i++) {
-    total += valueNoise(x * frequency, y * frequency, seed + i) * amplitude;
+    total += openNoise(x * frequency, y * frequency, seed + i) * amplitude;
     norm += amplitude;
     amplitude *= 0.5;
     frequency *= 2;
@@ -64,8 +120,8 @@ function fbm(x, y, seed, octaves = 4) {
 // hut, tree and agent is placed at, so nothing floats or sinks as the camera moves.
 // Deliberately gentle: huts have square footprints and would gape on a real slope.
 export function terrainHeight(x, z) {
-  const roll = (fbm(x * 0.028, z * 0.028, 91, 4) - 0.5) * 4.4;
-  const bump = (fbm(x * 0.10, z * 0.10, 97, 3) - 0.5) * 0.7;
+  const roll = (openFbm(x * 0.028, z * 0.028, 91, 4) - 0.5) * 4.4;
+  const bump = (openFbm(x * 0.10, z * 0.10, 97, 3) - 0.5) * 0.7;
   return roll + bump;
 }
 
@@ -76,11 +132,15 @@ const SURFACES = {
     seed: 11,
     tint: [0.42, 0.28, 0.16],
     height(u, v, seed) {
-      const plank = Math.floor(v * 6);
-      const gap = Math.abs((v * 6) % 1 - 0.5) > 0.46 ? 0.3 : 1;
-      const grain = fbm(u * 40 + plank * 17, v * 4, seed, 3);
+      const planks = 6;
+      const plank = Math.floor(v * planks);
+      const gap = Math.abs((v * planks) % 1 - 0.5) > 0.46 ? 0.3 : 1;
+      // Grain runs along the plank: fine across u, coarse across v. The plank index goes
+      // into the seed rather than into the coordinate, so each board gets its own grain
+      // without pushing the sample off the wrapping lattice.
+      const grain = fbm(u, v, seed + plank * 7, 3, 40, 4);
       // knots: occasional tight whorls that break the stripe rhythm
-      const knot = fbm(u * 7, v * 7, seed + 13, 2);
+      const knot = fbm(u, v, seed + 13, 2, 7);
       const whorl = knot > 0.78 ? 0.55 + Math.sin(knot * 90) * 0.12 : 1;
       return gap * whorl * (0.58 + grain * 0.42);
     },
@@ -89,12 +149,14 @@ const SURFACES = {
     seed: 23,
     tint: [0.80, 0.76, 0.68],
     height(u, v, seed) {
-      const coarse = fbm(u * 6, v * 6, seed, 4);
-      const pit = fbm(u * 30, v * 30, seed + 5, 2);
-      // trowel sweep: broad low-frequency banding, the mark of it being applied by hand
-      const trowel = Math.sin(u * 9 + fbm(u * 3, v * 3, seed + 2, 2) * 5) * 0.05;
+      const coarse = fbm(u, v, seed, 4, 6);
+      const pit = fbm(u, v, seed + 5, 2, 30);
+      // Trowel sweep: broad banding from being applied by hand. The sine has to complete
+      // a whole number of cycles across u (hence the 2π·3) or it reintroduces the seam
+      // the periodic noise just removed.
+      const trowel = Math.sin(u * Math.PI * 2 * 3 + fbm(u, v, seed + 2, 2, 3) * 5) * 0.05;
       // patches where the render has flaked back to something browner underneath
-      const flake = fbm(u * 4.5, v * 4.5, seed + 21, 3);
+      const flake = fbm(u, v, seed + 21, 3, 5);
       const spall = flake > 0.72 ? 0.72 : 1;
       return spall * (0.74 + coarse * 0.2 + trowel - (pit > 0.82 ? 0.32 : 0));
     },
@@ -104,13 +166,20 @@ const SURFACES = {
     tint: [0.50, 0.49, 0.46],
     height(u, v, seed) {
       // rough coursed rubble: rows of blocks, offset course to course, with deep joints
-      const course = Math.floor(v * 7);
-      const offset = (course % 2) * 0.5 + fbm(0, course * 3.3, seed + 4, 1) * 0.3;
-      const withinRow = (u * 5 + offset) % 1;
-      const rowPos = (v * 7) % 1;
+      const courses = 7;
+      const blocks = 5;
+      const course = Math.floor(v * courses);
+      // A direct lattice hash per course, not a noise sample at a scaled coordinate —
+      // the latter cannot wrap because its argument is not on the unit square.
+      const offset = (course % 2) * 0.5 + hash2(0, course, seed + 4) * 0.3;
+      const withinRow = (u * blocks + offset) % 1;
+      const rowPos = (v * courses) % 1;
       const joint = withinRow > 0.9 || withinRow < 0.06 || rowPos > 0.9 || rowPos < 0.08;
-      const face = fbm(u * 26, v * 26, seed, 3);
-      const block = fbm(Math.floor(u * 5 + offset) * 5.1, course * 7.3, seed + 8, 1);
+      const face = fbm(u, v, seed, 3, 26);
+      // The block index must wrap too: unwrapped it reads 5 at the right edge and 0 at
+      // the left, so every block picked a different stone across the seam.
+      const index = Math.floor(u * blocks + offset) % blocks;
+      const block = hash2(index, course, seed + 8);
       return joint ? 0.28 + face * 0.1 : 0.68 + block * 0.22 + face * 0.16;
     },
   },
@@ -118,9 +187,9 @@ const SURFACES = {
     seed: 53,
     tint: [0.31, 0.40, 0.19],
     height(u, v, seed) {
-      const clump = fbm(u * 10, v * 10, seed, 4);
-      const blade = fbm(u * 70, v * 70, seed + 3, 2);
-      const worn = fbm(u * 3, v * 3, seed + 9, 3);
+      const clump = fbm(u, v, seed, 4, 10);
+      const blade = fbm(u, v, seed + 3, 2, 70);
+      const worn = fbm(u, v, seed + 9, 3, 3);
       // bare earth showing through where the turf is thin. Kept subtle: a strong patch
       // here becomes an obvious repeating blotch once the texture tiles across the plot.
       return 0.45 + clump * 0.32 + blade * 0.23 - (worn > 0.82 ? 0.1 : 0);
@@ -135,13 +204,16 @@ const SURFACES = {
     seed: 37,
     tint: [0.36, 0.17, 0.13],
     height(u, v, seed) {
-      const row = Math.floor(v * 10);
+      const rows = 10;
+      const across = 8;
+      const row = Math.floor(v * rows);
       const stagger = row % 2 === 0 ? 0 : 0.5;
-      const withinRow = (u * 8 + stagger) % 1;
-      const edge = withinRow > 0.9 || (v * 10) % 1 > 0.88 ? 0.42 : 1;
-      // each tile sits slightly differently, so the courses are not a printed grid
-      const tile = fbm(Math.floor(u * 8 + stagger) * 3.7, row * 5.9, seed + 6, 1);
-      return edge * (0.66 + tile * 0.2 + fbm(u * 20, v * 20, seed, 2) * 0.24);
+      const withinRow = (u * across + stagger) % 1;
+      const edge = withinRow > 0.9 || (v * rows) % 1 > 0.88 ? 0.42 : 1;
+      // each tile sits slightly differently, so the courses are not a printed grid.
+      // Index wraps for the same reason the stone block index does.
+      const tile = hash2(Math.floor(u * across + stagger) % across, row, seed + 6);
+      return edge * (0.66 + tile * 0.2 + fbm(u, v, seed, 2, 20) * 0.24);
     },
     tintAt(h, base) {
       // weathering: the lower, wetter parts of a tile go greener
@@ -151,7 +223,7 @@ const SURFACES = {
   },
 };
 
-function buildSurface(name) {
+export function buildSurface(name) {
   const spec = SURFACES[name];
   const size = TEXTURE_SIZE;
   const heights = new Float32Array(size * size);

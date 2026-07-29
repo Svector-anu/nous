@@ -126,6 +126,78 @@ def test_terrain_is_deterministic_and_bounded(tmp_path):
     assert out["steepest"] < 1.0
 
 
+def test_every_surface_tiles_without_a_seam(tmp_path):
+    """The claude-of-duty reference calls for "periodic noise so everything tiles
+    seamlessly", and it is load-bearing: the grass texture repeats 60x60 across the
+    ground, so a discontinuity at the tile boundary draws a grid over the whole scene.
+
+    The measure is the wrap edge against the *strongest* edge the surface already has
+    inside itself. Comparing against the texture's midpoint instead is misleading — the
+    stone wrap lands on a mortar joint, which is legitimately a hard edge, and mid-texture
+    happens to be flat mid-course.
+    """
+    out = _run(
+        """
+        import { buildSurface } from "./focus3d.mjs";
+        const size = 128;
+        const report = {};
+        for (const name of ["grass", "plaster", "wood", "roof", "stone"]) {
+          const material = buildSurface(name);
+          const maps = { albedo: material.map, normal: material.normalMap, rough: material.roughnessMap };
+          for (const [label, map] of Object.entries(maps)) {
+            const d = map.image.data;
+            const at = (x, y, c) => d[((y * size) + x) * 4 + c];
+            const col = (x0) => {
+              let s = 0;
+              for (let y = 0; y < size; y++) for (let c = 0; c < 3; c++) s += Math.abs(at((x0 + 1) % size, y, c) - at(x0, y, c));
+              return s;
+            };
+            const row = (y0) => {
+              let s = 0;
+              for (let x = 0; x < size; x++) for (let c = 0; c < 3; c++) s += Math.abs(at(x, (y0 + 1) % size, c) - at(x, y0, c));
+              return s;
+            };
+            const cols = [], rows = [];
+            for (let i = 0; i < size; i++) { cols.push(col(i)); rows.push(row(i)); }
+            report[`${name}/${label}`] = [
+              cols[size - 1] / Math.max(0.001, Math.max(...cols.slice(0, size - 1))),
+              rows[size - 1] / Math.max(0.001, Math.max(...rows.slice(0, size - 1))),
+            ];
+          }
+        }
+        console.log(JSON.stringify(report));
+        """,
+        tmp_path,
+    )
+    for surface, (ratio_x, ratio_y) in out.items():
+        assert ratio_x < 1.15, f"{surface} seam across u: {ratio_x:.2f}x"
+        assert ratio_y < 1.15, f"{surface} seam across v: {ratio_y:.2f}x"
+
+
+def test_terrain_noise_does_not_visibly_repeat(tmp_path):
+    """Terrain wants the opposite property from the textures: it is sampled by world
+    position over one plane and never tiled, so a period would show as a repeating
+    landscape. Guards against someone routing it through the periodic noise."""
+    out = _run(
+        """
+        // if terrain were periodic with any period up to 400 units, these would match
+        const probes = [];
+        for (const period of [64, 128, 200, 256, 400]) {
+          let same = 0, total = 0;
+          for (let x = -40; x <= 40; x += 7) for (let z = -40; z <= 40; z += 7) {
+            total++;
+            if (Math.abs(terrainHeight(x, z) - terrainHeight(x + period, z)) < 1e-6) same++;
+          }
+          probes.push({ period, fraction: same / total });
+        }
+        console.log(JSON.stringify({ probes }));
+        """,
+        tmp_path,
+    )
+    for probe in out["probes"]:
+        assert probe["fraction"] < 0.5, f"terrain repeats at period {probe['period']}"
+
+
 def test_clan_colours_are_stable_and_distinct(tmp_path):
     """A clan keeps its colour between the 2d map and the 3d view, so this must not drift."""
     out = _run(

@@ -62,8 +62,11 @@ height-first — fbm value noise builds a height field, albedo and roughness are
 that height, and the normal map is a sobel derivative of it. five surfaces so far (knotted
 plank wood, spalled plaster, coursed rubble stone, weathered shingle roof, and grass that
 dries to earth where it thins), which is enough for a hut to read as built rather than as
-boxes. three.js is **vendored into the repo**, not fetched from a cdn, because the same
-reference holds itself to working offline.
+boxes. the noise is **periodic**, so every texture tiles without a seam — the reference
+calls this out and it matters here, because the grass repeats 60x60 across the ground and a
+discontinuity at the tile edge draws a grid over the whole scene. terrain noise is
+deliberately not periodic, since it is never tiled. three.js is **vendored into the repo**,
+not fetched from a cdn, because the same reference holds itself to working offline.
 
 a hut is modular — a stone plinth bedded into the ground, four walls with real thickness, a
 doorway gap with a lintel, and a pitched roof of two leaning slabs — so it can grow into a

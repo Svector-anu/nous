@@ -38,6 +38,22 @@ per frame — but not its full gpu forge. height-first on the cpu: fbm value noi
 mottled and spalled plaster, coursed rubble stone, weathered shingle roof, and grass that
 dries to earth where the turf thins.
 
+**the noise is periodic**, which the reference calls out ("periodic noise so everything
+tiles seamlessly") and which is not optional. the lattice wraps, so u=0 and u=1 hit the
+same lattice point and there is no discontinuity at the tile edge. two things have to wrap,
+not one: the noise lattice *and* any per-cell index derived from uv (the stone block index
+and roof tile index each pick a hash — unwrapped they read index 5 on one edge and 0 on the
+other). any sine term also has to complete a whole number of cycles across the axis.
+
+measured, wrap-edge against the strongest edge the surface already contains itself: all
+five surfaces ≤ 1.01x. before this, plaster jumped 4.0x and grass 3.0x, which drew a grid
+over every wall and the entire ground — grass tiles 60x60 across the plot.
+
+**terrain noise is deliberately *not* periodic.** it is sampled by world position over one
+finite plane and never tiled, so a period would show as a repeating landscape. that is why
+there are two noise paths (`fbm` for textures, `openFbm` for terrain) and they must not be
+crossed. both directions are pinned by tests.
+
 **huts are modular**: a stone plinth that beds into the ground, four walls with real
 thickness, a doorway gap with a lintel, a pitched roof of two leaning slabs, and a per-hut
 rotation so a cluster is not stamped.
