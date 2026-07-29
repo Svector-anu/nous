@@ -222,6 +222,44 @@ measured over 40000 ticks on the default world: 407 food units changed hands, in
 peaked at 2 messages, and population rose from ~98 to **103** — sharing measurably helps
 agents survive. by tick 5000 alone: 99 requests, 643 offers, 19 alerts, 84 transfers.
 
+### clan goals and soft influence
+
+a clan's **centre** is the mean position of its living members, recomputed each tick — no
+smoothing buffer, because members already sit ~1.4 tiles from it and holding no history
+keeps save/load exact. **influence** is a soft radius growing with membership
+(`influence_base_radius + influence_per_member × size`, ~10 tiles in practice),
+published to the board as `clan:{id}:centre` and drawn as a tinted disc in the viewer.
+there is no ownership and no exclusion — influence is readable, not enforceable.
+
+each clan holds one **goal**, reviewed every `goal_review_ticks` and published under
+`clan:{id}:goal`:
+
+| goal | chosen when | what members do |
+|:--|:--|:--|
+| `gather_food` | clan food ratio below `clan_low_food_ratio`, or mean hunger below `clan_hungry_threshold` | bias toward foraging food even when not hungry |
+| `gather_wood` | short of huts and short of timber | bias toward foraging wood |
+| `expand` | short of huts but holding enough wood | build, and walk inside the clan's own influence first |
+| `rally` | fed and built out | drift to the meeting point when idle |
+
+the thresholds are measured, not guessed. clan food ratio runs 0.38–1.00 (median 0.93)
+and mean hunger 22–49 (median 40) at steady state; the first thresholds i picked (0.4 and
+2 huts/member) fired for one clan in twenty and left all twenty sitting on `rally`.
+
+**bias, never override.** the goal is consulted only below survival and standing
+commitments in `_decide_from_idle`, and even then it is gated on `goal_bias_chance`. a
+starving member of a `gather_wood` clan still goes after food — there is a test for
+exactly that.
+
+goals genuinely diverge. at tick 300 all four are in play across twenty clans (14
+`gather_food`, 3 `gather_wood`, 2 `rally`, 1 `expand`); at steady state the split keeps
+moving between `rally` and `gather_food`. **expansion retires on its own** — once every
+member holds `max_huts_per_agent` huts the hut signal can never fire again, so `expand`
+and `gather_wood` are early-life goals and mature clans alternate between feeding
+themselves and staying together.
+
+population went *up* with goals, from 103 to **112** at tick 40000: a clan that notices it
+is short of food and biases toward foraging feeds itself better than uncoordinated agents.
+
 ### the cost of sociality
 
 phase 1 lowers the carrying capacity from 120 agents to ~98. socialising burns ticks and

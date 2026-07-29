@@ -133,7 +133,7 @@ function renderLegend(snapshot) {
     const item = document.createElement("li");
     item.innerHTML =
       `<span class="swatch" style="background:${clanColour(clan.id)}"></span>` +
-      `clan ${clan.id} · ${clan.size}`;
+      `${clan.size} · ${clan.goal || "—"}`;
     legend.appendChild(item);
   }
   const item = document.createElement("li");
@@ -186,6 +186,23 @@ function draw(snapshot) {
   for (const building of snapshot.buildings) {
     ctx.fillStyle = "#c9d1d9";
     ctx.fillRect(originX + building.x * cell, originY + building.y * cell, cell, cell);
+  }
+
+  // soft influence: a tinted disc per clan, no hard boundary
+  for (const clan of snapshot.clans || []) {
+    if (!clan.centre || !clan.influence) continue;
+    const cx = originX + (clan.centre[0] + 0.5) * cell;
+    const cy = originY + (clan.centre[1] + 0.5) * cell;
+    const r = clan.influence * cell;
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    gradient.addColorStop(0, clanColour(clan.id));
+    gradient.addColorStop(1, "transparent");
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 
   const radius = Math.max(1.5, cell * 0.4);

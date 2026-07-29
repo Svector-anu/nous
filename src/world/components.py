@@ -109,12 +109,27 @@ class Building:
     owner: Entity | None = None
 
 
+class ClanGoal(str, Enum):
+    GATHER_FOOD = "gather_food"
+    GATHER_WOOD = "gather_wood"
+    EXPAND = "expand"
+    RALLY = "rally"
+
+
 KEY_FOOD_LOCATIONS = "food_locations"
 KEY_WOOD_LOCATIONS = "wood_locations"
 
 
 def clan_rally_key(clan_id: int) -> str:
-    return f"clan_{clan_id}_rally"
+    return f"clan:{clan_id}:rally"
+
+
+def clan_goal_key(clan_id: int) -> str:
+    return f"clan:{clan_id}:goal"
+
+
+def clan_centre_key(clan_id: int) -> str:
+    return f"clan:{clan_id}:centre"
 
 
 @dataclass
@@ -177,6 +192,10 @@ class Clan:
     leader: Entity | None = None
     members: list[Entity] = field(default_factory=list)
     last_rally: list | None = None
+    goal: str = ClanGoal.RALLY.value
+    goal_set_tick: int = 0
+    centre: list | None = None
+    influence_radius: int = 0
 
     def add(self, entity: Entity) -> None:
         if entity not in self.members:

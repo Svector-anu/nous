@@ -124,7 +124,7 @@ def test_leaders_publish_a_rally_point():
     world = simulation.world
     board = world.get(world.query(Blackboard)[0], Blackboard)
 
-    rallies = [k for k in board.entries if k.endswith("_rally")]
+    rallies = [k for k in board.entries if k.endswith(":rally")]
     assert rallies, "no clan ever published a rally point"
     for key in rallies:
         rally = board.read(key)

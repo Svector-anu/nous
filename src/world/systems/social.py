@@ -14,11 +14,16 @@ from ..components import (
     Agent,
     AgentState,
     Clan,
+    ClanGoal,
     ClanRef,
+    Inventory,
     MessageType,
+    Needs,
     Position,
     ResourceKind,
     ResourceNode,
+    clan_centre_key,
+    clan_goal_key,
     clan_rally_key,
 )
 from ..ecs import Entity, World
@@ -83,6 +88,133 @@ def _record_sightings(world: World) -> None:
     for kind, key in _LOCATION_KEYS.items():
         if seen[kind]:
             current.write(key, seen[kind], reporter[kind], world.tick)
+
+
+def _update_influence(world: World) -> None:
+    """A clan's centre is the mean position of its living members, recomputed each tick.
+
+    No smoothing buffer: members already sit ~1.4 tiles from their centre, so the
+    instantaneous mean is stable, and holding no history keeps save/load exact.
+    Influence is a soft radius that grows with membership — read-only, no exclusion.
+    """
+    config = world.config
+    current = board(world)
+
+    for entity in world.query(Clan):
+        clan = world.get(entity, Clan)
+        points = [
+            world.get(member, Position)
+            for member in clan.members
+            if world.is_alive(member) and world.has(member, Position)
+        ]
+        if not points:
+            clan.centre = None
+            clan.influence_radius = 0
+            continue
+
+        clan.centre = [
+            round(sum(p.x for p in points) / len(points)),
+            round(sum(p.y for p in points) / len(points)),
+        ]
+        clan.influence_radius = (
+            config.influence_base_radius + config.influence_per_member * len(points)
+        )
+        if current is not None:
+            current.write(
+                clan_centre_key(clan.clan_id),
+                [clan.centre[0], clan.centre[1], clan.influence_radius],
+                clan.leader if clan.leader is not None else clan.members[0],
+                world.tick,
+            )
+
+
+def influence_at(clan: Clan, x: int, y: int) -> float:
+    """1.0 at the centre, falling to 0 at the edge of the radius. Soft by design."""
+    if clan.centre is None or clan.influence_radius <= 0:
+        return 0.0
+    distance = max(abs(x - clan.centre[0]), abs(y - clan.centre[1]))
+    if distance >= clan.influence_radius:
+        return 0.0
+    return 1.0 - distance / clan.influence_radius
+
+
+def _clan_food_ratio(world: World, clan: Clan) -> float:
+    capacity = world.config.carry_capacity
+    held, count = 0, 0
+    for member in clan.members:
+        inventory = world.try_get(member, Inventory)
+        if inventory is not None:
+            held += inventory.food
+            count += 1
+    return held / (count * capacity) if count else 1.0
+
+
+def _clan_huts(world: World, clan: Clan) -> int:
+    return sum(
+        world.get(member, Agent).huts_owned
+        for member in clan.members
+        if world.is_alive(member) and world.has(member, Agent)
+    )
+
+
+def _mean_hunger(world: World, clan: Clan) -> float:
+    values = [
+        world.get(m, Needs).hunger
+        for m in clan.members
+        if world.is_alive(m) and world.has(m, Needs)
+    ]
+    return sum(values) / len(values) if values else world.config.need_max
+
+
+def _choose_goal(world: World, clan: Clan) -> ClanGoal:
+    """Deliberately dumb and readable: needs first, then growth, then cohesion.
+
+    Expansion retires on its own. Once every member holds `max_huts_per_agent` huts the
+    hut signal can never fire again, so expand and gather_wood are early-life goals and
+    mature clans alternate between feeding themselves and staying together.
+    """
+    config = world.config
+
+    if (
+        _clan_food_ratio(world, clan) < config.clan_low_food_ratio
+        or _mean_hunger(world, clan) < config.clan_hungry_threshold
+    ):
+        return ClanGoal.GATHER_FOOD
+
+    wanted_huts = len(clan.members) * config.huts_per_member_target
+    if _clan_huts(world, clan) < wanted_huts:
+        held_wood = sum(
+            world.get(m, Inventory).wood
+            for m in clan.members
+            if world.is_alive(m) and world.has(m, Inventory)
+        )
+        needed = config.wood_per_hut * max(1, len(clan.members) // 2)
+        return ClanGoal.EXPAND if held_wood >= needed else ClanGoal.GATHER_WOOD
+
+    return ClanGoal.RALLY
+
+
+def _set_goals(world: World) -> None:
+    current = board(world)
+    if current is None:
+        return
+
+    for entity in world.query(Clan):
+        clan = world.get(entity, Clan)
+        if not clan.members:
+            continue
+
+        due = world.tick - clan.goal_set_tick >= world.config.goal_review_ticks
+        if due or clan.goal_set_tick == 0:
+            clan.goal = _choose_goal(world, clan).value
+            clan.goal_set_tick = world.tick
+
+        current.write(
+            clan_goal_key(clan.clan_id),
+            clan.goal,
+            clan.leader if clan.leader is not None else clan.members[0],
+            world.tick,
+        )
 
 
 def _next_clan_id(world: World) -> int:
@@ -189,4 +321,6 @@ def run(world: World, rng: TickRng) -> None:
     _prune(world)
     _record_sightings(world)
     _form_clans(world, rng)
+    _update_influence(world)
+    _set_goals(world)
     _leader_duties(world)

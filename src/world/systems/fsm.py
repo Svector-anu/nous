@@ -13,12 +13,15 @@ from ..components import (
     Agent,
     AgentState,
     Building,
+    ClanGoal,
     ClanRef,
     Inventory,
     Needs,
     Position,
     ResourceKind,
     ResourceNode,
+    clan_centre_key,
+    clan_goal_key,
     clan_rally_key,
 )
 from ..config import WorldConfig
@@ -97,6 +100,40 @@ def _blackboard_hint(
         x, y = int(coordinate[0]), int(coordinate[1])
         if (x, y) != (origin.x, origin.y) and _live_node_at(world, x, y, kind):
             return x, y
+    return None
+
+
+def _clan_goal(world: World, entity: Entity) -> str | None:
+    reference = world.try_get(entity, ClanRef)
+    if reference is None or reference.clan_id is None:
+        return None
+    current = board(world)
+    if current is None:
+        return None
+    goal = current.read(clan_goal_key(reference.clan_id))
+    return goal if isinstance(goal, str) else None
+
+
+def _goal_preference(goal: str | None) -> ResourceKind | None:
+    """Which resource the clan's current goal pulls a member toward."""
+    if goal == ClanGoal.GATHER_FOOD.value:
+        return ResourceKind.FOOD
+    if goal in (ClanGoal.GATHER_WOOD.value, ClanGoal.EXPAND.value):
+        return ResourceKind.WOOD
+    return None
+
+
+def _clan_centre(world: World, entity: Entity) -> tuple[int, int, int] | None:
+    """(x, y, influence_radius) of the agent's clan, or None."""
+    reference = world.try_get(entity, ClanRef)
+    if reference is None or reference.clan_id is None:
+        return None
+    current = board(world)
+    if current is None:
+        return None
+    centre = current.read(clan_centre_key(reference.clan_id))
+    if isinstance(centre, list) and len(centre) == 3:
+        return int(centre[0]), int(centre[1]), int(centre[2])
     return None
 
 
@@ -205,7 +242,9 @@ def _gather(world: World, entity: Entity, agent: Agent, world_has_room: bool) ->
         agent.clear_target()
 
 
-def _decide_from_idle(world: World, entity: Entity, agent: Agent, world_has_room: bool) -> None:
+def _decide_from_idle(
+    world: World, entity: Entity, agent: Agent, world_has_room: bool, rng: TickRng
+) -> None:
     config = world.config
     needs = world.get(entity, Needs)
     inventory = world.get(entity, Inventory)
@@ -229,10 +268,47 @@ def _decide_from_idle(world: World, entity: Entity, agent: Agent, world_has_room
         agent.state = AgentState.SEEK_NEED
         return
 
+    goal = _clan_goal(world, entity)
+
     if inventory.wood >= config.wood_per_hut and may_build:
+        # An expanding clan builds inside its own influence. Members almost always
+        # already are — they sit ~1.4 tiles from the centre — so this walk is rare,
+        # and it is what stops a clan's huts from scattering across the map.
+        if goal == ClanGoal.EXPAND.value and needs.energy >= config.social_energy_floor:
+            home = _clan_centre(world, entity)
+            position = world.get(entity, Position)
+            if home is not None and _chebyshev(position, home[:2]) > home[2]:
+                agent.clear_target()
+                agent.target_x, agent.target_y = home[0], home[1]
+                agent.state = AgentState.FOLLOW
+                return
         agent.state = AgentState.BUILD
         agent.clear_target()
         return
+
+    # Everything above this line is survival or a standing commitment and is never
+    # overridden. From here down the choice is discretionary, which is the only place
+    # a clan goal gets to lean on it — as a bias, decided by rng, not a command.
+    if goal == ClanGoal.RALLY.value and not is_starving(needs) and needs.energy >= config.social_energy_floor:
+        rally = _rally_point(world, entity)
+        position = world.get(entity, Position)
+        if rally is not None and _chebyshev(position, rally) > config.rally_arrival_radius:
+            if rng.chance(config.goal_bias_chance):
+                agent.clear_target()
+                agent.target_x, agent.target_y = rally
+                agent.state = AgentState.FOLLOW
+                return
+
+    preferred = _goal_preference(goal)
+    if preferred is not None and rng.chance(config.goal_bias_chance):
+        if preferred is ResourceKind.FOOD and room_for_food:
+            agent.wants = ResourceKind.FOOD
+            agent.state = AgentState.SEEK_NEED
+            return
+        if preferred is ResourceKind.WOOD and room_for_wood:
+            agent.wants = ResourceKind.WOOD
+            agent.state = AgentState.SEEK_NEED
+            return
 
     # Only forage what there is room to carry. Sending a full agent after more of the
     # same resource makes it walk to a node, get refused, and return here every tick.
@@ -280,7 +356,7 @@ def run(world: World, rng: TickRng) -> None:
         agent = world.get(entity, Agent)
 
         if agent.state is AgentState.IDLE:
-            _decide_from_idle(world, entity, agent, world_has_room)
+            _decide_from_idle(world, entity, agent, world_has_room, rng)
         elif agent.state is AgentState.SEEK_NEED:
             _seek(world, entity, agent, rng)
         elif agent.state is AgentState.GATHER:

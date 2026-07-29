@@ -54,6 +54,17 @@ class WorldConfig:
     surplus_reserve: int = 2
     request_cooldown_ticks: int = 40
 
+    goal_review_ticks: int = 120
+    goal_bias_chance: float = 0.6
+    influence_base_radius: int = 4
+    influence_per_member: int = 1
+    # Thresholds picked from measured steady-state spread, not guessed: clan food ratio
+    # runs 0.38-1.00 (median 0.93) and mean hunger 22-49 (median 40), so these actually
+    # split the population instead of never firing.
+    clan_low_food_ratio: float = 0.85
+    clan_hungry_threshold: int = 35
+    huts_per_member_target: float = 3.0
+
     def build_ceiling(self) -> int:
         """Hard cap on total buildings. Truncated so the last permitted placement
         still lands at or under the fraction, never one past it."""

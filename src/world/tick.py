@@ -180,6 +180,9 @@ class Simulation:
                     "id": clan.clan_id,
                     "leader": clan.leader,
                     "size": len(clan.members),
+                    "goal": clan.goal,
+                    "centre": clan.centre,
+                    "influence": clan.influence_radius,
                 }
             )
 
