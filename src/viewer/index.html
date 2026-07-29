@@ -179,6 +179,20 @@
     </ul>
   </aside>
 
+<script>
+// Classic, so it runs before the deferred module below. A module that throws while
+// loading leaves the page dark and status frozen on "connecting" with nothing in the
+// ui to say why — that cost a debugging session once already.
+window.addEventListener("error", (event) => {
+  const status = document.getElementById("status");
+  if (!status || status.dataset.failed) return;
+  status.dataset.failed = "1";
+  status.style.color = "#f85149";
+  status.textContent = "viewer script failed — see console";
+  console.error("viewer failed to start:", event.message || event.error, event.filename || "");
+}, true);
+</script>
+
 <script type="module">
 import { FocusView, densestCluster } from "/static/focus3d.js";
 

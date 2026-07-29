@@ -27,7 +27,9 @@ cluster — and nothing outside it is ever meshed. ~700 meshes in focus against 
 the whole world.
 
 - `src/viewer/focus3d.js` — the view, the materials, hand-rolled orbit/pan/zoom
-- `src/viewer/vendor/three.module.min.js` — vendored, because the reference is offline-only
+- `src/viewer/vendor/three.module.min.js` — vendored, because the reference is offline-only.
+  it imports a sibling `three.core.min.js`; r150+ splits the build, so **both** files are
+  needed. vendoring only the entry point resolves to a 404 and the whole viewer goes dark
 - backend cost: one field (`owner` on buildings). the overlay reads the existing per-tick
   snapshot, so it is live with no new endpoint
 
