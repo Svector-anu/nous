@@ -41,6 +41,15 @@ class WorldConfig:
     max_huts_per_agent: int = 3
     global_build_stop_fraction: float = 0.6
 
+    blackboard_ttl_ticks: int = 300
+    blackboard_max_locations: int = 8
+    inbox_capacity: int = 16
+    clan_form_radius: int = 3
+    clan_form_chance: float = 0.25
+    max_clan_size: int = 8
+    rally_arrival_radius: int = 2
+    social_energy_floor: int = 60
+
     def build_ceiling(self) -> int:
         """Hard cap on total buildings. Truncated so the last permitted placement
         still lands at or under the fraction, never one past it."""

@@ -36,6 +36,43 @@ def test_rng_below_stays_in_range():
     assert all(0 <= rng.below(10) < 10 for _ in range(500))
 
 
+def test_social_state_survives_a_reload(tmp_path):
+    """Clans, blackboard entries and in-flight mail must all round-trip.
+
+    Both bugs this caught were ordering, not content: json sort_keys reordered nested
+    dicts so a reloaded world iterated messages and board keys differently.
+    """
+    from src.world.components import Blackboard, Clan
+    from src.world.config import WorldConfig
+
+    config = WorldConfig(seed=3, grid_width=32, grid_height=32, agent_count=30, resource_count=90)
+    store = SqliteWorldStore(tmp_path / "social.db")
+    simulation = Simulation(create_world(config), store=store)
+    simulation.run(400)
+
+    live = simulation.world
+    live_clans = {world_clan.clan_id: sorted(world_clan.members)
+                  for world_clan in (live.get(e, Clan) for e in live.query(Clan))}
+    live_board = dict(live.get(live.query(Blackboard)[0], Blackboard).entries)
+    assert live_clans, "no clans to round-trip"
+    assert live_board, "no blackboard entries to round-trip"
+
+    store.save(live)
+    store.close()
+
+    reopened = SqliteWorldStore(tmp_path / "social.db")
+    loaded = reopened.load()
+    reopened.close()
+
+    loaded_clans = {c.clan_id: sorted(c.members)
+                    for c in (loaded.get(e, Clan) for e in loaded.query(Clan))}
+    loaded_board = loaded.get(loaded.query(Blackboard)[0], Blackboard).entries
+
+    assert loaded_clans == live_clans
+    assert loaded_board == live_board
+    assert list(loaded_board) == list(live_board), "board key order changed across reload"
+
+
 def test_save_and_reload_continues_identically(tmp_path):
     uninterrupted = _run(120)
 

@@ -27,6 +27,10 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.Agent,
     component_module.ResourceNode,
     component_module.Building,
+    component_module.Blackboard,
+    component_module.Inbox,
+    component_module.Outbox,
+    component_module.Clan,
 )
 
 _BY_NAME = {component_type.__name__: component_type for component_type in COMPONENT_TYPES}
@@ -72,7 +76,11 @@ def _encode(component: object) -> str:
     for key, value in payload.items():
         if isinstance(value, Enum):
             payload[key] = value.value
-    return json.dumps(payload, sort_keys=True)
+    # Deliberately not sort_keys: a save must round-trip to the *same* iteration order,
+    # not merely the same content. Sorting here would reorder nested dicts (message
+    # envelopes, blackboard entries) so a reloaded world iterated them differently from
+    # a live one. The output is stable regardless, because the simulation is.
+    return json.dumps(payload)
 
 
 def _decode(kind: str, data: str) -> object:

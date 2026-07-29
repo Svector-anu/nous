@@ -16,7 +16,16 @@ def _simulate(ticks: int) -> Simulation:
 
 
 def test_systems_run_in_the_documented_order():
-    assert build_registry().names() == ["needs", "fsm", "movement", "build", "regrowth"]
+    assert build_registry().names() == [
+        "messaging",
+        "needs",
+        "fsm",
+        "movement",
+        "build",
+        "regrowth",
+        "social",
+        "blackboard",
+    ]
 
 
 def test_world_starts_populated():
@@ -71,6 +80,6 @@ def test_snapshot_shape():
     assert snapshot["tick"] == 10
     assert snapshot["grid"] == {"width": 32, "height": 32}
     assert set(snapshot["agents"][0]) == {
-        "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood",
+        "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}

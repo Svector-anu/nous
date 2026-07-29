@@ -1,8 +1,8 @@
 # neo-civilization
 
-a persistent, tick-based ai agent civilization sim. this repo is at **phase 0**: a
-deterministic world of fsm-driven agents that gather, build, eat and starve, streamed
-live to a browser.
+a persistent, tick-based ai agent civilization sim. this repo is at **phase 1**: a
+deterministic world of fsm-driven agents that gather, build, eat, starve, form clans and
+talk to each other — streamed live to a browser.
 
 no llm calls anywhere yet — that's phase 3, and only for leaders. phase 0 is pure state
 machines, which is the whole point: a world that runs 24/7 for $0.
@@ -25,8 +25,11 @@ grow back. one tick per second, full snapshot pushed over `/ws` every tick.
 state lands in `data/world.db` every 50 ticks and on clean shutdown. kill the process,
 start it again, it picks up exactly where it left off. delete the db for a new world.
 
+agents are coloured by clan by default; the button in the sidebar flips them back to fsm
+state colouring.
+
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 46 tests, ~20s
+.venv/bin/python -m pytest tests/ -q      # 80 tests, ~46s
 ```
 
 ## layout
@@ -40,7 +43,8 @@ src/
     components.py            Position, Needs, Inventory, ClanRef, Agent, ResourceNode, Building
     config.py                every tunable in one frozen dataclass
     rng.py                   deterministic rng
-    systems/                 needs -> fsm -> movement -> build -> regrowth, in that order
+    systems/                 messaging -> needs -> fsm -> movement -> build
+                             -> regrowth -> social -> blackboard, in that order
   persistence/sqlite_store.py
   api/server.py              fastapi + websocket
   viewer/index.html          canvas viewer, no build step, no npm, no react
@@ -159,6 +163,52 @@ food blackout isn't survivable at all any more — `test_total_famine_is_lethal`
 one cosmetic leftover: an agent that's built its three huts keeps whatever wood it was
 holding, because it has no use for it and no reason to gather more. there's no drop
 action in phase 0.
+
+## what phase 1 adds
+
+society. three channels, all with the same one-tick propagation lag — nothing an agent
+learns is available in the tick it was said.
+
+**blackboard.** a global key-value store on a single world entity. every entry carries
+the writer and the tick it landed, and the `blackboard` system drops anything older than
+`blackboard_ttl_ticks` (300). gatherers publish `food_locations` / `wood_locations`;
+leaders publish `clan_<id>_rally`. keys are kept sorted so a live world and a reloaded
+one iterate identically.
+
+**messaging.** `Outbox` drains into recipients' `Inbox` at the top of the next tick.
+envelope is exactly `{"from", "to", "type", "content"}` with `to` being an agent id,
+`"clan"`, or `"all"`, and `type` one of info/request/offer/alert. inboxes are capped at
+`inbox_capacity` and cleared each tick.
+
+**clans.** two idle unaffiliated agents within `clan_form_radius` found a clan at
+`clan_form_chance` per tick, capped at `max_clan_size` (8). a clan is its own entity;
+membership is mirrored on `ClanRef`. the founder leads, and leadership falls to the
+lowest surviving id when a leader dies. empty clans are cleaned up.
+
+**how agents use it.** `_seek` consults the board only when nothing is in vision —
+replacing a blind random wander with an informed one, so phase 0 foraging is untouched
+whenever food is actually nearby. hints are validated against live nodes at read time, so
+a sighting of a since-foraged tile is skipped rather than walked to. idle, well-provisioned,
+well-rested agents enter `FOLLOW` and drift to their clan's meeting point.
+
+measured at tick 40000 on the default world: 21 clans, largest at the cap of 8, ~77
+messages delivered per tick, and clan members sitting a mean **1.4 tiles** from their
+clan's centre where scattering would put them ~24 apart.
+
+### the cost of sociality
+
+phase 1 lowers the carrying capacity from 120 agents to ~98. socialising burns ticks and
+energy that would otherwise go into foraging, so the land supports fewer of them. the
+population stabilises — 100 at tick 10000, 100 at 20000, 98 at 40000 — it does not
+spiral. `social_energy_floor` (60) is the dial: an agent only socialises well clear of
+the threshold where it would rather rest.
+
+this was much worse before. the first design had leaders publish *the best known food
+node* as the rally point, which sent all eight members onto one tile to strip it and
+starve together — a 120 → 45 collapse, isolated by running clans-without-rally (118) and
+no-social-at-all (120) side by side. the rally is now a meeting point at the leader's own
+position. resource sharing still happens, but through `food_locations`, which spreads
+agents across many nodes instead of funnelling them onto one.
 
 ### no births
 

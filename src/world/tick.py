@@ -7,10 +7,14 @@ from typing import Protocol
 
 from .components import (
     Agent,
+    Blackboard,
     Building,
+    Clan,
     ClanRef,
+    Inbox,
     Inventory,
     Needs,
+    Outbox,
     Position,
     ResourceKind,
     ResourceNode,
@@ -18,7 +22,7 @@ from .components import (
 from .config import TICKS_PER_DAY, WorldConfig
 from .ecs import SystemRegistry, World
 from .rng import TickRng
-from .systems import build, fsm, movement, needs, regrowth
+from .systems import blackboard, build, fsm, messaging, movement, needs, regrowth, social
 
 _NAME_PREFIXES = ("Ka", "Mor", "Tel", "Ash", "Rin", "Vos", "Dor", "Ely", "Bran", "Sev")
 _NAME_SUFFIXES = ("ra", "nix", "wyn", "dor", "sha", "lek", "mir", "tas", "ven", "oth")
@@ -29,12 +33,18 @@ class WorldStore(Protocol):
 
 
 def build_registry() -> SystemRegistry:
+    """Messaging first so the fsm sees last tick's mail; social and blackboard last so
+    what they publish is read on the next tick. Every social channel has the same
+    one-tick lag."""
     registry = SystemRegistry()
+    registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
     registry.register("fsm", fsm.run)
     registry.register("movement", movement.run)
     registry.register("build", build.run)
     registry.register("regrowth", regrowth.run)
+    registry.register("social", social.run)
+    registry.register("blackboard", blackboard.run)
     return registry
 
 
@@ -48,6 +58,8 @@ def create_world(config: WorldConfig) -> World:
     """Populate a fresh world. Identical for identical seeds."""
     world = World(config)
     rng = TickRng(config.seed, 0, "genesis")
+
+    world.add(world.create_entity(), Blackboard())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()
@@ -78,6 +90,8 @@ def create_world(config: WorldConfig) -> World:
         )
         world.add(entity, Inventory())
         world.add(entity, ClanRef())
+        world.add(entity, Inbox())
+        world.add(entity, Outbox())
         world.add(entity, Agent(name=_agent_name(rng, index)))
 
     return world
@@ -131,6 +145,7 @@ class Simulation:
             position = world.get(entity, Position)
             agent_needs = world.get(entity, Needs)
             inventory = world.get(entity, Inventory)
+            reference = world.try_get(entity, ClanRef)
             agents.append(
                 {
                     "id": entity,
@@ -142,6 +157,18 @@ class Simulation:
                     "hunger": agent_needs.hunger,
                     "food": inventory.food,
                     "wood": inventory.wood,
+                    "clan": reference.clan_id if reference is not None else None,
+                }
+            )
+
+        clans = []
+        for entity in world.query(Clan):
+            clan = world.get(entity, Clan)
+            clans.append(
+                {
+                    "id": clan.clan_id,
+                    "leader": clan.leader,
+                    "size": len(clan.members),
                 }
             )
 
@@ -178,10 +205,13 @@ class Simulation:
             "agents": agents,
             "resources": resources,
             "buildings": buildings,
+            "clans": clans,
             "stats": {
                 "agents": len(agents),
                 "resources": len(resources) - dormant,
                 "dormant": dormant,
                 "buildings": len(buildings),
+                "clans": len(clans),
+                "clanned": sum(1 for a in agents if a["clan"] is not None),
             },
         }

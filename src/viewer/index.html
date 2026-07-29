@@ -40,6 +40,18 @@
   .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
   #status { color: var(--muted); }
   #status.live { color: #3fb950; }
+  button {
+    width: 100%;
+    margin-bottom: 16px;
+    padding: 6px 8px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
 </style>
 </head>
 <body>
@@ -54,8 +66,11 @@
       <dt>resources</dt><dd id="resources">—</dd>
       <dt>dormant</dt><dd id="dormant">—</dd>
       <dt>huts</dt><dd id="buildings">—</dd>
+      <dt>clans</dt><dd id="clans">—</dd>
+      <dt>in a clan</dt><dd id="clanned">—</dd>
     </dl>
-    <h2>Agent state</h2>
+    <button id="mode">colour: clan</button>
+    <h2 id="legend-title">clans</h2>
     <ul id="legend"></ul>
     <h2>World</h2>
     <ul>
@@ -80,12 +95,57 @@ const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
 
+const CLANLESS = "#484f58";
 const legend = document.getElementById("legend");
-for (const [state, color] of Object.entries(STATE_COLORS)) {
+const legendTitle = document.getElementById("legend-title");
+const modeButton = document.getElementById("mode");
+
+let colourBy = "clan";
+let lastSnapshot = null;
+
+// Golden-angle hue steps keep adjacent clan ids visually far apart.
+function clanColour(id) {
+  if (id === null || id === undefined) return CLANLESS;
+  return `hsl(${(id * 137.508) % 360} 70% 60%)`;
+}
+
+function agentColour(agent) {
+  return colourBy === "clan"
+    ? clanColour(agent.clan)
+    : (STATE_COLORS[agent.state] || "#ffffff");
+}
+
+function renderLegend(snapshot) {
+  legend.innerHTML = "";
+  if (colourBy === "state") {
+    legendTitle.textContent = "agent state";
+    for (const [state, color] of Object.entries(STATE_COLORS)) {
+      const item = document.createElement("li");
+      item.innerHTML = `<span class="swatch" style="background:${color}"></span>${state}`;
+      legend.appendChild(item);
+    }
+    return;
+  }
+
+  legendTitle.textContent = "clans";
+  const clans = (snapshot ? snapshot.clans : []).slice().sort((a, b) => b.size - a.size);
+  for (const clan of clans.slice(0, 10)) {
+    const item = document.createElement("li");
+    item.innerHTML =
+      `<span class="swatch" style="background:${clanColour(clan.id)}"></span>` +
+      `clan ${clan.id} · ${clan.size}`;
+    legend.appendChild(item);
+  }
   const item = document.createElement("li");
-  item.innerHTML = `<span class="swatch" style="background:${color}"></span>${state}`;
+  item.innerHTML = `<span class="swatch" style="background:${CLANLESS}"></span>unaffiliated`;
   legend.appendChild(item);
 }
+
+modeButton.addEventListener("click", () => {
+  colourBy = colourBy === "clan" ? "state" : "clan";
+  modeButton.textContent = `colour: ${colourBy}`;
+  if (lastSnapshot) draw(lastSnapshot);
+});
 
 function setText(id, value) {
   document.getElementById(id).textContent = value;
@@ -130,7 +190,7 @@ function draw(snapshot) {
 
   const radius = Math.max(1.5, cell * 0.4);
   for (const agent of snapshot.agents) {
-    ctx.fillStyle = STATE_COLORS[agent.state] || "#ffffff";
+    ctx.fillStyle = agentColour(agent);
     ctx.beginPath();
     ctx.arc(
       originX + agent.x * cell + cell / 2,
@@ -146,6 +206,11 @@ function draw(snapshot) {
   setText("resources", snapshot.stats.resources);
   setText("dormant", snapshot.stats.dormant);
   setText("buildings", snapshot.stats.buildings);
+  setText("clans", snapshot.stats.clans);
+  setText("clanned", snapshot.stats.clanned);
+
+  lastSnapshot = snapshot;
+  renderLegend(snapshot);
 }
 
 let socket = null;

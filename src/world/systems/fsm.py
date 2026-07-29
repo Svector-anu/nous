@@ -8,18 +8,23 @@ hostiles; the state exists so combat in Phase 1 has somewhere to transition to.
 from __future__ import annotations
 
 from ..components import (
+    KEY_FOOD_LOCATIONS,
+    KEY_WOOD_LOCATIONS,
     Agent,
     AgentState,
     Building,
+    ClanRef,
     Inventory,
     Needs,
     Position,
     ResourceKind,
     ResourceNode,
+    clan_rally_key,
 )
 from ..config import WorldConfig
 from ..ecs import Entity, World
 from ..rng import TickRng
+from .blackboard import board
 from .needs import is_starving
 
 _RESTED_FRACTION = 0.9
@@ -55,6 +60,59 @@ def _nearest_resource(
     return best_entity
 
 
+def _chebyshev(position: Position, target: tuple[int, int]) -> int:
+    return max(abs(position.x - target[0]), abs(position.y - target[1]))
+
+
+def _live_node_at(world: World, x: int, y: int, kind: ResourceKind) -> bool:
+    for entity in world.query(ResourceNode, Position):
+        node = world.get(entity, ResourceNode)
+        if node.kind is not kind or node.is_dormant:
+            continue
+        position = world.get(entity, Position)
+        if position.x == x and position.y == y:
+            return True
+    return False
+
+
+def _blackboard_hint(
+    world: World, origin: Position, kind: ResourceKind
+) -> tuple[int, int] | None:
+    """Nearest reported location of `kind` that still has something in the ground."""
+    current = board(world)
+    if current is None:
+        return None
+
+    reported = current.read(
+        KEY_FOOD_LOCATIONS if kind is ResourceKind.FOOD else KEY_WOOD_LOCATIONS
+    )
+    if not isinstance(reported, list) or not reported:
+        return None
+
+    ordered = sorted(
+        reported,
+        key=lambda c: (c[0] - origin.x) ** 2 + (c[1] - origin.y) ** 2,
+    )
+    for coordinate in ordered:
+        x, y = int(coordinate[0]), int(coordinate[1])
+        if (x, y) != (origin.x, origin.y) and _live_node_at(world, x, y, kind):
+            return x, y
+    return None
+
+
+def _rally_point(world: World, entity: Entity) -> tuple[int, int] | None:
+    reference = world.try_get(entity, ClanRef)
+    if reference is None or reference.clan_id is None:
+        return None
+    current = board(world)
+    if current is None:
+        return None
+    rally = current.read(clan_rally_key(reference.clan_id))
+    if isinstance(rally, list) and len(rally) == 2:
+        return int(rally[0]), int(rally[1])
+    return None
+
+
 def _seek(world: World, entity: Entity, agent: Agent, rng: TickRng) -> None:
     config = world.config
     position = world.get(entity, Position)
@@ -76,6 +134,15 @@ def _seek(world: World, entity: Entity, agent: Agent, rng: TickRng) -> None:
             target = _nearest_resource(world, position, fallback, config.vision_radius)
             if target is not None:
                 agent.wants = fallback
+
+        # Nothing in sight. Before wandering blind, check what the clan has written
+        # down. Hints are validated against live nodes at read time, so a sighting of
+        # a since-foraged tile is ignored rather than walked to.
+        if target is None:
+            hint = _blackboard_hint(world, position, agent.wants)
+            if hint is not None:
+                agent.target_x, agent.target_y = hint
+                return
 
         if target is None:
             if agent.target_x is None or agent.target_y is None:
@@ -184,7 +251,19 @@ def _decide_from_idle(world: World, entity: Entity, agent: Agent, world_has_room
         agent.state = AgentState.SEEK_NEED
         return
 
-    # Fully stocked with everything it can use: bank energy instead of pacing.
+    # Nothing left to forage. If the clan has named a meeting point and this agent is
+    # both well rested and not standing at it already, go join the others.
+    # Socialising is strictly a surplus activity: walking costs energy and returns none,
+    # so an agent only does it well clear of the threshold where it would rather rest.
+    if not is_starving(needs) and needs.energy >= config.social_energy_floor:
+        rally = _rally_point(world, entity)
+        position = world.get(entity, Position)
+        if rally is not None and _chebyshev(position, rally) > config.rally_arrival_radius:
+            agent.clear_target()
+            agent.target_x, agent.target_y = rally
+            agent.state = AgentState.FOLLOW
+            return
+
     agent.clear_target()
     agent.state = AgentState.REST if not is_starving(needs) else AgentState.SEEK_NEED
 
@@ -209,6 +288,14 @@ def run(world: World, rng: TickRng) -> None:
         elif agent.state is AgentState.REST:
             if world.get(entity, Needs).energy >= rested_energy:
                 agent.state = AgentState.IDLE
+        elif agent.state is AgentState.FOLLOW:
+            rally = _rally_point(world, entity)
+            position = world.get(entity, Position)
+            if rally is None or _chebyshev(position, rally) <= config.rally_arrival_radius:
+                agent.state = AgentState.IDLE
+                agent.clear_target()
+            else:
+                agent.target_x, agent.target_y = rally
         elif agent.state is AgentState.FLEE:
             agent.state = AgentState.IDLE
             agent.clear_target()

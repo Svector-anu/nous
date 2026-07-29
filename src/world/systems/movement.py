@@ -1,6 +1,7 @@
 """One grid step per tick toward the agent's target.
 
-Only seeking agents move. Gathering, building and resting hold position.
+Seeking agents move toward resources; following agents move toward their clan's rally
+point. Gathering, building and resting hold position.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ def run(world: World, rng: TickRng) -> None:
 
     for entity in world.query(Agent, Position):
         agent = world.get(entity, Agent)
-        if agent.state is not AgentState.SEEK_NEED:
+        if agent.state not in (AgentState.SEEK_NEED, AgentState.FOLLOW):
             continue
 
         position = world.get(entity, Position)
