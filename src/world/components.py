@@ -21,6 +21,7 @@ class AgentState(str, Enum):
     REST = "REST"
     FLEE = "FLEE"
     FOLLOW = "FOLLOW"
+    MEET = "MEET"
 
 
 class MessageType(str, Enum):
@@ -77,6 +78,8 @@ class Agent:
     gather_progress: int = 0
     wants: ResourceKind = ResourceKind.FOOD
     huts_owned: int = 0
+    last_request_tick: int = -1
+    received: int = 0
 
     def clear_target(self) -> None:
         self.target_entity = None
@@ -173,6 +176,7 @@ class Clan:
     clan_id: int
     leader: Entity | None = None
     members: list[Entity] = field(default_factory=list)
+    last_rally: list | None = None
 
     def add(self, entity: Entity) -> None:
         if entity not in self.members:

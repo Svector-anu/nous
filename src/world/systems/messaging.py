@@ -5,6 +5,9 @@ Inboxes now. That one-tick lag is deliberate — it is the same delay the blackb
 so all social information travels at one speed and no agent can react to something in
 the same tick it was said.
 
+Delivered mail persists until the recipient consumes it. Only `inbox_capacity` evicts,
+oldest first.
+
 Envelope, exactly as specified:
 
     {"from": agent_id, "to": agent_id | "clan" | "all",
@@ -75,10 +78,14 @@ def _deliver(inbox: Inbox, message: dict, capacity: int) -> None:
 
 
 def run(world: World, rng: TickRng) -> None:
-    capacity = world.config.inbox_capacity
+    """Deliver, never clear.
 
-    for entity in world.query(Inbox):
-        world.get(entity, Inbox).messages.clear()
+    Mail sits in the inbox until an agent explicitly consumes it, so a message that
+    arrives while its recipient is mid-gather is still there when the agent is free.
+    The capacity bound is the only thing that removes an unread message, dropping the
+    oldest first.
+    """
+    capacity = world.config.inbox_capacity
 
     for sender in world.query(Outbox):
         outbox = world.get(sender, Outbox)

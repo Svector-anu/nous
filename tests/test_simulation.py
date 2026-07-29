@@ -19,6 +19,7 @@ def test_systems_run_in_the_documented_order():
     assert build_registry().names() == [
         "messaging",
         "needs",
+        "trade",
         "fsm",
         "movement",
         "build",

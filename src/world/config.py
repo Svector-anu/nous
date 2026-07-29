@@ -50,6 +50,10 @@ class WorldConfig:
     rally_arrival_radius: int = 2
     social_energy_floor: int = 60
 
+    transfer_radius: int = 2
+    surplus_reserve: int = 2
+    request_cooldown_ticks: int = 40
+
     def build_ceiling(self) -> int:
         """Hard cap on total buildings. Truncated so the last permitted placement
         still lands at or under the fraction, never one past it."""

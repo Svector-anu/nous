@@ -296,6 +296,15 @@ def run(world: World, rng: TickRng) -> None:
                 agent.clear_target()
             else:
                 agent.target_x, agent.target_y = rally
+        elif agent.state is AgentState.MEET:
+            # Arrived at the donor, or the trip stopped making sense. Either way go
+            # idle: if still hungry the agent re-asks, and the donor is adjacent now.
+            position = world.get(entity, Position)
+            target = (agent.target_x, agent.target_y)
+            arrived = target[0] is None or _chebyshev(position, (target[0], target[1])) <= config.transfer_radius
+            if arrived or world.get(entity, Inventory).food >= config.carry_capacity:
+                agent.state = AgentState.IDLE
+                agent.clear_target()
         elif agent.state is AgentState.FLEE:
             agent.state = AgentState.IDLE
             agent.clear_target()

@@ -31,6 +31,11 @@ def _already_addressing(agent: Agent, needs: Needs, config: WorldConfig) -> bool
     if needs.energy < config.need_threshold and not is_starving(needs):
         return agent.state is AgentState.REST
     if needs.hunger < config.need_threshold:
+        # MEET counts: the agent is walking to a clanmate who offered food, which is a
+        # perfectly good answer to being hungry. Without this a starving agent is
+        # yanked off the collection trip every tick and never arrives.
+        if agent.state is AgentState.MEET:
+            return True
         return (
             agent.state in (AgentState.SEEK_NEED, AgentState.GATHER)
             and agent.wants is ResourceKind.FOOD

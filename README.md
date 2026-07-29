@@ -195,6 +195,33 @@ measured at tick 40000 on the default world: 21 clans, largest at the cap of 8, 
 messages delivered per tick, and clan members sitting a mean **1.4 tiles** from their
 clan's centre where scattering would put them ~24 apart.
 
+### trade
+
+agents read their mail and act on it. inboxes **persist until consumed** — a message
+arriving while its recipient is mid-gather is still there when the agent is free — and
+only `inbox_capacity` evicts, oldest first. `info` is always consumed so rally chatter can
+never push a real request out of a full inbox; leaders now also only announce a rally that
+actually moved.
+
+`transfer(world, donor, receiver, kind, amount)` is the underlying verb. it is bounded on
+both sides — never more than the donor holds, never past the receiver's `carry_capacity` —
+and conserves total world resource. adjacency is `transfer_radius` (2).
+
+the protocol is two hops:
+
+| message | meaning | what happens |
+|:--|:--|:--|
+| `request` | "i could use food" | a clanmate in range hands over its surplus above `surplus_reserve`; one out of range replies with an `offer` |
+| `alert` | "i am starving" | donors dip into the reserve they keep for themselves — the whole difference between a request and an alert |
+| `offer` | "come to me, i have spare" | the asker walks over in `MEET`; once adjacent its next request is fulfilled |
+
+requests are rate-limited by `request_cooldown_ticks` (40), and a donor with nothing to
+give *keeps* the request rather than discarding it, so it can help once it has food again.
+
+measured over 40000 ticks on the default world: 407 food units changed hands, inboxes
+peaked at 2 messages, and population rose from ~98 to **103** — sharing measurably helps
+agents survive. by tick 5000 alone: 99 requests, 643 offers, 19 alerts, 84 transfers.
+
 ### the cost of sociality
 
 phase 1 lowers the carrying capacity from 120 agents to ~98. socialising burns ticks and
@@ -218,7 +245,17 @@ count climbs.
 
 ### cost
 
-~1.0 ms/tick at 120 agents and 360 huts, measured over 60000 ticks. utterly irrelevant at
-1 hz. `build.py` rebuilds its occupied-tile set every tick and `query()` sorts the whole
-entity set, both of which will matter at phase 3 agent counts and neither of which is
-worth touching yet.
+per-tick cost has climbed across the phases: **1.0 ms** (phase 0) → **2.1 ms** (clans and
+blackboard) → **5.9 ms** (trade), at ~100 agents over 40000 ticks. still 0.6% of the
+budget at 1 hz.
+
+profiling says the money is not where it looks. trade is 11% of runtime and social 11%;
+**56% is `fsm.run`, and 9.6 of 25.5 seconds is `_nearest_resource`** — a phase 0 function
+doing a linear scan of every resource node, per seeking agent, per tick. trade did not
+get slower, it changed the *state mix*: sociable agents forage far more actively than the
+idle, fully-stocked ones phase 0 settled into, so the expensive path runs much more often.
+
+the fix is the spatial partitioning `planish/TECHNICAL_ARCHITECTURE.md` already calls for
+and phase 0 deliberately deferred. it is the first thing that will actually block phase 3
+agent counts — `_live_node_at` and `build.py`'s occupied-tile rebuild are the same shape
+of problem.

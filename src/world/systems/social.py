@@ -171,11 +171,18 @@ def _leader_duties(world: World) -> None:
 
         rally = _pick_rally(world, leader)
         current.write(clan_rally_key(clan.clan_id), rally, leader, world.tick)
-        send(
-            world,
-            leader,
-            make_message(leader, BROADCAST_CLAN, MessageType.INFO, {"rally": rally}),
-        )
+
+        # Only announce a rally that actually moved. Broadcasting every tick floods
+        # every member's inbox with chatter that evicts real requests, and the board
+        # already carries the current point for anyone who wants it.
+        previous = clan.last_rally
+        if previous is None or max(abs(rally[0] - previous[0]), abs(rally[1] - previous[1])) > world.config.rally_arrival_radius:
+            clan.last_rally = rally
+            send(
+                world,
+                leader,
+                make_message(leader, BROADCAST_CLAN, MessageType.INFO, {"rally": rally}),
+            )
 
 
 def run(world: World, rng: TickRng) -> None:

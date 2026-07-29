@@ -76,7 +76,7 @@ def test_outbox_is_drained_after_delivery():
     assert world.get(a, Outbox).messages == []
 
     _deliver(world)
-    assert world.get(b, Inbox).messages == [], "message was delivered twice"
+    assert len(world.get(b, Inbox).messages) == 1, "message was delivered twice"
 
 
 def test_broadcast_all_reaches_everyone_except_the_sender():
@@ -137,23 +137,31 @@ def test_inbox_is_bounded():
     assert inbox.messages[-1]["content"]["n"] == CONFIG.inbox_capacity * 3 - 1, "kept the wrong end"
 
 
-def test_inbox_clears_between_ticks():
+def test_inbox_persists_until_consumed():
+    """Mail waits for its recipient. A message arriving mid-gather must still be there
+    when the agent is free to deal with it."""
     world, (a, b) = _world_with_agents(2)
     messaging.send(world, a, messaging.make_message(a, b, MessageType.INFO, {}))
     _deliver(world)
-    assert len(world.get(b, Inbox).messages) == 1
 
+    for _ in range(20):
+        _deliver(world)
+    assert len(world.get(b, Inbox).messages) == 1, "unread mail was dropped"
+
+    world.get(b, Inbox).messages.clear()
     _deliver(world)
-    assert world.get(b, Inbox).messages == [], "stale mail carried into the next tick"
+    assert world.get(b, Inbox).messages == []
 
 
-def test_messages_actually_flow_in_a_running_world():
-    simulation = Simulation(create_world(CONFIG))
-    simulation.run(400)
+def test_messages_actually_flow_and_get_acted_on():
+    """Unread mail is the wrong proxy now that agents consume it. The real evidence a
+    message was read is food changing hands because of it."""
+    simulation = Simulation(create_world(WorldConfig()))
+    simulation.run(2000)
     world = simulation.world
 
-    delivered = sum(len(world.get(e, Inbox).messages) for e in world.query(Inbox))
-    assert delivered > 0, "no messages moved in 400 ticks"
+    received = sum(world.get(e, Agent).received for e in world.query(Agent))
+    assert received > 0, "no agent ever received food from a clanmate"
 
     for entity in world.query(Inbox):
         for message in world.get(entity, Inbox).messages:

@@ -22,7 +22,17 @@ from .components import (
 from .config import TICKS_PER_DAY, WorldConfig
 from .ecs import SystemRegistry, World
 from .rng import TickRng
-from .systems import blackboard, build, fsm, messaging, movement, needs, regrowth, social
+from .systems import (
+    blackboard,
+    build,
+    fsm,
+    messaging,
+    movement,
+    needs,
+    regrowth,
+    social,
+    trade,
+)
 
 _NAME_PREFIXES = ("Ka", "Mor", "Tel", "Ash", "Rin", "Vos", "Dor", "Ely", "Bran", "Sev")
 _NAME_SUFFIXES = ("ra", "nix", "wyn", "dor", "sha", "lek", "mir", "tas", "ven", "oth")
@@ -39,6 +49,7 @@ def build_registry() -> SystemRegistry:
     registry = SystemRegistry()
     registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
+    registry.register("trade", trade.run)
     registry.register("fsm", fsm.run)
     registry.register("movement", movement.run)
     registry.register("build", build.run)
