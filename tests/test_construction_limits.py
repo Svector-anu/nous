@@ -82,8 +82,9 @@ def test_hut_owner_is_recorded():
     huts = world.query(Building)
     assert huts
     for hut in huts:
-        owner = world.get(hut, Building).owner
-        assert owner is not None and world.has(owner, Agent)
+        # A hut outlives its builder: owners starve and get raided, and nothing
+        # demolishes what they left behind.
+        assert world.get(hut, Building).owner is not None
 
 
 def test_capped_agents_keep_cycling_rather_than_stalling():

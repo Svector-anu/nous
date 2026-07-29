@@ -203,7 +203,10 @@ def test_goal_biases_what_a_stocked_member_forages():
     assert len(goals) >= 2, f"every clan chose the same goal: {dict(goals)}"
 
 
-def test_all_four_goals_are_reachable_in_a_real_world():
+def test_every_peacetime_goal_is_reachable_in_a_real_world():
+    """`raid` is deliberately excluded: it requires famine, and a healthy world must
+    never reach it. tests/test_combat.py covers the drought path."""
+    peacetime = {g.value for g in ClanGoal} - {ClanGoal.RAID.value}
     simulation = Simulation(create_world(WorldConfig()))
     seen: set[str] = set()
     for _ in range(600):
@@ -211,9 +214,8 @@ def test_all_four_goals_are_reachable_in_a_real_world():
         seen.update(
             simulation.world.get(e, Clan).goal for e in simulation.world.query(Clan)
         )
-    assert seen >= {g.value for g in ClanGoal}, f"never reached: {
-        {g.value for g in ClanGoal} - seen
-    }"
+    assert seen >= peacetime, f"never reached: {peacetime - seen}"
+    assert ClanGoal.RAID.value not in seen, "a healthy world should not raid"
 
 
 def test_clans_keep_distinct_goals_at_steady_state():

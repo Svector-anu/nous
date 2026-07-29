@@ -8,12 +8,12 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | phase | state |
 |:--|:--|
 | **0 — skeleton** | ✅ complete, frozen |
-| **1 — social emergence** | 🟡 nearly done: blackboard, messaging, trade, clans, goals + influence and user agents all shipped; **combat is all that remains** |
+| **1 — social emergence** | ✅ complete: blackboard, messaging, trade, clans, goals + influence, user agents and raiding |
 | **2 — visual upgrade** | ⬜ not started (intentionally) |
 | **3 — hierarchy & scale** | ⬜ not started; spatial index pulled forward and done |
 | **4 — spectator & economy** | ⬜ not started |
 
-145 tests green. local `main`, lowercase commits, **no remote yet**.
+164 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -33,7 +33,7 @@ viewer. agents gather, build, eat, rest and starve.
 carrying capacity settles around 98–112 agents from a start of 120, and holds across
 60000 ticks. a total food blackout is lethal; a regional one is survivable and graded.
 
-## phase 1 — social emergence 🟡
+## phase 1 — social emergence ✅
 
 ### shipped
 
@@ -61,23 +61,31 @@ carrying capacity settles around 98–112 agents from a start of 120, and holds 
   goal strictly below survival, gated on `goal_bias_chance`. goals raised carrying
   capacity 103 → 112.
 
+- **raiding** — scarcity-driven fifth clan goal. a clan escalates only when mean hunger
+  drops below `clan_desperate_threshold` (20, set under the 22 floor measured in a healthy
+  world) *and* it has already spent a window on `gather_food`. 1v1, opportunistic, never
+  pursuing. energy is the only currency and `energy == 0` the only death. free in
+  peacetime — 112 agents with and without combat at tick 40000 — and it makes droughts
+  markedly deadlier.
+
 ### outstanding
 
-- **combat / raiding** — the `FLEE` state exists as an empty seam with no trigger. this
-  is the last thing standing between phase 1 and done.
-- **richer social use of messages** — agents act on request/offer/alert; nothing yet uses
-  `info` beyond rally, and there is no bartering of wood.
+- **richer social use of messages** — nothing yet uses `info` beyond rally, and there is
+  no bartering of wood.
+- **alliances and rivalry** — clans have no memory of who raided them.
 
 ## sequence from here
 
-1. **finish phase 1** — combat / raiding
-2. **stronger social** — alliances, rivalry, clan-vs-clan dynamics
-3. ~~spatial index~~ — **done early**, see below
-4. **hierarchical llm leaders** — middle tier only, per
+phase 1 is closed. next up:
+
+1. **hierarchical llm leaders** — the middle tier, per
    [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md); the vast majority of agents
-   stay pure fsm
-5. **selective procedural 3d** — claude-of-duty materials, hero areas only
-6. **economy layer** — prediction market stub, token chaos
+   stay pure fsm. combat is what makes this worth paying for: before raiding existed
+   `_choose_goal` had two reachable outcomes at steady state, and an llm would have been
+   replacing a coin flip. a leader now has real decisions — endure or raid, when to stop.
+2. **stronger social** — alliances, rivalry, memory of who raided you
+3. **selective procedural 3d** — claude-of-duty materials, hero areas only
+4. **economy layer** — prediction market stub, token chaos
 
 ### spatial index — done ahead of schedule
 
@@ -87,7 +95,7 @@ thing genuinely blocking phase 3 counts, so it was pulled forward.
 
 ## non-goals still held
 
-no llm brains · no combat · no hard territory exclusion · no births or reproduction ·
+no llm brains · no hard territory exclusion · no births or reproduction ·
 no on-chain economy · no react or three.js viewer · no full 3d everywhere
 
 personality is stored on user-deployed agents but **nothing reads it** — it is the seam
@@ -104,3 +112,8 @@ the middle llm tier plugs into, not a behaviour today.
   `needs._already_addressing` is where the exemptions live.
 - **the determinism test earns its keep.** it has caught two real ordering bugs that were
   invisible to `==` comparison.
+- **check the trigger, not the symptom.** raiding keyed to empty *stores* made every clan
+  raid within 400 ticks of genesis and cost 47 agents; nobody holds food at world start,
+  which is startup conditions, not famine. moving the trigger to hunger fixed it outright.
+- **design the livelock out, don't tune it away.** raiders never pursue, so the obvious
+  starving-raider-chases-forever failure cannot happen at any parameter setting.

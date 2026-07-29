@@ -26,6 +26,7 @@ from .rng import TickRng
 from .systems import (
     blackboard,
     build,
+    combat,
     fsm,
     messaging,
     movement,
@@ -53,6 +54,7 @@ def build_registry() -> SystemRegistry:
     registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
     registry.register("trade", trade.run)
+    registry.register("combat", combat.run)
     registry.register("fsm", fsm.run)
     registry.register("movement", movement.run)
     registry.register("build", build.run)

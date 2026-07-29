@@ -61,6 +61,11 @@ class WorldConfig:
     max_name_length: int = 24
     max_personality_length: int = 140
 
+    combat_energy_cost: int = 5
+    combat_loser_penalty: int = 10
+    raid_steal_amount: int = 2
+    flee_distance: int = 6
+
     goal_review_ticks: int = 120
     goal_bias_chance: float = 0.6
     influence_base_radius: int = 4
@@ -70,6 +75,10 @@ class WorldConfig:
     # split the population instead of never firing.
     clan_low_food_ratio: float = 0.85
     clan_hungry_threshold: int = 35
+    # Raiding needs real desperation, not merely empty stores. Measured mean clan hunger
+    # never drops below 22 in a healthy world, so a bar under that means raids happen
+    # during genuine famine and essentially never otherwise.
+    clan_desperate_threshold: int = 20
     huts_per_member_target: float = 3.0
 
     def build_ceiling(self) -> int:

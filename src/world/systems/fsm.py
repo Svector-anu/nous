@@ -82,7 +82,7 @@ def _clan_goal(world: World, entity: Entity) -> str | None:
 
 def _goal_preference(goal: str | None) -> ResourceKind | None:
     """Which resource the clan's current goal pulls a member toward."""
-    if goal == ClanGoal.GATHER_FOOD.value:
+    if goal in (ClanGoal.GATHER_FOOD.value, ClanGoal.RAID.value):
         return ResourceKind.FOOD
     if goal in (ClanGoal.GATHER_WOOD.value, ClanGoal.EXPAND.value):
         return ResourceKind.WOOD
@@ -351,5 +351,13 @@ def run(world: World, rng: TickRng) -> None:
                 agent.state = AgentState.IDLE
                 agent.clear_target()
         elif agent.state is AgentState.FLEE:
-            agent.state = AgentState.IDLE
-            agent.clear_target()
+            # Run until the chosen distance is covered, then resume normal life. The
+            # target is a fixed point rather than a moving pursuer, so a flight always
+            # terminates.
+            position = world.get(entity, Position)
+            if agent.target_x is None or agent.target_y is None:
+                agent.state = AgentState.IDLE
+                agent.clear_target()
+            elif position.x == agent.target_x and position.y == agent.target_y:
+                agent.state = AgentState.IDLE
+                agent.clear_target()

@@ -24,7 +24,12 @@ def run(world: World, rng: TickRng) -> None:
 
     for entity in world.query(Agent, Position):
         agent = world.get(entity, Agent)
-        if agent.state not in (AgentState.SEEK_NEED, AgentState.FOLLOW, AgentState.MEET):
+        if agent.state not in (
+            AgentState.SEEK_NEED,
+            AgentState.FOLLOW,
+            AgentState.MEET,
+            AgentState.FLEE,
+        ):
             continue
 
         position = world.get(entity, Position)

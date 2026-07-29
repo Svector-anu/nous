@@ -21,6 +21,7 @@ def test_systems_run_in_the_documented_order():
         "messaging",
         "needs",
         "trade",
+        "combat",
         "fsm",
         "movement",
         "build",

@@ -179,6 +179,15 @@ def _choose_goal(world: World, clan: Clan) -> ClanGoal:
         _clan_food_ratio(world, clan) < config.clan_low_food_ratio
         or _mean_hunger(world, clan) < config.clan_hungry_threshold
     ):
+        # Escalation, not a first resort, and gated on actual hunger rather than on empty
+        # stores. Keying it to stores alone made every clan raid within 400 ticks of
+        # genesis — at world start nobody holds food yet, which is startup conditions,
+        # not famine. That cost 47 agents. Desperation is measured on the one signal that
+        # means agents are genuinely going without.
+        desperate = _mean_hunger(world, clan) < config.clan_desperate_threshold
+        already_trying = clan.goal in (ClanGoal.GATHER_FOOD.value, ClanGoal.RAID.value)
+        if desperate and already_trying:
+            return ClanGoal.RAID
         return ClanGoal.GATHER_FOOD
 
     wanted_huts = len(clan.members) * config.huts_per_member_target

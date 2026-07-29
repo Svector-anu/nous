@@ -82,6 +82,8 @@ class Agent:
     received: int = 0
     personality: str = ""
     user_deployed: bool = False
+    raids_won: int = 0
+    raids_lost: int = 0
 
     def clear_target(self) -> None:
         self.target_entity = None
@@ -116,6 +118,7 @@ class ClanGoal(str, Enum):
     GATHER_WOOD = "gather_wood"
     EXPAND = "expand"
     RALLY = "rally"
+    RAID = "raid"
 
 
 KEY_FOOD_LOCATIONS = "food_locations"

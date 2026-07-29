@@ -35,7 +35,7 @@ IDLE ──┬─ energy low & not starving ──────────→ RE
 SEEK_NEED ─ arrived at node ─→ GATHER ─ full / node dormant ─→ IDLE or BUILD
 FOLLOW    ─ arrived at rally ─────────────────────────────────→ IDLE
 MEET      ─ arrived at donor ─────────────────────────────────→ IDLE
-FLEE      ─ no trigger yet (combat seam) ─────────────────────→ IDLE
+FLEE      ─ lost a fight, runs to a fixed point ──────────────→ IDLE
 ```
 
 **decision order is the design.** everything above the clan-goal branch is survival or a
@@ -105,6 +105,7 @@ one at a time, reviewed every `goal_review_ticks`, chosen by conditions that wer
 | `gather_wood` | short of huts and short of timber |
 | `expand` | short of huts but holding wood — builds inside the clan's own influence |
 | `rally` | fed and built out |
+| `raid` | already tried gathering and mean hunger is still under `clan_desperate_threshold` |
 
 `expand` and `gather_wood` retire on their own: once every member holds
 `max_huts_per_agent` huts the signal can never fire again, so they are early-life goals
@@ -132,6 +133,27 @@ discarding it.
 
 sharing measurably improves survival: 407 food units changed hands over 40000 ticks and
 carrying capacity rose from 98 to 103, then to 112 once clan goals coordinated foraging.
+
+## raiding
+
+only members of a clan on the `raid` goal rob anyone, and a clan reaches that goal only
+after a review window on `gather_food` leaves mean hunger under
+`clan_desperate_threshold` (20 — below the 22 floor measured in a healthy world). peace is
+the default; raids emerge from droughts.
+
+- **opportunistic, never pursuing.** a raider robs a non-clanmate already within
+  `transfer_radius`. it does not chase, which makes the starving-raider-chases-forever
+  livelock impossible at any parameter setting rather than merely unlikely.
+- **energy-weighted outcome**, drawn from the tick's rng, so a desperate raider is the one
+  most likely to lose the attempt.
+- **energy is the only currency.** both sides pay, the loser pays more, and death is the
+  same `energy == 0` rule starvation uses. no health component, no weapons, no revenge, no
+  territory capture.
+- the loser enters `FLEE` toward a fixed point away from the winner — fixed, so flights
+  terminate — and shouts an `alert`, which the trade system already answers with food.
+
+an agent's carry dies with it, as it always has for starvation, so raiding destroys food
+as well as moving it.
 
 ## disasters — not built yet
 

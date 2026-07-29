@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from ..components import Agent, AgentState, Inventory, Needs, ResourceKind
 from ..config import WorldConfig
-from ..ecs import World
+from ..ecs import Entity, World
 from ..rng import TickRng
 
 _UNINTERRUPTIBLE = (AgentState.REST, AgentState.FLEE, AgentState.IDLE)
@@ -19,6 +19,18 @@ _UNINTERRUPTIBLE = (AgentState.REST, AgentState.FLEE, AgentState.IDLE)
 
 def is_starving(needs: Needs) -> bool:
     return needs.hunger <= 0
+
+
+def kill_if_exhausted(world: World, entity: Entity, needs: Needs) -> bool:
+    """The single death rule, shared by starvation and combat: energy at zero is death.
+
+    Combat calls this at the point energy is spent rather than leaving a dead agent to
+    act for one more tick before the needs system notices.
+    """
+    if needs.energy <= 0:
+        world.destroy_entity(entity)
+        return True
+    return False
 
 
 def _already_addressing(agent: Agent, needs: Needs, config: WorldConfig) -> bool:
@@ -70,8 +82,7 @@ def run(world: World, rng: TickRng) -> None:
                     config.need_max, needs.energy + config.rest_energy_per_tick
                 )
 
-        if needs.energy <= 0:
-            world.destroy_entity(entity)
+        if kill_if_exhausted(world, entity, needs):
             continue
 
         # A need crossing its threshold preempts whatever the agent was doing, so a

@@ -1,23 +1,23 @@
 # neo-civilization
 
-a persistent, tick-based ai agent civilization sim. this repo is at **phase 1**: a
-deterministic world of fsm-driven agents that gather, build, eat, starve, form clans and
-talk to each other — streamed live to a browser.
+a persistent, tick-based ai agent civilization sim. agents gather, build, eat, starve,
+form clans, trade, and raid each other when the food runs out — streamed live to a browser.
 
-no llm calls anywhere yet — that's phase 3, and only for leaders. phase 0 is pure state
-machines, which is the whole point: a world that runs 24/7 for $0.
+no llm calls anywhere yet — that's phase 3, and only for clan leaders. everything here is
+pure state machines, which is the whole point: a world that runs 24/7 for $0.
 
 design docs live in [`planish/`](planish/). nothing here invents behaviour those docs
 don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md) is the
 handover doc — status, what's next, and the traps already fallen into.
 
-**where this is**: phase 0 complete and frozen. phase 1 has blackboard, structured
-messaging, resource transfer, clans, clan goals with soft influence, and user-deployed
-agents — combat is what remains. the phase 3 spatial index got pulled forward because it
-was the only thing genuinely blocking scale. 145 tests on local `main`, no remote.
+**where this is**: phase 0 complete and frozen. **phase 1 is done** — blackboard,
+structured messaging, resource transfer, clans, clan goals with soft influence,
+user-deployed agents and scarcity-driven raiding. the phase 3 spatial index got pulled
+forward because it was the only thing genuinely blocking scale. 164 tests on local `main`,
+no remote.
 
-still deliberately absent: llm cognition, combat, hard territory, births, procedural 3d,
-user-deployed agents, economy.
+still deliberately absent: llm cognition, hard territory ownership, births, alliances and
+rivalry memory, procedural 3d, economy.
 
 ## run it
 
@@ -46,7 +46,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 80 tests, ~46s
+.venv/bin/python -m pytest tests/ -q      # 164 tests, ~110s
 ```
 
 ## layout
@@ -60,8 +60,9 @@ src/
     components.py            Position, Needs, Inventory, ClanRef, Agent, ResourceNode, Building
     config.py                every tunable in one frozen dataclass
     rng.py                   deterministic rng
-    systems/                 messaging -> needs -> fsm -> movement -> build
-                             -> regrowth -> social -> blackboard, in that order
+    spatial.py               chunked resource lookup
+    systems/                 spawning -> messaging -> needs -> trade -> combat -> fsm
+                             -> movement -> build -> regrowth -> social -> blackboard
   persistence/sqlite_store.py
   api/server.py              fastapi + websocket
   viewer/index.html          canvas viewer, no build step, no npm, no react
@@ -85,7 +86,7 @@ never depend on dict insertion history.
 clone this repo and you reproduce the same civilization, tick for tick, from seed
 `20260728`.
 
-## what phase 0 does
+## the survival layer
 
 world grid, tick loop, needs/fsm/movement/build/regrowth systems, deterministic rng,
 sqlite save/load, websocket viewer.
@@ -102,10 +103,8 @@ what binds — 120 agents × 3 = 360 huts, well under the 2457-tile ceiling — 
 stop only matters on small or crowded maps. no decay, no upkeep, no territory yet.
 
 **not implemented, on purpose** — these are later phases in
-[`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md): shared blackboard,
-structured messaging, clans, combat, user agent deployment, llm cognition tiers, and the
-procedural 3d viewer. `ClanRef` and the `FLEE` state exist as empty seams so phase 1 can
-fill them without a schema change.
+[`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md): llm cognition tiers,
+the procedural 3d viewer, hard territory, births, and the economy layer.
 
 where the docs were silent on something the sim genuinely needed — resource
 sustainability, construction limits, what starvation does — the behaviour was decided
@@ -181,7 +180,7 @@ one cosmetic leftover: an agent that's built its three huts keeps whatever wood 
 holding, because it has no use for it and no reason to gather more. there's no drop
 action in phase 0.
 
-## what phase 1 adds
+## the social layer
 
 society. three channels, all with the same one-tick propagation lag — nothing an agent
 learns is available in the tick it was said.
@@ -297,6 +296,40 @@ on name and personality (422).
 
 deployed agents draw larger with a white ring and are listed with their notes in the
 sidebar. `GET /agents` returns the cards plus anything still queued.
+
+### raiding
+
+the only violence in the world, and it is a famine response. a clan escalates to the
+`raid` goal after a review window on `gather_food` leaves it still desperate, where
+desperate means **mean clan hunger below 20** — a bar set under the 22 floor measured in a
+healthy world, so peace is the default and raids emerge from droughts.
+
+encounters are 1v1 and opportunistic. a raider robs a non-clanmate it already finds itself
+next to; **it never chases**. that is what makes the obvious livelock — a starving raider
+forever pursuing a target it cannot catch — impossible by construction rather than by
+tuning. outcome is energy-weighted via `TickRng`, so a desperate raider is exactly the one
+most likely to lose the attempt.
+
+energy is the only currency. a fight costs both sides energy, costs the loser more, and
+kills through `energy == 0` — the same single death rule starvation uses. no health
+component, no weapons, no revenge, no territory capture. the loser flees to a fixed point
+away from the winner, so flights always terminate, and shouts an `alert`, which the trade
+system already answers with food.
+
+measured against a no-combat control:
+
+| world | without combat | with combat |
+|:--|--:|--:|
+| healthy, tick 40000 | 112 agents | **112 agents, zero raids** |
+| 70% blight for 600 ticks | 119 → 53 → 48 | 119 → 43 → 36, 8 clans raiding, 45 raids |
+
+combat is free in peacetime and makes famine deadlier — which is the point. an agent's
+carry dies with it, as it always has for starvation, so raiding also destroys food rather
+than only moving it.
+
+**the first cut cost 47 agents.** keying escalation to empty *stores* meant every clan
+raided within 400 ticks of genesis, when nobody holds food yet — startup conditions, not
+famine. moving the trigger to hunger fixed it completely.
 
 ### the cost of sociality
 
