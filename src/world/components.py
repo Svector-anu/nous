@@ -177,6 +177,22 @@ class Blackboard:
 
 
 @dataclass
+class DecisionLog:
+    """Every leader decision, rule-based or model-based, for inspection.
+
+    Bounded: an append-only log inside a 24/7 world is an unbounded accumulator, and
+    those have eaten this simulation more than once.
+    """
+
+    entries: list[dict] = field(default_factory=list)
+
+    def record(self, entry: dict, limit: int) -> None:
+        self.entries.append(entry)
+        if limit > 0 and len(self.entries) > limit:
+            del self.entries[: len(self.entries) - limit]
+
+
+@dataclass
 class SpawnQueue:
     """Deployment requests waiting to enter the world, held by a single world entity.
 
@@ -213,6 +229,9 @@ class Clan:
     last_rally: list | None = None
     goal: str = ClanGoal.RALLY.value
     goal_set_tick: int = 0
+    goal_source: str = "rules"
+    goal_reason: str = ""
+    last_advisor_tick: int = -1
     centre: list | None = None
     influence_radius: int = 0
 

@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field
 from ..persistence.sqlite_store import SqliteWorldStore
 from ..world.components import Agent, ClanRef, Position
 from ..world.config import WorldConfig
-from ..world.systems import spawning
+from ..llm.advisor import build_advisor
+from ..world.systems import leadership, spawning
 from ..world.tick import Simulation, create_world
 
 
@@ -70,6 +71,9 @@ def create_app(
             store.save(world)
             logger.info("created new world with seed %d", world_config.seed)
 
+        world.advisor = build_advisor(world.config)
+        logger.info("clan advisor: %s", type(world.advisor).__name__)
+
         simulation = Simulation(world, store=store)
         app.state.simulation = simulation
         loop_task = asyncio.create_task(_run_loop(simulation, manager))
@@ -80,6 +84,8 @@ def create_app(
             loop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await loop_task
+            if world.advisor is not None:
+                world.advisor.close()
             store.save(simulation.world)
             store.close()
             logger.info("saved world at tick %d on shutdown", simulation.world.tick)
@@ -93,6 +99,21 @@ def create_app(
     @app.get("/state")
     async def state() -> JSONResponse:
         return JSONResponse(app.state.simulation.snapshot())
+
+    @app.get("/decisions")
+    async def decisions() -> JSONResponse:
+        """Every clan-goal decision, rule-based and model-based, newest last."""
+        world = app.state.simulation.world
+        current = leadership.log(world)
+        advisor = world.advisor
+        return JSONResponse(
+            {
+                "llm_enabled": world.config.llm_enabled,
+                "advisor": type(advisor).__name__ if advisor is not None else None,
+                "pending": advisor.pending() if advisor is not None else 0,
+                "entries": list(current.entries) if current is not None else [],
+            }
+        )
 
     @app.get("/agents")
     async def agent_cards() -> JSONResponse:

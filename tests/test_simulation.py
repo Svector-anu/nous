@@ -26,6 +26,7 @@ def test_systems_run_in_the_documented_order():
         "movement",
         "build",
         "regrowth",
+        "leadership",
         "social",
         "blackboard",
     ]

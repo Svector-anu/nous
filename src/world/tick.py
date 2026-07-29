@@ -11,6 +11,7 @@ from .components import (
     Building,
     Clan,
     ClanRef,
+    DecisionLog,
     Inbox,
     Inventory,
     Needs,
@@ -28,6 +29,7 @@ from .systems import (
     build,
     combat,
     fsm,
+    leadership,
     messaging,
     movement,
     needs,
@@ -59,6 +61,7 @@ def build_registry() -> SystemRegistry:
     registry.register("movement", movement.run)
     registry.register("build", build.run)
     registry.register("regrowth", regrowth.run)
+    registry.register("leadership", leadership.run)
     registry.register("social", social.run)
     registry.register("blackboard", blackboard.run)
     return registry
@@ -77,6 +80,7 @@ def create_world(config: WorldConfig) -> World:
 
     world.add(world.create_entity(), Blackboard())
     world.add(world.create_entity(), SpawnQueue())
+    world.add(world.create_entity(), DecisionLog())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()
@@ -189,6 +193,8 @@ class Simulation:
                     "leader": clan.leader,
                     "size": len(clan.members),
                     "goal": clan.goal,
+                    "goal_source": clan.goal_source,
+                    "goal_reason": clan.goal_reason,
                     "centre": clan.centre,
                     "influence": clan.influence_radius,
                 }

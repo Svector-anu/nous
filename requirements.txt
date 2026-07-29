@@ -2,3 +2,6 @@ fastapi==0.118.0
 uvicorn[standard]==0.37.0
 pytest==8.4.2
 httpx==0.28.1
+
+# only needed when llm_enabled=True; the sim runs without it
+anthropic==0.120.2

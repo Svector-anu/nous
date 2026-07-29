@@ -3,8 +3,9 @@
 a persistent, tick-based ai agent civilization sim. agents gather, build, eat, starve,
 form clans, trade, and raid each other when the food runs out — streamed live to a browser.
 
-no llm calls anywhere yet — that's phase 3, and only for clan leaders. everything here is
-pure state machines, which is the whole point: a world that runs 24/7 for $0.
+**no llm calls happen unless you turn them on.** every agent is a state machine; only
+clan leaders can be given a brain, and only behind `llm_enabled`. off by default, because
+the world has to run 24/7 for $0.
 
 design docs live in [`planish/`](planish/). nothing here invents behaviour those docs
 don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md) is the
@@ -16,8 +17,8 @@ user-deployed agents and scarcity-driven raiding. the phase 3 spatial index got 
 forward because it was the only thing genuinely blocking scale. 164 tests on local `main`,
 no remote.
 
-still deliberately absent: llm cognition, hard territory ownership, births, alliances and
-rivalry memory, procedural 3d, economy.
+still deliberately absent: hard territory ownership, births, alliances and rivalry
+memory, procedural 3d, economy.
 
 ## run it
 
@@ -62,7 +63,9 @@ src/
     rng.py                   deterministic rng
     spatial.py               chunked resource lookup
     systems/                 spawning -> messaging -> needs -> trade -> combat -> fsm
-                             -> movement -> build -> regrowth -> social -> blackboard
+                             -> movement -> build -> regrowth -> leadership
+                             -> social -> blackboard
+  llm/advisor.py             clan leader cognition (opt-in, off by default)
   persistence/sqlite_store.py
   api/server.py              fastapi + websocket
   viewer/index.html          canvas viewer, no build step, no npm, no react
@@ -330,6 +333,57 @@ than only moving it.
 **the first cut cost 47 agents.** keying escalation to empty *stores* meant every clan
 raided within 400 ticks of genesis, when nobody holds food yet — startup conditions, not
 famine. moving the trigger to hunger fixed it completely.
+
+### hierarchical cognition
+
+the middle tier of the three the architecture calls for. **the bottom tier stays free** —
+at one tick per second and hundreds of agents, per-agent inference is not a cost to
+optimise, it is arithmetic that does not work.
+
+**the simulation core never calls the network.** an advisor is *asked* on one tick and
+*answers* on a later one, exactly like a user deployment or a message: the decision is an
+input to the world, not an event inside it. what the world depends on is the recorded
+decision, not the api call.
+
+**the rules are the floor, not a degraded mode.** `leadership` runs immediately before
+`social`; it applies whatever decisions have arrived and asks for new ones, then `social`
+picks a goal by rules for every clan the advisor did not answer for. a clan whose advisor
+is slow, unavailable, over budget, or simply wrong still has a goal on that same tick —
+the model's answer refines it when it lands rather than gating it.
+
+nothing an advisor does can break the world. every call into it is contained and every
+failure — no sdk, no credentials, timeout, malformed answer, third-party exception —
+resolves to "no decision". there is a test that an advisor raising on every call leaves
+the simulation running normally.
+
+| control | default | what it bounds |
+|:--|:--|:--|
+| `llm_enabled` | `False` | nothing runs unless explicitly turned on |
+| `llm_min_ticks_between_calls` | 300 | how often one clan may be consulted |
+| `llm_max_inflight` | 2 | concurrent requests |
+| `llm_max_calls_per_session` | 200 | total spend for the life of the process |
+| `llm_timeout_seconds` | 30 | a stalled call falls back to rules |
+| `llm_log_limit` | 200 | the decision log is bounded like everything else |
+
+on top of those, an authentication failure disables the advisor **permanently** rather
+than spending the whole session budget rediscovering it 200 times.
+
+credentials are deliberately not gated on `ANTHROPIC_API_KEY` — the sdk also resolves an
+auth token or an `ant auth login` profile, so an env check would refuse a working setup.
+
+every decision is logged with its source, reason and latency, persisted with the world,
+and served at `GET /decisions`:
+
+```json
+{"tick": 130, "clan": 2, "goal": "gather_wood", "source": "rules", "reason": "", "latency_ms": 0}
+```
+
+**what is untested:** there were no credentials on the machine this was built on, so the
+live Claude path has never made a real call. the contract around it is covered — budgets,
+cooldowns, timeouts, auth-failure disabling, malformed answers, fallback — with a scripted
+advisor. the request shape itself is written against the current api (structured outputs
+via `output_config.format`, cached system prompt, `effort: low`) but is unverified against
+the wire.
 
 ### the cost of sociality
 

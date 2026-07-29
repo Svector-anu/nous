@@ -66,6 +66,17 @@ class WorldConfig:
     raid_steal_amount: int = 2
     flee_distance: int = 6
 
+    # Hierarchical cognition. Off by default: the world must run at $0 without it, and
+    # every one of these limits exists so enabling it cannot produce an unbounded bill.
+    llm_enabled: bool = False
+    llm_model: str = "claude-opus-5"
+    llm_effort: str = "low"
+    llm_max_inflight: int = 2
+    llm_max_calls_per_session: int = 200
+    llm_min_ticks_between_calls: int = 300
+    llm_timeout_seconds: float = 30.0
+    llm_log_limit: int = 200
+
     goal_review_ticks: int = 120
     goal_bias_chance: float = 0.6
     influence_base_radius: int = 4

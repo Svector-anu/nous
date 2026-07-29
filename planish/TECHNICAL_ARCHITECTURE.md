@@ -13,15 +13,18 @@ godot remains the untaken alternative for heavy simulation. nothing depends on i
 
 ## the tick
 
-fixed timestep, one tick per second, nine systems in a fixed order:
+fixed timestep, one tick per second, twelve systems in a fixed order:
 
 ```
-messaging → needs → trade → fsm → movement → build → regrowth → social → blackboard
+spawning → messaging → needs → trade → combat → fsm → movement → build
+         → regrowth → leadership → social → blackboard
 ```
 
 - **messaging first** so the fsm sees last tick's mail
 - **trade after needs** so hunger is fresh and transferred food is in the inventory before
   the agent decides
+- **leadership before social** so an arrived model decision is applied before the rules
+  would otherwise choose a goal — and any clan it did not answer for still gets one
 - **social and blackboard last** so what they publish is read next tick
 
 every social channel therefore has the same one-tick lag. information travels; it does not
@@ -69,15 +72,14 @@ related ecs decisions: `World.first()` returns a singleton without sorting a who
 remaining known debt, neither load-bearing: `build.py` rebuilds its occupied-tile set each
 tick (once per tick, not per agent), and `social.find_clan` scans clans linearly.
 
-## hybrid hierarchical cognition — not built yet
+## hybrid hierarchical cognition
 
-still the plan, and still the reason the sim is affordable:
-
-- **bottom (the vast majority)** — fsm + utility. **zero llm.** this is what exists today.
-- **middle (clan leaders)** — lightweight llm, infrequent. clans, leaders and goals are
-  already in place as the seam; today `social._choose_goal` is a dozen readable lines of
-  rules that an llm call would replace.
-- **top (empire / crises)** — frontier llm, rare.
+- **bottom (the vast majority)** — fsm + utility. **zero llm, permanently.** this is what
+  makes the world runnable at all.
+- **middle (clan leaders)** — built. `src/llm/advisor.py` + the `leadership` system, off
+  behind `llm_enabled`. asked on one tick, answers on a later one; `social._choose_goal`
+  stays the floor for any clan it does not answer for.
+- **top (empire / crises)** — frontier llm, rare. not built.
 
 information asymmetry between tiers is a feature, not a limitation.
 

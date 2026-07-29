@@ -28,6 +28,7 @@ from ..components import (
 )
 from ..ecs import Entity, World
 from ..rng import TickRng
+from . import leadership
 from .blackboard import board
 from .messaging import make_message, send
 
@@ -213,10 +214,28 @@ def _set_goals(world: World) -> None:
         if not clan.members:
             continue
 
+        # An advisor decision applied this tick leaves goal_set_tick fresh, so the rules
+        # do not overwrite it. The rules are the floor, not a degraded mode.
         due = world.tick - clan.goal_set_tick >= world.config.goal_review_ticks
         if due or clan.goal_set_tick == 0:
-            clan.goal = _choose_goal(world, clan).value
+            chosen = _choose_goal(world, clan)
+            changed = clan.goal != chosen.value or clan.goal_source != "rules"
+            clan.goal = chosen.value
             clan.goal_set_tick = world.tick
+            clan.goal_source = "rules"
+            clan.goal_reason = ""
+            if changed:
+                leadership.record(
+                    world,
+                    {
+                        "tick": world.tick,
+                        "clan": clan.clan_id,
+                        "goal": clan.goal,
+                        "source": "rules",
+                        "reason": "",
+                        "latency_ms": 0,
+                    },
+                )
 
         current.write(
             clan_goal_key(clan.clan_id),

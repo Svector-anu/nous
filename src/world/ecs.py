@@ -27,6 +27,10 @@ class World:
     def __init__(self, config: WorldConfig) -> None:
         self.config = config
         self.tick: int = 0
+        # A runtime service, not world state: never persisted, never part of the state
+        # hash. The decisions it produces are recorded in the world; the advisor itself
+        # is just the thing that fetched them.
+        self.advisor: object | None = None
         self._next_entity: Entity = 1
         self._alive: set[Entity] = set()
         self._stores: dict[type, dict[Entity, object]] = {}

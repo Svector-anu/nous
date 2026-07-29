@@ -1,6 +1,6 @@
 # implementation plan
 
-status as of the user-agents milestone. this file is the handover doc: a fresh session should be
+status as of the hierarchical-leaders milestone. this file is the handover doc: a fresh session should be
 able to read this plus the [root readme](../README.md) and continue without asking.
 
 ## where we are
@@ -10,10 +10,10 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | **0 — skeleton** | ✅ complete, frozen |
 | **1 — social emergence** | ✅ complete: blackboard, messaging, trade, clans, goals + influence, user agents and raiding |
 | **2 — visual upgrade** | ⬜ not started (intentionally) |
-| **3 — hierarchy & scale** | ⬜ not started; spatial index pulled forward and done |
+| **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 
-164 tests green. local `main`, lowercase commits, **no remote yet**.
+186 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -78,14 +78,29 @@ carrying capacity settles around 98–112 agents from a start of 120, and holds 
 
 phase 1 is closed. next up:
 
-1. **hierarchical llm leaders** — the middle tier, per
-   [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md); the vast majority of agents
-   stay pure fsm. combat is what makes this worth paying for: before raiding existed
-   `_choose_goal` had two reachable outcomes at steady state, and an llm would have been
-   replacing a coin flip. a leader now has real decisions — endure or raid, when to stop.
+1. **verify the live llm path** — the middle tier is built but has never made a real
+   call (no credentials on the build machine). one live call, then measure whether
+   model-set goals actually beat `_choose_goal`. if they don't, that is worth knowing early.
 2. **stronger social** — alliances, rivalry, memory of who raided you
 3. **selective procedural 3d** — claude-of-duty materials, hero areas only
 4. **economy layer** — prediction market stub, token chaos
+
+### hierarchical llm leaders — built, opt-in, unproven live
+
+`src/llm/advisor.py` plus the `leadership` system. only clan leaders are consulted; the
+bottom tier stays pure fsm permanently, because per-agent inference at one tick per second
+is arithmetic that does not work.
+
+the load-bearing decision: **the sim core never calls the network.** an advisor is asked on
+one tick and answers on a later one, so a decision is an *input* to the world exactly as a
+user deployment is. the rules are the floor, not a fallback path — `leadership` runs before
+`social`, and any clan the advisor did not answer for gets a rule-based goal that same tick.
+
+bounded by `llm_enabled`, `llm_min_ticks_between_calls`, `llm_max_inflight`,
+`llm_max_calls_per_session`, `llm_timeout_seconds` and `llm_log_limit`; an auth failure
+disables the advisor permanently rather than burning the session budget.
+
+**never verified against the real api** — no credentials existed on the build machine.
 
 ### spatial index — done ahead of schedule
 
@@ -95,11 +110,11 @@ thing genuinely blocking phase 3 counts, so it was pulled forward.
 
 ## non-goals still held
 
-no llm brains · no hard territory exclusion · no births or reproduction ·
+no llm brains for ordinary agents (permanently) · no top/empire tier · no hard territory exclusion · no births or reproduction ·
 no on-chain economy · no react or three.js viewer · no full 3d everywhere
 
-personality is stored on user-deployed agents but **nothing reads it** — it is the seam
-the middle llm tier plugs into, not a behaviour today.
+personality is stored on user-deployed agents but **nothing reads it** — the middle tier
+decides clan goals, not individual behaviour, so the seam is still unused.
 
 ## working notes for whoever picks this up
 
@@ -117,3 +132,6 @@ the middle llm tier plugs into, not a behaviour today.
   which is startup conditions, not famine. moving the trigger to hunger fixed it outright.
 - **design the livelock out, don't tune it away.** raiders never pursue, so the obvious
   starving-raider-chases-forever failure cannot happen at any parameter setting.
+- **anything reaching outside the sim must be contained at the boundary.** the advisor is
+  the only such thing; a test that an advisor raising on every call leaves the world
+  running caught a real crash the implementation's own try/except had missed.
