@@ -66,6 +66,11 @@ class WorldConfig:
     raid_steal_amount: int = 2
     flee_distance: int = 6
 
+    # A truce forms between two clans that have hurt each other, once neither is
+    # desperate and the fighting has actually stopped.
+    truce_peace_ticks: int = 200
+    truce_contact_slack: int = 6
+
     # Hierarchical cognition. Off by default: the world must run at $0 without it, and
     # every one of these limits exists so enabling it cannot produce an unbounded bill.
     llm_enabled: bool = False

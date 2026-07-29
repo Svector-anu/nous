@@ -264,6 +264,10 @@ class Clan:
     # same reason the blackboard is — a reloaded world must iterate identically.
     # Naturally bounded by the number of clans, so it needs no eviction.
     grudges: dict[str, list] = field(default_factory=dict)
+    # Clans we have a truce with, sorted. Recorded on both sides, so there is no
+    # asymmetric "offered" state. Grudges are kept even after a truce — the memory of
+    # the raid outlives the fighting.
+    allies: list[int] = field(default_factory=list)
 
     def record_raid(self, attacker_clan_id: int, tick: int) -> None:
         key = str(attacker_clan_id)
@@ -283,6 +287,16 @@ class Clan:
     def last_raided_by(self, clan_id: int) -> int:
         entry = self.grudges.get(str(clan_id))
         return entry[1] if entry else -1
+
+    def is_allied(self, clan_id: int | None) -> bool:
+        return clan_id is not None and clan_id in self.allies
+
+    def add_ally(self, clan_id: int) -> None:
+        """Idempotent and sorted. The caller records it on both clans — a truce has no
+        one-sided state, so there is nothing pending to persist or time out."""
+        if clan_id not in self.allies:
+            self.allies.append(clan_id)
+            self.allies.sort()
     centre: list | None = None
     influence_radius: int = 0
 

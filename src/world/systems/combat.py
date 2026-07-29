@@ -76,6 +76,10 @@ def _victim(world: World, raider: Entity, positions: dict[Entity, Position]) -> 
         other_clan = _clan_of(world, other)
         if other_clan is not None and other_clan == raider_clan:
             continue
+        # A truce holds even against a clan we still hold a grudge over: the memory of
+        # the raid outlives the fighting, but it no longer picks the target.
+        if own_clan is not None and own_clan.is_allied(other_clan):
+            continue
         if world.get(other, Inventory).food <= 0:
             continue
         dx = position.x - origin.x

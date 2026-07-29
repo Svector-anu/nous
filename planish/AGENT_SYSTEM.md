@@ -158,8 +158,14 @@ as well as moving it.
 **clans remember.** a successful theft writes `[times_raided, last_raid_tick]` into the
 victim clan's `grudges`, keyed by the attacker's clan id. the only behavioural effect is in
 victim selection: among neighbours already in reach, the clan owing the deepest debt is
-robbed first, distance breaking ties. no pursuit, no new rng, no diplomacy — just memory
-and a preference. grudges never fade.
+robbed first, distance breaking ties. no pursuit, no new rng — just memory and a
+preference. grudges never fade.
+
+**and clans can stop.** `Clan.allies` (sorted, recorded on both sides) is a truce. it forms
+on a pure condition: mutual grudge, neither starving, no raid between them for
+`truce_peace_ticks`, centres within contact range. allies are skipped entirely in victim
+selection, so a truce outranks a grudge — the grudge is kept, it just stops choosing.
+nothing breaks a truce yet.
 
 ## disasters — not built yet
 

@@ -13,7 +13,7 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 
-246 tests green. local `main`, lowercase commits, **no remote yet**.
+264 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -72,9 +72,11 @@ carrying capacity settles around 98–112 agents from a start of 120, and holds 
 
 - **richer social use of messages** — nothing yet uses `info` beyond rally, and there is
   no bartering of wood.
-- **alliances** — rivalry exists (clans remember raids and settle grudges first), but
-  nothing forgives, allies, or negotiates. that is the next real social layer, and the
-  first place an llm leader would have something to decide that rules cannot express.
+- **diplomacy beyond a truce** — clans remember raids, prefer settling grudges, and can
+  agree a truce once the fighting stops. nothing yet breaks a truce, forgives a grudge,
+  shares resources, or sets a joint goal. deciding *whether* to make peace with a
+  particular clan is the first place an llm leader would have something to say that a
+  five-clause condition cannot.
 
 ## sequence from here
 

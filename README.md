@@ -211,6 +211,29 @@ times respectively.
 grudges are behaviourally near-neutral on survival — identical drought outcomes on five of
 six seeds, 17 vs 19 on the sixth. they change *who* fights whom, not how many live.
 
+### truces
+
+two clans that have hurt each other can stop. `Clan.allies` is a sorted list of clan ids,
+recorded on **both** sides — a truce has no one-sided state, so there is nothing pending to
+persist or time out.
+
+it forms on a pure condition, no rng, when all five hold: each has robbed the other at
+least once, neither is starving, no raid between them for `truce_peace_ticks` (200), their
+centres are within the sum of their influence radii plus slack, and they are not already
+allied.
+
+the effect is one line in `combat._victim()`: an ally is skipped. **a truce outranks a
+grudge** — a clan you still resent but have made peace with is passed over for a stranger.
+grudges are *kept*, not cleared: the memory of the raid outlives the fighting, it just
+stops picking the target.
+
+measured on the default world after a drought that produced four mutual feuds: **two settle
+into truces**, the other two never do because those clans drifted apart and the contact
+condition never holds. that is the rule working rather than failing.
+
+nothing forgives and nothing breaks a truce yet — once made it is permanent, and a clan
+that is never near an enemy stays at war forever.
+
 ## the social layer
 
 society. three channels, all with the same one-tick propagation lag — nothing an agent

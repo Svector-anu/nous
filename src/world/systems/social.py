@@ -249,6 +249,51 @@ def _set_goals(world: World) -> None:
         )
 
 
+def _can_truce(world: World, a: Clan, b: Clan) -> bool:
+    """Both have hurt the other, neither is desperate, the fighting has stopped, and they
+    are neighbours. A pure condition — no rng, so determinism costs nothing."""
+    config = world.config
+
+    if a.is_allied(b.clan_id) or b.is_allied(a.clan_id):
+        return False
+    if not a.members or not b.members:
+        return False
+
+    # A truce settles a real feud, not a one-sided raid.
+    if not (a.grudge_against(b.clan_id) and b.grudge_against(a.clan_id)):
+        return False
+
+    # Nobody makes peace while starving.
+    if _mean_hunger(world, a) < config.clan_desperate_threshold:
+        return False
+    if _mean_hunger(world, b) < config.clan_desperate_threshold:
+        return False
+
+    # The guns have to have been silent for a while.
+    last_blow = max(a.last_raided_by(b.clan_id), b.last_raided_by(a.clan_id))
+    if world.tick - last_blow < config.truce_peace_ticks:
+        return False
+
+    # And they have to be near enough to have contact at all.
+    if a.centre is None or b.centre is None:
+        return False
+    distance = max(abs(a.centre[0] - b.centre[0]), abs(a.centre[1] - b.centre[1]))
+    reach = a.influence_radius + b.influence_radius + config.truce_contact_slack
+    return distance <= reach
+
+
+def _form_truces(world: World) -> None:
+    """Pairs are visited in ascending clan id, so the order truces form is total."""
+    clans = sorted(
+        (world.get(e, Clan) for e in world.query(Clan)), key=lambda c: c.clan_id
+    )
+    for index, first in enumerate(clans):
+        for second in clans[index + 1 :]:
+            if _can_truce(world, first, second):
+                first.add_ally(second.clan_id)
+                second.add_ally(first.clan_id)
+
+
 def _next_clan_id(world: World) -> int:
     existing = [world.get(e, Clan).clan_id for e in world.query(Clan)]
     return max(existing, default=0) + 1
@@ -354,5 +399,6 @@ def run(world: World, rng: TickRng) -> None:
     _record_sightings(world)
     _form_clans(world, rng)
     _update_influence(world)
+    _form_truces(world)
     _set_goals(world)
     _leader_duties(world)
