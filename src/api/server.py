@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..persistence.sqlite_store import SqliteWorldStore
@@ -91,6 +92,10 @@ def create_app(
             logger.info("saved world at tick %d on shutdown", simulation.world.tick)
 
     app = FastAPI(title="Neo-Civilization", lifespan=lifespan)
+    # The viewer is plain files: the focus-3d module and a vendored copy of three.js.
+    # Vendored rather than fetched from a cdn so the viewer works offline, which is the
+    # same rule the procedural-materials reference holds itself to.
+    app.mount("/static", StaticFiles(directory=VIEWER_INDEX.parent), name="static")
 
     @app.get("/")
     async def index() -> FileResponse:

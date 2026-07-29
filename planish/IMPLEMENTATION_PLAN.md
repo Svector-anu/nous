@@ -9,7 +9,7 @@ able to read this plus the [root readme](../README.md) and continue without aski
 |:--|:--|
 | **0 — skeleton** | ✅ complete, frozen |
 | **1 — social emergence** | ✅ complete: blackboard, messaging, trade, clans, goals + influence, user agents and raiding |
-| **2 — visual upgrade** | 🟡 inspectable 2d viewer done; selective procedural 3d not started |
+| **2 — visual upgrade** | 🟡 inspectable 2d viewer + selective 3d focus view done; full procedural kit not started |
 | **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 

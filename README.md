@@ -45,6 +45,28 @@ line to whatever the agent is walking toward. `esc` clears it.
 selection is keyed by agent id, so it survives ticks as the agent moves, and says so
 plainly when the agent starves or loses a raid.
 
+**selective 3d focus.** the world map stays cheap canvas — only a *local square* of it
+ever gets meshes. click a clan in the legend, press the button in the inspector, or use
+`focus 3d: densest huts`, and a three.js overlay opens on a 25-tile square: procedural
+huts, agents, and resource nodes, with orbit / shift-drag pan / wheel zoom. `esc` or ✕
+closes it and disposes every geometry, material, texture and the renderer.
+
+it reads the same websocket snapshot the canvas does, so it is live for free and needed no
+new endpoint — the only backend addition was `owner` on buildings. a focus square holds
+~700 meshes against ~2 860 for the whole world, which is the entire point of doing it
+selectively.
+
+materials follow the claude-of-duty rules rather than its full gpu forge: **zero art
+assets, everything generated at init, nothing allocated per frame**. the pipeline is
+height-first — fbm value noise builds a height field, albedo and roughness are read off
+that height, and the normal map is a sobel derivative of it. three surfaces so far (plank
+wood, mottled plaster, shingle roof), which is enough for a hut to read as built rather
+than as boxes. three.js is **vendored into the repo**, not fetched from a cdn, because the
+same reference holds itself to working offline.
+
+a hut is modular already — four walls with real thickness, a doorway gap with a lintel, and
+a pitched roof of two leaning slabs — so it can grow into a real kit without being rebuilt.
+
 agents are coloured by clan by default; the button in the sidebar flips them back to fsm
 state colouring. deploy your own agent from the sidebar form, or over http:
 

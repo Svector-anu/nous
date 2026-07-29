@@ -103,10 +103,40 @@
   }
   #inspector .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 3px; }
   #inspector .bar span { display: block; height: 100%; border-radius: 2px; }
+
+  #focusOverlay {
+    position: fixed; inset: 0; background: #0b1016; z-index: 50;
+    display: none; flex-direction: column;
+  }
+  #focusOverlay.open { display: flex; }
+  #focusBar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  #focusBar .title { color: var(--text); }
+  #focusBar .meta { color: var(--muted); font-size: 11px; }
+  #focusBar .spacer { flex: 1; }
+  #focusBar button { width: auto; margin: 0; padding: 4px 10px; }
+  #focusCanvas { flex: 1; position: relative; min-height: 0; }
+  #focusCanvas canvas { display: block; width: 100%; height: 100%; }
+  .focusBtn { width: 100%; margin-top: 8px; }
+  #legend li.clickable { cursor: pointer; }
+  #legend li.clickable:hover { color: #fff; }
 </style>
 </head>
 <body>
   <div id="stage"><canvas id="map" width="768" height="768"></canvas></div>
+
+  <div id="focusOverlay">
+    <div id="focusBar">
+      <span class="title" id="focusTitle">focus</span>
+      <span class="meta" id="focusMeta"></span>
+      <span class="spacer"></span>
+      <span class="meta">drag orbit · shift-drag or right-drag pan · wheel zoom · esc close</span>
+      <button id="focusClose">close ✕</button>
+    </div>
+    <div id="focusCanvas"></div>
+  </div>
   <aside>
     <h1>Neo-Civilization</h1>
     <dl>
@@ -138,6 +168,8 @@
     <h2>your agents</h2>
     <ul id="deployed"></ul>
 
+    <button id="focusCluster" class="focusBtn" style="margin-bottom:20px">focus 3d: densest huts</button>
+
     <h2>World</h2>
     <ul>
       <li><span class="swatch" style="background:#1a7f37"></span>food</li>
@@ -147,7 +179,11 @@
     </ul>
   </aside>
 
-<script>
+<script type="module">
+import { FocusView, densestCluster } from "/static/focus3d.js";
+
+const FOCUS_RADIUS = 12;
+
 const STATE_COLORS = {
   IDLE:      "#6e7681",
   SEEK_NEED: "#58a6ff",
@@ -200,6 +236,11 @@ function renderLegend(snapshot) {
     item.innerHTML =
       `<span class="swatch" style="background:${clanColour(clan.id)}"></span>` +
       `${clan.size} · ${clan.goal || "—"}`;
+    if (clan.centre) {
+      item.className = "clickable";
+      item.title = `focus 3d on clan ${clan.id}`;
+      item.addEventListener("click", () => openFocus(clan.centre, `clan ${clan.id}`));
+    }
     legend.appendChild(item);
   }
   const item = document.createElement("li");
@@ -235,6 +276,42 @@ function renderDeployed(snapshot) {
     deployed.appendChild(item);
   }
 }
+
+// --- selective 3d focus -----------------------------------------------------
+
+const overlay = document.getElementById("focusOverlay");
+const focusView = new FocusView(document.getElementById("focusCanvas"));
+
+function openFocus(centre, label) {
+  if (!lastSnapshot) return;
+  overlay.classList.add("open");
+  document.getElementById("focusTitle").textContent = label;
+  // Sized after the overlay is visible, or the container measures zero.
+  focusView.open(lastSnapshot, centre, FOCUS_RADIUS, label);
+  updateFocusMeta();
+}
+
+function updateFocusMeta() {
+  const stats = focusView.stats;
+  document.getElementById("focusMeta").textContent = stats
+    ? `${stats.huts} huts · ${stats.agents} agents · ${FOCUS_RADIUS * 2 + 1} tiles across`
+    : "";
+}
+
+function closeFocus() {
+  overlay.classList.remove("open");
+  focusView.close();
+}
+
+document.getElementById("focusClose").addEventListener("click", closeFocus);
+window.addEventListener("resize", () => focusView.resize());
+
+document.getElementById("focusCluster").addEventListener("click", () => {
+  if (!lastSnapshot) return;
+  const cluster = densestCluster(lastSnapshot, FOCUS_RADIUS);
+  if (!cluster) return;
+  openFocus(cluster.centre, `densest huts · ${cluster.count} in range`);
+});
 
 const inspector = document.getElementById("inspector");
 
@@ -324,6 +401,14 @@ function renderInspector(snapshot) {
   }
 
   inspector.innerHTML = html;
+
+  if (clan && clan.centre) {
+    const button = document.createElement("button");
+    button.className = "focusBtn";
+    button.textContent = `focus 3d on clan ${clan.id}`;
+    button.addEventListener("click", () => openFocus(clan.centre, `clan ${clan.id}`));
+    inspector.appendChild(button);
+  }
 }
 
 document.getElementById("deploy").addEventListener("submit", async (event) => {
@@ -477,6 +562,10 @@ function draw(snapshot) {
   lastSnapshot = snapshot;
   renderLegend(snapshot);
   renderInspector(snapshot);
+  if (focusView.active) {
+    focusView.update(snapshot);
+    updateFocusMeta();
+  }
 }
 
 // Selection is keyed by agent id, not by index or position, so it survives ticks as
@@ -524,7 +613,10 @@ canvas.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && selectedId !== null) {
+  if (event.key !== "Escape") return;
+  if (overlay.classList.contains("open")) {
+    closeFocus();
+  } else if (selectedId !== null) {
     selectedId = null;
     if (lastSnapshot) draw(lastSnapshot);
   }

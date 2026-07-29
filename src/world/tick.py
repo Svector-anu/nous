@@ -239,7 +239,13 @@ class Simulation:
             building = world.get(entity, Building)
             position = world.get(entity, Position)
             buildings.append(
-                {"id": entity, "x": position.x, "y": position.y, "kind": building.kind}
+                {
+                    "id": entity,
+                    "x": position.x,
+                    "y": position.y,
+                    "kind": building.kind,
+                    "owner": building.owner,
+                }
             )
 
         return {
