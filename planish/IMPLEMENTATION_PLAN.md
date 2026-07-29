@@ -13,7 +13,7 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 
-199 tests green. local `main`, lowercase commits, **no remote yet**.
+229 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -87,7 +87,9 @@ phase 1 is closed. next up:
 
 ### hierarchical llm leaders — built, opt-in, unproven live
 
-`src/llm/advisor.py` plus the `leadership` system. only clan leaders are consulted; the
+`src/llm/` plus the `leadership` system, **provider-neutral**: `llm_provider` selects
+anthropic, xai/grok, or any openai-compatible endpoint (openrouter, ollama, vllm, lm
+studio) without the simulation knowing. only clan leaders are consulted; the
 bottom tier stays pure fsm permanently, because per-agent inference at one tick per second
 is arithmetic that does not work.
 

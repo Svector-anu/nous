@@ -76,9 +76,15 @@ tick (once per tick, not per agent), and `social.find_clan` scans clans linearly
 
 - **bottom (the vast majority)** — fsm + utility. **zero llm, permanently.** this is what
   makes the world runnable at all.
-- **middle (clan leaders)** — built. `src/llm/advisor.py` + the `leadership` system, off
-  behind `llm_enabled`. asked on one tick, answers on a later one; `social._choose_goal`
-  stays the floor for any clan it does not answer for.
+- **middle (clan leaders)** — built and **provider-neutral**. `src/llm/` + the
+  `leadership` system, off behind `llm_enabled`, backend chosen by `llm_provider`
+  (`anthropic` | `xai` | `openai` | `none`; the openai path also serves openrouter and
+  local servers). asked on one tick, answers on a later one; `social._choose_goal` stays
+  the floor for any clan it does not answer for.
+
+  the guarantees live in `ThreadedAdvisor`, not in any provider — a backend supplies only
+  a client, a request, and an auth-failure test, and inherits non-blocking submission,
+  exception containment, self-disable on bad credentials, and budget enforcement.
 - **top (empire / crises)** — frontier llm, rare. not built.
 
 **advisor spend is world state, not runtime state.** `AdvisorState` (`calls_made` plus

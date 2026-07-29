@@ -69,7 +69,12 @@ class WorldConfig:
     # Hierarchical cognition. Off by default: the world must run at $0 without it, and
     # every one of these limits exists so enabling it cannot produce an unbounded bill.
     llm_enabled: bool = False
+    # "anthropic" | "xai" | "openai" | "none". The openai path also serves openrouter,
+    # ollama, vllm and lm studio — they differ only by llm_base_url.
+    llm_provider: str = "anthropic"
     llm_model: str = "claude-opus-5"
+    llm_base_url: str = ""
+    llm_api_key_env: str = ""
     llm_effort: str = "low"
     llm_max_inflight: int = 2
     llm_max_calls_per_session: int = 200

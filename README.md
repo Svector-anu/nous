@@ -359,6 +359,7 @@ the simulation running normally.
 | control | default | what it bounds |
 |:--|:--|:--|
 | `llm_enabled` | `False` | nothing runs unless explicitly turned on |
+| `llm_provider` | `anthropic` | which backend, or `none` |
 | `llm_min_ticks_between_calls` | 300 | how often one clan may be consulted |
 | `llm_max_inflight` | 2 | concurrent requests |
 | `llm_max_calls_per_session` | 200 | total spend for the life of the process |
@@ -398,6 +399,41 @@ and served at `GET /decisions`:
 ```json
 {"tick": 130, "clan": 2, "goal": "gather_wood", "source": "rules", "reason": "", "latency_ms": 0}
 ```
+
+### choosing a provider
+
+the simulation talks to one interface — `submit` / `collect` / `pending` /
+`inflight_clans` / `close` — and never to a provider. adding a backend touches nothing
+outside `src/llm/`.
+
+```python
+WorldConfig(llm_enabled=True, llm_provider="xai", llm_model="grok-4")
+```
+
+| provider | goes to | key from | notes |
+|:--|:--|:--|:--|
+| `anthropic` | claude, via the official sdk | sdk resolution (env, auth token, or `ant` profile) | the default |
+| `xai` | `https://api.x.ai/v1` | `XAI_API_KEY` | grok; openai-compatible |
+| `openai` | `https://api.openai.com/v1` | `OPENAI_API_KEY` | point `llm_base_url` elsewhere for openrouter, ollama, vllm, lm studio |
+| `none` | nothing | — | rules only |
+
+an endpoint on a non-default `llm_base_url` is not required to have a key, so local
+servers work with no auth. an unrecognised provider name falls back to the rules rather
+than guessing.
+
+**the guarantees live in the base class, not in any provider.** a backend supplies three
+things — how to build its client, how to ask one question, how to recognise a permanent
+credential failure — and inherits the rest: never blocking the tick loop, containing every
+exception, self-disabling on bad credentials, honouring the budget, and reporting what it
+has in flight. a new provider cannot forget them, and `tests/test_providers.py` proves it
+by driving a deliberately minimal fake backend through the whole contract.
+
+claude speaks its own sdk. everything else speaks raw http, deliberately: the point of the
+openai-compatible path is to work against *any* endpoint implementing
+`POST /chat/completions`, including local servers whose compatibility is approximate, and a
+raw request has no opinion about which one it is talking to. structured output is requested
+via `response_format` but never relied on — the answer is also parsed defensively, and one
+that cannot be resolved to a known goal is discarded, leaving the rules standing.
 
 ### verifying the live path
 
