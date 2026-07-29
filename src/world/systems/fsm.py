@@ -27,6 +27,7 @@ from ..components import (
 from ..config import WorldConfig
 from ..ecs import Entity, World
 from ..rng import TickRng
+from ..spatial import ResourceIndex
 from .blackboard import board
 from .needs import is_starving
 
@@ -39,47 +40,12 @@ def _may_build(agent: Agent, config: WorldConfig, world_has_room: bool) -> bool:
     return world_has_room and agent.huts_owned < config.max_huts_per_agent
 
 
-def _nearest_resource(
-    world: World,
-    origin: Position,
-    kind: ResourceKind,
-    radius: int,
-) -> Entity | None:
-    best_entity: Entity | None = None
-    best_distance = radius * radius + 1
-
-    for entity in world.query(ResourceNode, Position):
-        node = world.get(entity, ResourceNode)
-        if node.kind is not kind or node.is_dormant:
-            continue
-        position = world.get(entity, Position)
-        dx = position.x - origin.x
-        dy = position.y - origin.y
-        distance = dx * dx + dy * dy
-        if distance < best_distance:
-            best_distance = distance
-            best_entity = entity
-
-    return best_entity
-
-
 def _chebyshev(position: Position, target: tuple[int, int]) -> int:
     return max(abs(position.x - target[0]), abs(position.y - target[1]))
 
 
-def _live_node_at(world: World, x: int, y: int, kind: ResourceKind) -> bool:
-    for entity in world.query(ResourceNode, Position):
-        node = world.get(entity, ResourceNode)
-        if node.kind is not kind or node.is_dormant:
-            continue
-        position = world.get(entity, Position)
-        if position.x == x and position.y == y:
-            return True
-    return False
-
-
 def _blackboard_hint(
-    world: World, origin: Position, kind: ResourceKind
+    world: World, origin: Position, kind: ResourceKind, index: ResourceIndex
 ) -> tuple[int, int] | None:
     """Nearest reported location of `kind` that still has something in the ground."""
     current = board(world)
@@ -98,7 +64,7 @@ def _blackboard_hint(
     )
     for coordinate in ordered:
         x, y = int(coordinate[0]), int(coordinate[1])
-        if (x, y) != (origin.x, origin.y) and _live_node_at(world, x, y, kind):
+        if (x, y) != (origin.x, origin.y) and index.live_at(x, y, kind):
             return x, y
     return None
 
@@ -150,7 +116,9 @@ def _rally_point(world: World, entity: Entity) -> tuple[int, int] | None:
     return None
 
 
-def _seek(world: World, entity: Entity, agent: Agent, rng: TickRng) -> None:
+def _seek(
+    world: World, entity: Entity, agent: Agent, rng: TickRng, index: ResourceIndex
+) -> None:
     config = world.config
     position = world.get(entity, Position)
 
@@ -160,7 +128,7 @@ def _seek(world: World, entity: Entity, agent: Agent, rng: TickRng) -> None:
         target = None
 
     if target is None:
-        target = _nearest_resource(world, position, agent.wants, config.vision_radius)
+        target = index.nearest(position, agent.wants, config.vision_radius)
 
         # Take what is actually in reach. Without this an agent that wants food in
         # a foraged-out region wanders forever past the wood it is standing on.
@@ -168,7 +136,7 @@ def _seek(world: World, entity: Entity, agent: Agent, rng: TickRng) -> None:
             fallback = (
                 ResourceKind.WOOD if agent.wants is ResourceKind.FOOD else ResourceKind.FOOD
             )
-            target = _nearest_resource(world, position, fallback, config.vision_radius)
+            target = index.nearest(position, fallback, config.vision_radius)
             if target is not None:
                 agent.wants = fallback
 
@@ -176,7 +144,7 @@ def _seek(world: World, entity: Entity, agent: Agent, rng: TickRng) -> None:
         # down. Hints are validated against live nodes at read time, so a sighting of
         # a since-foraged tile is ignored rather than walked to.
         if target is None:
-            hint = _blackboard_hint(world, position, agent.wants)
+            hint = _blackboard_hint(world, position, agent.wants, index)
             if hint is not None:
                 agent.target_x, agent.target_y = hint
                 return
@@ -351,6 +319,7 @@ def run(world: World, rng: TickRng) -> None:
     # Counted once per tick rather than per agent: on a crowded map, free tiles get
     # rare enough that hunting for one is not worth an agent's time.
     world_has_room = len(world.query(Building)) < config.build_ceiling()
+    index = ResourceIndex(world, config.spatial_chunk_size)
 
     for entity in world.query(Agent, Needs, Inventory, Position):
         agent = world.get(entity, Agent)
@@ -358,7 +327,7 @@ def run(world: World, rng: TickRng) -> None:
         if agent.state is AgentState.IDLE:
             _decide_from_idle(world, entity, agent, world_has_room, rng)
         elif agent.state is AgentState.SEEK_NEED:
-            _seek(world, entity, agent, rng)
+            _seek(world, entity, agent, rng, index)
         elif agent.state is AgentState.GATHER:
             _gather(world, entity, agent, world_has_room)
         elif agent.state is AgentState.REST:

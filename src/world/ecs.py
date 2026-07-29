@@ -16,6 +16,9 @@ Entity = int
 TComponent = TypeVar("TComponent")
 
 
+_MISSING = object()
+
+
 class ComponentMissingError(KeyError):
     """Raised when a component is read from an entity that does not have it."""
 
@@ -58,11 +61,11 @@ class World:
 
     def get(self, entity: Entity, component_type: type[TComponent]) -> TComponent:
         store = self._stores.get(component_type)
-        if store is None or entity not in store:
-            raise ComponentMissingError(
-                f"entity {entity} has no {component_type.__name__}"
-            )
-        return store[entity]  # type: ignore[return-value]
+        if store is not None:
+            component = store.get(entity, _MISSING)
+            if component is not _MISSING:
+                return component  # type: ignore[return-value]
+        raise ComponentMissingError(f"entity {entity} has no {component_type.__name__}")
 
     def try_get(
         self, entity: Entity, component_type: type[TComponent]
@@ -82,18 +85,38 @@ class World:
             store.pop(entity, None)
 
     def query(self, *component_types: type) -> list[Entity]:
+        """Entity ids holding all the given components, ascending.
+
+        Intersects dict key views rather than testing membership per entity in Python:
+        the key-view path runs in C and this is the single hottest call in the sim.
+        """
         if not component_types:
             return sorted(self._alive)
-        stores = [self._stores.get(t) for t in component_types]
-        if any(store is None for store in stores):
-            return []
-        present = [store for store in stores if store is not None]
-        smallest = min(present, key=len)
-        return sorted(
-            entity
-            for entity in smallest
-            if all(entity in store for store in present)
-        )
+
+        stores: list[dict[Entity, object]] = []
+        for component_type in component_types:
+            store = self._stores.get(component_type)
+            if store is None:
+                return []
+            stores.append(store)
+
+        smallest = min(stores, key=len)
+        matched = set(smallest)
+        for store in stores:
+            if store is not smallest:
+                matched &= store.keys()
+        return sorted(matched)
+
+    def first(self, component_type: type) -> Entity | None:
+        """Lowest-id entity holding this component, without sorting the whole store.
+
+        Singleton lookups (the blackboard) run per agent per tick; going through
+        query() made them the hottest path in the simulation.
+        """
+        store = self._stores.get(component_type)
+        if not store:
+            return None
+        return min(store)
 
     def component_types(self) -> list[type]:
         return sorted(self._stores, key=lambda t: t.__name__)

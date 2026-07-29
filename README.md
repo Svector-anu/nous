@@ -283,17 +283,30 @@ count climbs.
 
 ### cost
 
-per-tick cost has climbed across the phases: **1.0 ms** (phase 0) → **2.1 ms** (clans and
-blackboard) → **5.9 ms** (trade), at ~100 agents over 40000 ticks. still 0.6% of the
-budget at 1 hz.
+resource lookup goes through a chunked spatial index (`src/world/spatial.py`) — the
+partitioning `planish/TECHNICAL_ARCHITECTURE.md` calls for. node positions never change
+(nodes go dormant, they are never destroyed), so the buckets are pure position data,
+rebuilt once per tick and queried many times, with dormancy filtered at query time.
 
-profiling says the money is not where it looks. trade is 11% of runtime and social 11%;
-**56% is `fsm.run`, and 9.6 of 25.5 seconds is `_nearest_resource`** — a phase 0 function
-doing a linear scan of every resource node, per seeking agent, per tick. trade did not
-get slower, it changed the *state mix*: sociable agents forage far more actively than the
-idle, fully-stocked ones phase 0 settled into, so the expensive path runs much more often.
+the win grows with scale, which is the whole point:
 
-the fix is the spatial partitioning `planish/TECHNICAL_ARCHITECTURE.md` already calls for
-and phase 0 deliberately deferred. it is the first thing that will actually block phase 3
-agent counts — `_live_node_at` and `build.py`'s occupied-tile rebuild are the same shape
-of problem.
+| world | linear scan | spatial index | |
+|:--|--:|--:|--:|
+| 120 agents, 220 nodes | 6.13 ms/tick | 1.55 ms/tick | 4.0× |
+| 300 agents, 500 nodes | 16.53 ms/tick | 4.52 ms/tick | 3.7× |
+| 500 agents, 850 nodes | 43.51 ms/tick | 6.97 ms/tick | 6.2× |
+
+the old path was superlinear — every seeking agent scanned every node, every tick. phase 3
+wants 200–500 agents; at 500 that was 43 ms/tick and is now 7 ms, comfortably inside a 1 hz
+budget. the test suite dropped from 205 s to 68 s as a side effect.
+
+two smaller fixes came out of profiling the result. `board(world)` was doing a full sorted
+`query()` for a single-entity lookup, ~105 000 times per 1000 ticks, so `World.first()`
+now returns the lowest matching id without sorting. and `World.query()` intersects dict
+key views in C rather than testing membership per entity in python.
+
+**this refactor changes no behaviour.** `state_hash` at ticks 500, 2000 and 5000 is
+byte-identical before and after, and `tests/test_spatial.py` checks the index against a
+brute-force scan across the whole grid, before and after depletion, at five chunk sizes —
+including that ties still go to the lowest entity id, which is what the pre-index sorted
+scan did and what determinism depends on.

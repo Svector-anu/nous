@@ -34,6 +34,8 @@ class WorldConfig:
     wood_per_hut: int = 5
     vision_radius: int = 12
 
+    spatial_chunk_size: int = 8
+
     node_full_regrow_ticks: int = 300
     node_min_amount: int = 4
     node_max_amount: int = 12

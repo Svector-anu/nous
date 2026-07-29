@@ -13,8 +13,7 @@ from ..rng import TickRng
 
 
 def board_entity(world: World) -> Entity | None:
-    entities = world.query(Blackboard)
-    return entities[0] if entities else None
+    return world.first(Blackboard)
 
 
 def board(world: World) -> Blackboard | None:
