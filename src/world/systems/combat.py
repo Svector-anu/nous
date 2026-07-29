@@ -22,6 +22,7 @@ from ..components import (
     BROADCAST_CLAN,
     Agent,
     AgentState,
+    Clan,
     ClanGoal,
     ClanRef,
     Inventory,
@@ -55,15 +56,21 @@ def _is_raiding(world: World, entity: Entity) -> bool:
 
 
 def _victim(world: World, raider: Entity, positions: dict[Entity, Position]) -> Entity | None:
-    """Nearest robbable neighbour: not a clanmate, carrying food, already in reach."""
+    """Robbable neighbour in reach: not a clanmate, carrying food.
+
+    Among those in reach, someone from a clan that has robbed us is taken first — a
+    grudge is settled before a stranger is troubled. Distance breaks ties, then entity id,
+    so the choice is total and needs no rng of its own.
+    """
     radius = world.config.transfer_radius
     origin = positions[raider]
     raider_clan = _clan_of(world, raider)
+    own_clan = _clan_by_id(world, raider_clan) if raider_clan is not None else None
 
     best: Entity | None = None
-    best_distance = radius * radius + 1
+    best_rank: tuple[int, int, int] | None = None
 
-    for other, position in positions.items():
+    for other, position in sorted(positions.items()):
         if other == raider:
             continue
         other_clan = _clan_of(world, other)
@@ -75,12 +82,40 @@ def _victim(world: World, raider: Entity, positions: dict[Entity, Position]) -> 
         dy = position.y - origin.y
         if abs(dx) > radius or abs(dy) > radius:
             continue
-        distance = dx * dx + dy * dy
-        if distance < best_distance:
-            best_distance = distance
+
+        grudge = own_clan.grudge_against(other_clan) if own_clan is not None else 0
+        # Negated so a larger grudge sorts first; distance and id keep it deterministic.
+        rank = (-grudge, dx * dx + dy * dy, other)
+        if best_rank is None or rank < best_rank:
+            best_rank = rank
             best = other
 
     return best
+
+
+def _clan_by_id(world: World, clan_id: int) -> Clan | None:
+    for entity in world.query(Clan):
+        clan = world.get(entity, Clan)
+        if clan.clan_id == clan_id:
+            return clan
+    return None
+
+
+def _remember_raid(world: World, victim: Entity, raider: Entity) -> None:
+    """The victim's clan remembers the raider's clan.
+
+    Both sides must be affiliated for a grudge to exist: a lone robber has no clan to
+    blame, and a lone victim has no clan to do the remembering.
+    """
+    victim_clan_id = _clan_of(world, victim)
+    raider_clan_id = _clan_of(world, raider)
+    if victim_clan_id is None or raider_clan_id is None:
+        return
+
+    victim_clan = _clan_by_id(world, victim_clan_id)
+    if victim_clan is None:
+        return
+    victim_clan.record_raid(raider_clan_id, world.tick)
 
 
 def _flee_from(world: World, loser: Entity, winner: Entity) -> None:
@@ -123,7 +158,11 @@ def _resolve(world: World, raider: Entity, victim: Entity, rng: TickRng) -> None
     world.get(loser, Agent).raids_lost += 1
 
     if raider_wins:
-        transfer(world, victim, raider, ResourceKind.FOOD, config.raid_steal_amount)
+        taken = transfer(world, victim, raider, ResourceKind.FOOD, config.raid_steal_amount)
+        # A grudge is earned by losing food, not by losing a fight — a scuffle that took
+        # nothing leaves no debt.
+        if taken > 0:
+            _remember_raid(world, victim=victim, raider=raider)
 
     _raise_alarm(world, victim)
 

@@ -259,6 +259,30 @@ class Clan:
     goal_source: str = "rules"
     goal_reason: str = ""
     last_advisor_tick: int = -1
+    # Who has robbed us: "attacker_clan_id" -> [times_raided, last_raid_tick].
+    # Keys are strings because this round-trips through json, and kept sorted for the
+    # same reason the blackboard is — a reloaded world must iterate identically.
+    # Naturally bounded by the number of clans, so it needs no eviction.
+    grudges: dict[str, list] = field(default_factory=dict)
+
+    def record_raid(self, attacker_clan_id: int, tick: int) -> None:
+        key = str(attacker_clan_id)
+        is_new = key not in self.grudges
+        times = self.grudges.get(key, [0, -1])[0]
+        self.grudges[key] = [times + 1, tick]
+        if is_new:
+            self.grudges = dict(sorted(self.grudges.items(), key=lambda kv: int(kv[0])))
+
+    def grudge_against(self, clan_id: int | None) -> int:
+        """How many times that clan has robbed us. 0 for strangers and the clanless."""
+        if clan_id is None:
+            return 0
+        entry = self.grudges.get(str(clan_id))
+        return entry[0] if entry else 0
+
+    def last_raided_by(self, clan_id: int) -> int:
+        entry = self.grudges.get(str(clan_id))
+        return entry[1] if entry else -1
     centre: list | None = None
     influence_radius: int = 0
 

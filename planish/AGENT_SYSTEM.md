@@ -155,6 +155,12 @@ the default; raids emerge from droughts.
 an agent's carry dies with it, as it always has for starvation, so raiding destroys food
 as well as moving it.
 
+**clans remember.** a successful theft writes `[times_raided, last_raid_tick]` into the
+victim clan's `grudges`, keyed by the attacker's clan id. the only behavioural effect is in
+victim selection: among neighbours already in reach, the clan owing the deepest debt is
+robbed first, distance breaking ties. no pursuit, no new rng, no diplomacy — just memory
+and a preference. grudges never fade.
+
 ## disasters — not built yet
 
 the prd calls for map-reshaping disasters writing to the blackboard and triggering local

@@ -13,7 +13,7 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 
-229 tests green. local `main`, lowercase commits, **no remote yet**.
+246 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -72,7 +72,9 @@ carrying capacity settles around 98–112 agents from a start of 120, and holds 
 
 - **richer social use of messages** — nothing yet uses `info` beyond rally, and there is
   no bartering of wood.
-- **alliances and rivalry** — clans have no memory of who raided them.
+- **alliances** — rivalry exists (clans remember raids and settle grudges first), but
+  nothing forgives, allies, or negotiates. that is the next real social layer, and the
+  first place an llm leader would have something to decide that rules cannot express.
 
 ## sequence from here
 

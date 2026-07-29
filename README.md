@@ -183,6 +183,34 @@ one cosmetic leftover: an agent that's built its three huts keeps whatever wood 
 holding, because it has no use for it and no reason to gather more. there's no drop
 action in phase 0.
 
+### grudges
+
+a clan remembers who has robbed it. `Clan.grudges` maps attacker clan id to
+`[times_raided, last_raid_tick]` — string keys because it round-trips through json, kept
+sorted so a reloaded world iterates identically.
+
+**recorded on theft, not on violence.** a scuffle that took no food leaves no debt; the
+entry is written only when `transfer()` actually moves something. the victim's clan
+remembers, the aggressor holds nothing, and a clanless victim has no one to do the
+remembering.
+
+**one behavioural change, in one place.** `combat._victim()` used to take the nearest
+robbable neighbour. it now takes the one whose clan owes the deepest debt, with distance
+then entity id breaking ties — a total order, so no new rng stream. a grudge biases *who*
+gets robbed, never *how far* a raider will travel: raiders still never pursue, which is
+what keeps the chase livelock impossible by construction.
+
+naturally bounded by the number of clans, so no eviction. **grudges never fade** — that is
+a decision, not an oversight; nothing yet forgives.
+
+measured over a drought on the default world: peacetime holds zero grudges, and afterwards
+12 of 13 surviving clans remember something, 40 raids in total, with **four mutual feuds**
+where each clan had robbed the other. clan 1 and clan 10 robbed each other four and one
+times respectively.
+
+grudges are behaviourally near-neutral on survival — identical drought outcomes on five of
+six seeds, 17 vs 19 on the sixth. they change *who* fights whom, not how many live.
+
 ## the social layer
 
 society. three channels, all with the same one-tick propagation lag — nothing an agent
