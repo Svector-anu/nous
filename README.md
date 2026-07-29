@@ -378,12 +378,25 @@ and served at `GET /decisions`:
 {"tick": 130, "clan": 2, "goal": "gather_wood", "source": "rules", "reason": "", "latency_ms": 0}
 ```
 
-**what is untested:** there were no credentials on the machine this was built on, so the
-live Claude path has never made a real call. the contract around it is covered — budgets,
-cooldowns, timeouts, auth-failure disabling, malformed answers, fallback — with a scripted
-advisor. the request shape itself is written against the current api (structured outputs
-via `output_config.format`, cached system prompt, `effort: low`) but is unverified against
-the wire.
+### verifying the live path
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+.venv/bin/python -m scripts.verify_llm                # one clan, 3 calls max
+.venv/bin/python -m scripts.verify_llm --scripted     # offline harness check
+```
+
+settles a world, pins the advisor to a **single clan** (`llm_only_clan_id`), and prints the
+exact prompt sent, the raw response, the goal chosen, what `_choose_goal` would have chosen
+in the identical state, and whether the decision survived save/reload. every decision
+carries its own shadow comparison, so the log answers "did the model differ from the rules"
+for free.
+
+**still unverified against the wire.** the machine this was built on has no credentials of
+any kind, so no real call has ever been made. everything around the call is proven offline —
+the harness runs end to end on a scripted advisor, and the request shape follows the current
+api (structured outputs via `output_config.format`, cached system prompt, `effort: low`).
+what has not been proven is that the request shape is accepted.
 
 ### the cost of sociality
 

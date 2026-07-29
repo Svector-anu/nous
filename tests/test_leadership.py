@@ -75,6 +75,28 @@ def test_auth_failure_disables_the_advisor_permanently():
     assert advisor.submit(GoalBrief(1, 0, 3, 50.0, 0.5, 1.0, 0, "rally", 0, 0)) is False
 
 
+def test_missing_credentials_disable_the_advisor_after_one_call():
+    """A missing key raises a plain TypeError, not AuthenticationError. Without catching
+    it the advisor spends the whole session budget rediscovering the same fact."""
+    from concurrent.futures import Future
+
+    advisor = ClaudeAdvisor(budget=AdvisorBudget(max_inflight=4, max_calls_per_session=100))
+    advisor._client = object()
+
+    failed: Future = Future()
+    failed.set_exception(
+        TypeError(
+            "Could not resolve authentication method. Expected one of api_key, "
+            "auth_token, or credentials to be set."
+        )
+    )
+    advisor._inflight = [(failed, GoalBrief(1, 0, 3, 50.0, 0.5, 1.0, 0, "rally", 0, 0), 0.0)]
+
+    assert advisor.collect() == []
+    assert advisor._unavailable_reason is not None
+    assert advisor.submit(GoalBrief(1, 0, 3, 50.0, 0.5, 1.0, 0, "rally", 0, 0)) is False
+
+
 def test_non_auth_failure_does_not_disable_the_advisor():
     from concurrent.futures import Future
 
@@ -262,7 +284,10 @@ def test_every_decision_is_logged():
 
     assert entries, "no decisions were logged"
     for entry in entries:
-        assert set(entry) == {"tick", "clan", "goal", "source", "reason", "latency_ms"}
+        assert set(entry) == {
+            "tick", "clan", "goal", "source", "reason", "latency_ms",
+            "rules_goal", "verdict", "prompt", "raw_response",
+        }
         assert entry["source"] in {"rules", "llm"}
 
 

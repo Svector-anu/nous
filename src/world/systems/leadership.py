@@ -54,7 +54,7 @@ def _clan_by_id(world: World, clan_id: int) -> Clan | None:
 
 def _brief(world: World, clan: Clan, nearby: int):
     from ...llm.advisor import GoalBrief
-    from .social import _clan_food_ratio, _clan_huts, _mean_hunger
+    from .social import _choose_goal, _clan_food_ratio, _clan_huts, _mean_hunger
 
     living = [m for m in clan.members if world.is_alive(m)]
     wood = sum(
@@ -74,6 +74,9 @@ def _brief(world: World, clan: Clan, nearby: int):
         current_goal=clan.goal,
         nearby_clans=nearby,
         recent_raids_suffered=raids,
+        # Evaluated now, against the same state the model is about to see, so the two
+        # answers are genuinely comparable rather than taken at different ticks.
+        rules_goal=_choose_goal(world, clan).value,
     )
 
 
@@ -112,7 +115,23 @@ def _apply(world: World, decision) -> None:
             "source": decision.source,
             "reason": decision.reason,
             "latency_ms": decision.latency_ms,
+            "rules_goal": decision.rules_goal,
+            "verdict": decision.verdict,
+            # The exact exchange, so a decision can be audited long after it was made.
+            # Bounded by llm_log_limit like everything else in this world.
+            "prompt": decision.prompt,
+            "raw_response": decision.raw_response,
         },
+    )
+    logger.info(
+        "clan %d: %s chose %s (rules would choose %s, %s) in %dms — %s",
+        clan.clan_id,
+        decision.source,
+        decision.goal,
+        decision.rules_goal or "?",
+        decision.verdict,
+        decision.latency_ms,
+        decision.reason,
     )
 
 
@@ -142,6 +161,10 @@ def run(world: World, rng: TickRng) -> None:
     for entity in world.query(Clan):
         clan = world.get(entity, Clan)
         if not clan.members:
+            continue
+        # First-run safety valve: restrict the live path to one clan until its answers
+        # have actually been compared against the rules.
+        if config.llm_only_clan_id is not None and clan.clan_id != config.llm_only_clan_id:
             continue
         leader = clan.leader
         if leader is None or not world.is_alive(leader) or not world.has(leader, Position):

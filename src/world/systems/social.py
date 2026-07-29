@@ -234,6 +234,10 @@ def _set_goals(world: World) -> None:
                         "source": "rules",
                         "reason": "",
                         "latency_ms": 0,
+                        "rules_goal": clan.goal,
+                        "verdict": "same",
+                        "prompt": "",
+                        "raw_response": "",
                     },
                 )
 

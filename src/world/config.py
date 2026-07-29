@@ -73,6 +73,9 @@ class WorldConfig:
     llm_effort: str = "low"
     llm_max_inflight: int = 2
     llm_max_calls_per_session: int = 200
+    # First-run safety valve: when set, only this clan is ever consulted. Keeps the
+    # initial live test to a single clan and a handful of calls.
+    llm_only_clan_id: int | None = None
     llm_min_ticks_between_calls: int = 300
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200

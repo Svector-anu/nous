@@ -47,6 +47,9 @@ class GoalBrief:
     current_goal: str
     nearby_clans: int
     recent_raids_suffered: int
+    # What the rule-based _choose_goal would pick in this exact state. Carried purely so
+    # every model answer can be compared against the rules it is meant to beat.
+    rules_goal: str = ""
 
     def as_prompt(self) -> str:
         return (
@@ -69,9 +72,19 @@ class GoalDecision:
     reason: str
     source: str
     latency_ms: int = 0
+    rules_goal: str = ""
+    prompt: str = ""
+    raw_response: str = ""
 
     def is_valid(self) -> bool:
         return self.goal in GOALS
+
+    @property
+    def verdict(self) -> str:
+        """How the model's choice compares to the rules it is meant to improve on."""
+        if not self.rules_goal:
+            return "unknown"
+        return "same" if self.goal == self.rules_goal else "differs"
 
 
 class GoalAdvisor(Protocol):
@@ -120,7 +133,15 @@ class ScriptedAdvisor:
         self._queue.append(
             (
                 self.lag_calls,
-                GoalDecision(brief.clan_id, goal, self.reason, source="llm"),
+                GoalDecision(
+                    brief.clan_id,
+                    goal,
+                    self.reason,
+                    source="llm",
+                    rules_goal=brief.rules_goal,
+                    prompt=brief.as_prompt(),
+                    raw_response=f'{{"goal": "{goal}", "reason": "{self.reason}"}}',
+                ),
             )
         )
         return True
@@ -269,15 +290,27 @@ class ClaudeAdvisor:
             goal=payload["goal"],
             reason=payload.get("reason", ""),
             source="llm",
+            rules_goal=brief.rules_goal,
+            prompt=brief.as_prompt(),
+            raw_response=text,
         )
 
     @staticmethod
     def _is_auth_failure(error: Exception) -> bool:
+        """Permanent credential problems, as opposed to a transient network blip.
+
+        Two distinct shapes. A *rejected* credential raises a typed SDK error. A *missing*
+        one raises a plain TypeError from the client before any request is made — caught
+        here by message, because letting it through spends the entire session budget
+        rediscovering the same permanent fact one doomed call at a time.
+        """
         try:
             import anthropic
         except ImportError:
             return False
-        return isinstance(error, (anthropic.AuthenticationError, anthropic.PermissionDeniedError))
+        if isinstance(error, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
+            return True
+        return isinstance(error, TypeError) and "could not resolve authentication" in str(error).lower()
 
     def submit(self, brief: GoalBrief) -> bool:
         if self._ensure_client() is None:
@@ -330,6 +363,9 @@ class ClaudeAdvisor:
                     decision.reason,
                     decision.source,
                     latency_ms=int(elapsed * 1000),
+                    rules_goal=decision.rules_goal,
+                    prompt=decision.prompt,
+                    raw_response=decision.raw_response,
                 )
             )
 
