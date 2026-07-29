@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Neo-Civilization — live</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230d1117'/><circle cx='8' cy='8' r='4' fill='%2358a6ff'/></svg>">
 <style>
   :root {
     --bg: #0d1117;
@@ -139,6 +140,8 @@
   </div>
   <aside>
     <h1>Neo-Civilization</h1>
+    <button id="focusCluster" class="focusBtn">enter 3d · densest settlement</button>
+    <p class="hint" style="margin:6px 0 14px">or double-click anywhere on the map</p>
     <dl>
       <dt>status</dt><dd id="status">connecting</dd>
       <dt>tick</dt><dd id="tick">—</dd>
@@ -167,8 +170,6 @@
 
     <h2>your agents</h2>
     <ul id="deployed"></ul>
-
-    <button id="focusCluster" class="focusBtn" style="margin-bottom:20px">focus 3d: densest huts</button>
 
     <h2>World</h2>
     <ul>
@@ -624,6 +625,19 @@ canvas.addEventListener("click", (event) => {
   const hit = agentAt(event.clientX, event.clientY);
   selectedId = hit ? hit.id : null;
   if (lastSnapshot) draw(lastSnapshot);
+});
+
+canvas.addEventListener("dblclick", (event) => {
+  if (!lastSnapshot || !lastGeometry) return;
+  const rect = canvas.getBoundingClientRect();
+  const { cell, originX, originY } = lastGeometry;
+  const px = (event.clientX - rect.left) * (canvas.width / rect.width);
+  const py = (event.clientY - rect.top) * (canvas.height / rect.height);
+  const x = Math.floor((px - originX) / cell);
+  const y = Math.floor((py - originY) / cell);
+  const { width, height } = lastSnapshot.grid;
+  if (x < 0 || y < 0 || x >= width || y >= height) return;
+  openFocus([x, y], `tile ${x},${y}`);
 });
 
 document.addEventListener("keydown", (event) => {

@@ -76,6 +76,16 @@ const SURFACES = {
       return 0.75 + coarse * 0.2 - (pit > 0.82 ? 0.35 : 0);
     },
   },
+  grass: {
+    seed: 53,
+    tint: [0.33, 0.42, 0.20],
+    height(u, v, seed) {
+      const clump = fbm(u * 10, v * 10, seed, 4);
+      const blade = fbm(u * 70, v * 70, seed + 3, 2);
+      const worn = fbm(u * 3, v * 3, seed + 9, 3);
+      return 0.45 + clump * 0.32 + blade * 0.23 - (worn > 0.74 ? 0.2 : 0);
+    },
+  },
   roof: {
     seed: 37,
     tint: [0.34, 0.16, 0.13],
@@ -183,6 +193,10 @@ export class FocusView {
     this.renderer.setSize(width, height);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Without tone mapping the sun clips to white and everything below it reads muddy,
+    // which is what made the first render look like a night scene.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.35;
     this.container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
@@ -209,8 +223,8 @@ export class FocusView {
   }
 
   _light() {
-    this.scene.add(new THREE.HemisphereLight(0x9fb8d0, 0x2a2118, 0.7));
-    const sun = new THREE.DirectionalLight(0xffe8c0, 2.1);
+    this.scene.add(new THREE.HemisphereLight(0xbcd4ec, 0x4a3d2a, 1.6));
+    const sun = new THREE.DirectionalLight(0xffe8c0, 3.0);
     sun.position.set(18, 26, 12);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -227,7 +241,14 @@ export class FocusView {
     const span = (this.radius * 2 + 1) * TILE;
     const geometry = new THREE.PlaneGeometry(span, span, 1, 1);
     geometry.rotateX(-Math.PI / 2);
-    const material = new THREE.MeshStandardMaterial({ color: 0x2f3428, roughness: 1 });
+    const material = buildSurface("grass");
+    // One texture tile per two world tiles, so blades stay blade-sized rather than
+    // being stretched across the whole plot.
+    const repeat = (this.radius * 2 + 1) / 2;
+    for (const map of [material.map, material.normalMap, material.roughnessMap]) {
+      map.repeat.set(repeat, repeat);
+    }
+    this.disposables.push(material, material.map, material.normalMap, material.roughnessMap);
     const ground = new THREE.Mesh(geometry, material);
     ground.receiveShadow = true;
     this.scene.add(ground);
