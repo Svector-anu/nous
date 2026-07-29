@@ -35,6 +35,16 @@ grow back. one tick per second, full snapshot pushed over `/ws` every tick.
 state lands in `data/world.db` every 50 ticks and on clean shutdown. kill the process,
 start it again, it picks up exactly where it left off. delete the db for a new world.
 
+**click an agent to inspect it.** the side panel shows its name and personality, fsm
+state, what it wants, energy and hunger as bars, inventory, huts owned, raid record, its
+clan and whether it leads, the clan's current goal and who set it (`rules` or `llm`), and
+the clan's grudges and truces. selecting also dims every agent outside that clan, so a
+click answers "where is this clan" as well as "what is this agent doing" — and draws a
+line to whatever the agent is walking toward. `esc` clears it.
+
+selection is keyed by agent id, so it survives ticks as the agent moves, and says so
+plainly when the agent starves or loses a raid.
+
 agents are coloured by clan by default; the button in the sidebar flips them back to fsm
 state colouring. deploy your own agent from the sidebar form, or over http:
 

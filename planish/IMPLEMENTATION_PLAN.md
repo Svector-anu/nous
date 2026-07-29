@@ -9,7 +9,7 @@ able to read this plus the [root readme](../README.md) and continue without aski
 |:--|:--|
 | **0 — skeleton** | ✅ complete, frozen |
 | **1 — social emergence** | ✅ complete: blackboard, messaging, trade, clans, goals + influence, user agents and raiding |
-| **2 — visual upgrade** | ⬜ not started (intentionally) |
+| **2 — visual upgrade** | 🟡 inspectable 2d viewer done; selective procedural 3d not started |
 | **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 
@@ -113,6 +113,17 @@ silently dropped in-flight requests; both are fixed and locked down by
 
 **never verified against the real api** — no credentials existed on the build machine.
 `scripts/verify_llm.py` runs the whole single-clan comparison once a key is present.
+
+### viewer — inspectable, still 2d
+
+click-to-inspect landed before any 3d work: the simulation had grown a social layer that
+was completely invisible. the panel reads entirely from the existing per-tick snapshot,
+which gained `wants`/`huts`/`raids_won`/`raids_lost`/`received`/`target` per agent and
+`allies`/`grudges` per clan — 54kb to 66kb per tick, irrelevant at 1hz.
+
+still the phase 0 canvas. the selective procedural 3d upgrade (claude-of-duty materials,
+modular buildings, hero areas only) is unstarted and deliberately so — the point of this
+step was to be able to *see* the sim before deciding what deserves the expensive treatment.
 
 ### spatial index — done ahead of schedule
 

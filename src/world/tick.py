@@ -183,6 +183,16 @@ class Simulation:
                     "clan": reference.clan_id if reference is not None else None,
                     "user": agent.user_deployed,
                     "personality": agent.personality,
+                    "wants": agent.wants.value,
+                    "huts": agent.huts_owned,
+                    "raids_won": agent.raids_won,
+                    "raids_lost": agent.raids_lost,
+                    "received": agent.received,
+                    "target": (
+                        [agent.target_x, agent.target_y]
+                        if agent.target_x is not None and agent.target_y is not None
+                        else None
+                    ),
                 }
             )
 
@@ -199,6 +209,10 @@ class Simulation:
                     "goal_reason": clan.goal_reason,
                     "centre": clan.centre,
                     "influence": clan.influence_radius,
+                    "allies": list(clan.allies),
+                    # {"attacker_clan_id": [times, last_tick]} — the social history the
+                    # viewer had no way to show before.
+                    "grudges": {k: list(v) for k, v in clan.grudges.items()},
                 }
             )
 

@@ -85,6 +85,7 @@ def test_snapshot_shape():
     assert snapshot["grid"] == {"width": 32, "height": 32}
     assert set(snapshot["agents"][0]) == {
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
-        "user", "personality",
+        "user", "personality", "wants", "huts", "raids_won", "raids_lost", "received",
+        "target",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}

@@ -24,7 +24,9 @@
   #stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; }
   canvas { background: #010409; border: 1px solid var(--line); border-radius: 4px; max-width: 100%; image-rendering: pixelated; }
   aside {
-    width: 240px;
+    width: 300px;
+    overflow-y: auto;
+    max-height: 100vh;
     flex-shrink: 0;
     background: var(--panel);
     border-left: 1px solid var(--line);
@@ -69,6 +71,38 @@
   #deployed li { display: block; margin-bottom: 8px; }
   #deployed .who { color: var(--text); }
   #deployed .note { color: var(--muted); font-size: 11px; }
+
+  canvas { cursor: crosshair; }
+  #inspector {
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 20px;
+    background: var(--bg);
+  }
+  #inspector .hint { color: var(--muted); margin: 0; }
+  #inspector .who { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
+  #inspector .who .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #inspector .who .name { color: var(--text); }
+  #inspector .who .id { color: var(--muted); font-size: 11px; margin-left: auto; }
+  #inspector dl { margin: 0 0 10px; }
+  #inspector .note {
+    color: var(--muted); font-size: 11px; margin: 0 0 10px;
+    border-left: 2px solid var(--line); padding-left: 7px;
+  }
+  #inspector .tag {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    background: var(--panel); border: 1px solid var(--line);
+    font-size: 11px; margin: 0 4px 4px 0;
+  }
+  #inspector .tag.foe { border-color: #f85149; color: #f85149; }
+  #inspector .tag.ally { border-color: #3fb950; color: #3fb950; }
+  #inspector h3 {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin: 10px 0 5px;
+  }
+  #inspector .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 3px; }
+  #inspector .bar span { display: block; height: 100%; border-radius: 2px; }
 </style>
 </head>
 <body>
@@ -87,6 +121,9 @@
       <dt>in a clan</dt><dd id="clanned">—</dd>
       <dt>yours</dt><dd id="userAgents">—</dd>
     </dl>
+    <h2>inspector</h2>
+    <div id="inspector"><p class="hint">click an agent on the map</p></div>
+
     <button id="mode">colour: clan</button>
     <h2 id="legend-title">clans</h2>
     <ul id="legend"></ul>
@@ -199,6 +236,96 @@ function renderDeployed(snapshot) {
   }
 }
 
+const inspector = document.getElementById("inspector");
+
+function bar(value, max, colour) {
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  return `<div class="bar"><span style="width:${pct}%;background:${colour}"></span></div>`;
+}
+
+function renderInspector(snapshot) {
+  if (selectedId === null) {
+    inspector.innerHTML = '<p class="hint">click an agent on the map</p>';
+    return;
+  }
+  const agent = snapshot.agents.find((a) => a.id === selectedId);
+  if (!agent) {
+    inspector.innerHTML =
+      `<p class="hint">agent #${selectedId} is gone — starved, or lost a raid.</p>`;
+    return;
+  }
+
+  const clan = (snapshot.clans || []).find((c) => c.id === agent.clan);
+  const isLeader = clan && clan.leader === agent.id;
+  const colour = clanColour(agent.clan);
+
+  const rows = [
+    ["state", agent.state],
+    ["wants", agent.wants],
+    ["position", `${agent.x}, ${agent.y}`],
+    ["target", agent.target ? `${agent.target[0]}, ${agent.target[1]}` : "—"],
+    ["food", `${agent.food} / 5`],
+    ["wood", `${agent.wood} / 5`],
+    ["huts", agent.huts],
+  ];
+  if (agent.raids_won || agent.raids_lost) {
+    rows.push(["raids won/lost", `${agent.raids_won} / ${agent.raids_lost}`]);
+  }
+  if (agent.received) rows.push(["food received", agent.received]);
+
+  let html =
+    `<div class="who">` +
+    `<span class="dot" style="background:${colour}"></span>` +
+    `<span class="name">${escapeHtml(agent.name)}</span>` +
+    `<span class="id">#${agent.id}</span></div>`;
+
+  if (agent.user) {
+    html += `<p class="note">deployed by you${
+      agent.personality ? ` · ${escapeHtml(agent.personality)}` : ""
+    }</p>`;
+  }
+
+  html += `<h3>vitals</h3>`;
+  html += `<dl><dt>energy</dt><dd>${agent.energy}</dd></dl>${bar(agent.energy, 100, "#a371f7")}`;
+  html += `<dl style="margin-top:6px"><dt>hunger</dt><dd>${agent.hunger}</dd></dl>` +
+          `${bar(agent.hunger, 100, agent.hunger === 0 ? "#f85149" : "#3fb950")}`;
+  if (agent.hunger === 0) {
+    html += `<p class="note" style="margin-top:8px;border-color:#f85149">starving — cannot rest</p>`;
+  }
+
+  html += `<h3>doing</h3><dl>`;
+  for (const [label, value] of rows) html += `<dt>${label}</dt><dd>${value}</dd>`;
+  html += `</dl>`;
+
+  if (!clan) {
+    html += `<h3>clan</h3><p class="hint">unaffiliated</p>`;
+  } else {
+    html += `<h3>clan ${clan.id}${isLeader ? " · leader" : ""}</h3><dl>` +
+      `<dt>members</dt><dd>${clan.size}</dd>` +
+      `<dt>goal</dt><dd>${clan.goal}</dd>` +
+      `<dt>goal set by</dt><dd>${clan.goal_source}</dd>` +
+      `</dl>`;
+    if (clan.goal_reason) html += `<p class="note">${escapeHtml(clan.goal_reason)}</p>`;
+
+    const grudges = Object.entries(clan.grudges || {});
+    if (grudges.length) {
+      html += `<h3>grudges</h3>`;
+      for (const [other, [times, lastTick]] of grudges) {
+        html += `<span class="tag foe">clan ${other} ×${times} <span style="opacity:.7">t${lastTick}</span></span>`;
+      }
+    }
+    if ((clan.allies || []).length) {
+      html += `<h3>truces</h3>`;
+      for (const other of clan.allies) html += `<span class="tag ally">clan ${other}</span>`;
+    }
+    if (!grudges.length && !(clan.allies || []).length) {
+      html += `<h3>history</h3><p class="hint">no raids, no truces</p>`;
+    }
+  }
+
+  inspector.innerHTML = html;
+}
+
 document.getElementById("deploy").addEventListener("submit", async (event) => {
   event.preventDefault();
   const name = document.getElementById("agentName").value.trim();
@@ -239,9 +366,14 @@ function setText(id, value) {
 
 function draw(snapshot) {
   const { width, height } = snapshot.grid;
-  const cell = Math.floor(Math.min(canvas.width / width, canvas.height / height));
-  const originX = Math.floor((canvas.width - cell * width) / 2);
-  const originY = Math.floor((canvas.height - cell * height) / 2);
+  const { cell, originX, originY } = geometry(snapshot);
+  lastGeometry = { cell, originX, originY };
+
+  // A selection also answers "where is this clan" — clanmates stay bright, the rest dim.
+  const selected = selectedId === null
+    ? null
+    : snapshot.agents.find((a) => a.id === selectedId) || null;
+  const focusClan = selected ? selected.clan : null;
 
   ctx.fillStyle = "#010409";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -295,6 +427,11 @@ function draw(snapshot) {
   for (const agent of snapshot.agents) {
     const cx = originX + agent.x * cell + cell / 2;
     const cy = originY + agent.y * cell + cell / 2;
+    const isSelected = agent.id === selectedId;
+    const inFocus = selected === null || isSelected ||
+      (focusClan !== null && agent.clan === focusClan);
+
+    ctx.globalAlpha = inFocus ? 1 : 0.22;
     ctx.fillStyle = agentColour(agent);
     ctx.beginPath();
     ctx.arc(cx, cy, agent.user ? radius * 1.4 : radius, 0, Math.PI * 2);
@@ -303,6 +440,26 @@ function draw(snapshot) {
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1.5;
       ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    if (isSelected) {
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 4, 0, Math.PI * 2);
+      ctx.stroke();
+      if (agent.target) {
+        ctx.strokeStyle = "rgba(255,255,255,0.35)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(
+          originX + agent.target[0] * cell + cell / 2,
+          originY + agent.target[1] * cell + cell / 2
+        );
+        ctx.stroke();
+      }
     }
   }
 
@@ -319,7 +476,59 @@ function draw(snapshot) {
 
   lastSnapshot = snapshot;
   renderLegend(snapshot);
+  renderInspector(snapshot);
 }
+
+// Selection is keyed by agent id, not by index or position, so it survives ticks as
+// agents move and dies cleanly when the agent does.
+let selectedId = null;
+let lastGeometry = null;
+
+function geometry(snapshot) {
+  const { width, height } = snapshot.grid;
+  const cell = Math.floor(Math.min(canvas.width / width, canvas.height / height));
+  return {
+    cell,
+    originX: Math.floor((canvas.width - cell * width) / 2),
+    originY: Math.floor((canvas.height - cell * height) / 2),
+  };
+}
+
+function agentAt(clientX, clientY) {
+  if (!lastSnapshot || !lastGeometry) return null;
+  const rect = canvas.getBoundingClientRect();
+  // The canvas is CSS-scaled, so map back into its own pixel space first.
+  const px = (clientX - rect.left) * (canvas.width / rect.width);
+  const py = (clientY - rect.top) * (canvas.height / rect.height);
+  const { cell, originX, originY } = lastGeometry;
+
+  let best = null;
+  let bestDistance = Infinity;
+  const reach = Math.max(10, cell * 1.5);
+  for (const agent of lastSnapshot.agents) {
+    const dx = originX + agent.x * cell + cell / 2 - px;
+    const dy = originY + agent.y * cell + cell / 2 - py;
+    const distance = dx * dx + dy * dy;
+    if (distance < bestDistance && distance <= reach * reach) {
+      bestDistance = distance;
+      best = agent;
+    }
+  }
+  return best;
+}
+
+canvas.addEventListener("click", (event) => {
+  const hit = agentAt(event.clientX, event.clientY);
+  selectedId = hit ? hit.id : null;
+  if (lastSnapshot) draw(lastSnapshot);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && selectedId !== null) {
+    selectedId = null;
+    if (lastSnapshot) draw(lastSnapshot);
+  }
+});
 
 let socket = null;
 let retryDelay = 500;
