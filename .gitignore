@@ -6,3 +6,7 @@ venv/
 data/*.db
 data/*.db-journal
 .DS_Store
+
+# dev-only: playwright for scripts/verify_focus3d.mjs, never a project dependency
+node_modules/
+package-lock.json

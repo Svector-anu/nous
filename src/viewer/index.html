@@ -187,10 +187,14 @@
 window.addEventListener("error", (event) => {
   const status = document.getElementById("status");
   if (!status || status.dataset.failed) return;
+  // "connecting" is the initial markup, so still seeing it means the module never got
+  // as far as opening the socket. Anything later is a fault in a running viewer, and
+  // saying "failed to start" for those sends debugging down the wrong path.
+  const startupFailure = status.textContent.trim() === "connecting";
   status.dataset.failed = "1";
   status.style.color = "#f85149";
-  status.textContent = "viewer script failed — see console";
-  console.error("viewer failed to start:", event.message || event.error, event.filename || "");
+  status.textContent = startupFailure ? "viewer failed to start — see console" : "viewer error — see console";
+  console.error("viewer error:", event.message || event.error, event.filename || "");
 }, true);
 </script>
 
@@ -296,6 +300,9 @@ function renderDeployed(snapshot) {
 
 const overlay = document.getElementById("focusOverlay");
 const focusView = new FocusView(document.getElementById("focusCanvas"));
+// Test hook: the 3d lifecycle tests drive open/close and read renderer.info from here.
+// Read-only by convention — nothing in the viewer reads it back.
+window.__focus = focusView;
 
 function openFocus(centre, label) {
   if (!lastSnapshot) return;

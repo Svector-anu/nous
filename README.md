@@ -59,13 +59,21 @@ selectively.
 materials follow the claude-of-duty rules rather than its full gpu forge: **zero art
 assets, everything generated at init, nothing allocated per frame**. the pipeline is
 height-first — fbm value noise builds a height field, albedo and roughness are read off
-that height, and the normal map is a sobel derivative of it. three surfaces so far (plank
-wood, mottled plaster, shingle roof), which is enough for a hut to read as built rather
-than as boxes. three.js is **vendored into the repo**, not fetched from a cdn, because the
-same reference holds itself to working offline.
+that height, and the normal map is a sobel derivative of it. five surfaces so far (knotted
+plank wood, spalled plaster, coursed rubble stone, weathered shingle roof, and grass that
+dries to earth where it thins), which is enough for a hut to read as built rather than as
+boxes. three.js is **vendored into the repo**, not fetched from a cdn, because the same
+reference holds itself to working offline.
 
-a hut is modular already — four walls with real thickness, a doorway gap with a lintel, and
-a pitched roof of two leaning slabs — so it can grow into a real kit without being rebuilt.
+a hut is modular — a stone plinth bedded into the ground, four walls with real thickness, a
+doorway gap with a lintel, and a pitched roof of two leaning slabs — so it can grow into a
+real kit without being rebuilt. every box in every hut is the same unit cube sized by its
+instance matrix, and agents are batched per clan, so a settlement of 93 huts and 30 people
+costs about 21 draw calls and the per-tick path allocates nothing.
+
+open it with **enter 3d** at the top of the sidebar, or by double-clicking anywhere on the
+map. `scripts/verify_focus3d.mjs` is the adversarial check for it — it drives real chrome
+and asserts on `renderer.info` for leaks, draw calls and camera edge cases.
 
 agents are coloured by clan by default; the button in the sidebar flips them back to fsm
 state colouring. deploy your own agent from the sidebar form, or over http:

@@ -22,9 +22,8 @@ Existing Three.js procedural building generators on GitHub (search “procedural
 ## what is built
 
 **selective focus, not a 3d world.** the live map is still the phase 0 canvas. a three.js
-overlay opens on demand over one 25-tile square — a clan centre, or the densest hut
-cluster — and nothing outside it is ever meshed. ~700 meshes in focus against ~2 860 for
-the whole world.
+overlay opens on demand over one 25-tile square — a clan centre, the densest hut cluster,
+or wherever you double-click — and nothing outside it is ever meshed.
 
 - `src/viewer/focus3d.js` — the view, the materials, hand-rolled orbit/pan/zoom
 - `src/viewer/vendor/three.module.min.js` — vendored, because the reference is offline-only.
@@ -35,14 +34,44 @@ the whole world.
 
 **materials** follow the claude-of-duty rules — zero art assets, generated at init, nothing
 per frame — but not its full gpu forge. height-first on the cpu: fbm value noise → height
-→ albedo ramp and roughness → normal by sobel. three surfaces: plank wood, mottled plaster,
-shingle roof.
+→ albedo ramp and roughness → normal by sobel. five surfaces: plank wood with knots,
+mottled and spalled plaster, coursed rubble stone, weathered shingle roof, and grass that
+dries to earth where the turf thins.
 
-**huts are modular already**: four walls with real thickness, a doorway gap with a lintel,
-a pitched roof of two leaning slabs, and a per-hut rotation so a cluster is not stamped.
+**huts are modular**: a stone plinth that beds into the ground, four walls with real
+thickness, a doorway gap with a lintel, a pitched roof of two leaning slabs, and a per-hut
+rotation so a cluster is not stamped.
+
+**everything is instanced.** every box in every hut is the same unit cube, sized by its
+instance matrix, and agents are batched per clan. a settlement of 93 huts and 30 people
+draws in ~21 calls. the per-tick path allocates nothing: huts rebuild only when the set of
+buildings changes, and agents just get new matrices.
+
+**it is lit for daylight.** `ACESFilmicToneMapping` at 1.35 exposure — with three's default
+`NoToneMapping` the sun clips and the whole scene reads as night. a vertex-graded sky dome
+supplies the horizon colour, and the fog is that same colour so the ground dissolves into
+it. the fog range is derived from the framed camera distance, not the plot size.
+
+## known shape of the ground
+
+the ground is displaced by `terrainHeight`, and the same function plants every hut, tree
+and agent, so nothing floats. relief is deliberately gentle (< 1 unit across a world tile)
+because huts have square footprints and would gape on a real slope. beyond the settlement
+the displacement tapers to flat and the plane runs far past the fog, so its square corners
+never ride up over the skyline.
+
+this is scenery, not simulation: the sim still has no elevation, and nothing in it reads
+`terrainHeight`.
+
+## verifying it
+
+`scripts/verify_focus3d.mjs` drives real chrome against a running server and asserts on
+`renderer.info` — leaks across ticks and open/close cycles, draw calls, camera edge cases,
+pointer handling, and that the 2d map survives. it needs `npm i playwright` in a scratch
+directory; playwright is never a project dependency. `tests/test_viewer_3d.py` covers the
+gpu-free logic (cluster search, terrain, clan colours) under node and runs by default.
 
 ## not built
 
 the full 19-surface gpu forge, triplanar and parallax occlusion, enterable interiors,
-curvature edge wear, agent models beyond capsules, the cinematic follow camera, and any
-kind of terrain — the simulation has no elevation or biome to render.
+curvature edge wear, agent models beyond capsule-and-head, and the cinematic follow camera.
