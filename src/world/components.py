@@ -80,6 +80,8 @@ class Agent:
     huts_owned: int = 0
     last_request_tick: int = -1
     received: int = 0
+    personality: str = ""
+    user_deployed: bool = False
 
     def clear_target(self) -> None:
         self.target_entity = None
@@ -169,6 +171,20 @@ class Blackboard:
         for key in stale:
             del self.entries[key]
         return stale
+
+
+@dataclass
+class SpawnQueue:
+    """Deployment requests waiting to enter the world, held by a single world entity.
+
+    A user deploying an agent is an *input* to the simulation, so it cannot be applied
+    the moment an http request lands — that would make history depend on wall clock.
+    Requests queue here and are drained at a fixed point in the tick, with position and
+    needs drawn from the tick's rng stream. Same seed plus same deployments at the same
+    ticks reproduces the same world.
+    """
+
+    pending: list[dict] = field(default_factory=list)
 
 
 @dataclass

@@ -52,6 +52,23 @@
     cursor: pointer;
   }
   button:hover { border-color: var(--muted); }
+  input {
+    width: 100%;
+    margin-bottom: 6px;
+    padding: 5px 7px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    font: inherit;
+  }
+  #deploy button { margin-bottom: 6px; }
+  #deployStatus { margin: 0 0 16px; min-height: 1.5em; color: var(--muted); font-size: 11px; }
+  #deployStatus.bad { color: #f85149; }
+  #deployStatus.good { color: #3fb950; }
+  #deployed li { display: block; margin-bottom: 8px; }
+  #deployed .who { color: var(--text); }
+  #deployed .note { color: var(--muted); font-size: 11px; }
 </style>
 </head>
 <body>
@@ -68,10 +85,22 @@
       <dt>huts</dt><dd id="buildings">—</dd>
       <dt>clans</dt><dd id="clans">—</dd>
       <dt>in a clan</dt><dd id="clanned">—</dd>
+      <dt>yours</dt><dd id="userAgents">—</dd>
     </dl>
     <button id="mode">colour: clan</button>
     <h2 id="legend-title">clans</h2>
     <ul id="legend"></ul>
+    <h2>deploy an agent</h2>
+    <form id="deploy" autocomplete="off">
+      <input id="agentName" maxlength="24" placeholder="name" required>
+      <input id="agentPersonality" maxlength="140" placeholder="short personality note">
+      <button type="submit">deploy</button>
+      <p id="deployStatus"></p>
+    </form>
+
+    <h2>your agents</h2>
+    <ul id="deployed"></ul>
+
     <h2>World</h2>
     <ul>
       <li><span class="swatch" style="background:#1a7f37"></span>food</li>
@@ -141,6 +170,63 @@ function renderLegend(snapshot) {
   legend.appendChild(item);
 }
 
+const deployed = document.getElementById("deployed");
+const deployStatus = document.getElementById("deployStatus");
+
+function escapeHtml(text) {
+  const node = document.createElement("span");
+  node.textContent = text;
+  return node.innerHTML;
+}
+
+function renderDeployed(snapshot) {
+  const mine = snapshot.agents.filter((a) => a.user);
+  deployed.innerHTML = "";
+  if (!mine.length) {
+    const empty = document.createElement("li");
+    empty.className = "note";
+    empty.textContent = "none yet";
+    deployed.appendChild(empty);
+    return;
+  }
+  for (const agent of mine) {
+    const item = document.createElement("li");
+    item.innerHTML =
+      `<span class="who">${escapeHtml(agent.name)}</span> · ${agent.state}` +
+      (agent.clan !== null ? ` · clan ${agent.clan}` : "") +
+      (agent.personality ? `<br><span class="note">${escapeHtml(agent.personality)}</span>` : "");
+    deployed.appendChild(item);
+  }
+}
+
+document.getElementById("deploy").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = document.getElementById("agentName").value.trim();
+  const personality = document.getElementById("agentPersonality").value.trim();
+  deployStatus.className = "";
+  deployStatus.textContent = "deploying…";
+  try {
+    const response = await fetch("/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, personality }),
+    });
+    const body = await response.json();
+    if (response.ok) {
+      deployStatus.className = "good";
+      deployStatus.textContent = `${name} arrives at tick ${body.arrives_at_tick}`;
+      document.getElementById("agentName").value = "";
+      document.getElementById("agentPersonality").value = "";
+    } else {
+      deployStatus.className = "bad";
+      deployStatus.textContent = body.detail || "deploy failed";
+    }
+  } catch (error) {
+    deployStatus.className = "bad";
+    deployStatus.textContent = "deploy failed";
+  }
+});
+
 modeButton.addEventListener("click", () => {
   colourBy = colourBy === "clan" ? "state" : "clan";
   modeButton.textContent = `colour: ${colourBy}`;
@@ -207,14 +293,17 @@ function draw(snapshot) {
 
   const radius = Math.max(1.5, cell * 0.4);
   for (const agent of snapshot.agents) {
+    const cx = originX + agent.x * cell + cell / 2;
+    const cy = originY + agent.y * cell + cell / 2;
     ctx.fillStyle = agentColour(agent);
     ctx.beginPath();
-    ctx.arc(
-      originX + agent.x * cell + cell / 2,
-      originY + agent.y * cell + cell / 2,
-      radius, 0, Math.PI * 2
-    );
+    ctx.arc(cx, cy, agent.user ? radius * 1.4 : radius, 0, Math.PI * 2);
     ctx.fill();
+    if (agent.user) {
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
   }
 
   setText("tick", snapshot.tick);
@@ -225,6 +314,8 @@ function draw(snapshot) {
   setText("buildings", snapshot.stats.buildings);
   setText("clans", snapshot.stats.clans);
   setText("clanned", snapshot.stats.clanned);
+  setText("userAgents", snapshot.stats.user_agents);
+  renderDeployed(snapshot);
 
   lastSnapshot = snapshot;
   renderLegend(snapshot);

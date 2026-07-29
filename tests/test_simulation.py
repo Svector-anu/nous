@@ -17,6 +17,7 @@ def _simulate(ticks: int) -> Simulation:
 
 def test_systems_run_in_the_documented_order():
     assert build_registry().names() == [
+        "spawning",
         "messaging",
         "needs",
         "trade",
@@ -82,5 +83,6 @@ def test_snapshot_shape():
     assert snapshot["grid"] == {"width": 32, "height": 32}
     assert set(snapshot["agents"][0]) == {
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
+        "user", "personality",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}

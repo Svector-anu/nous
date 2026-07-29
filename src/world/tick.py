@@ -18,6 +18,7 @@ from .components import (
     Position,
     ResourceKind,
     ResourceNode,
+    SpawnQueue,
 )
 from .config import TICKS_PER_DAY, WorldConfig
 from .ecs import SystemRegistry, World
@@ -31,6 +32,7 @@ from .systems import (
     needs,
     regrowth,
     social,
+    spawning,
     trade,
 )
 
@@ -47,6 +49,7 @@ def build_registry() -> SystemRegistry:
     what they publish is read on the next tick. Every social channel has the same
     one-tick lag."""
     registry = SystemRegistry()
+    registry.register("spawning", spawning.run)
     registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
     registry.register("trade", trade.run)
@@ -71,6 +74,7 @@ def create_world(config: WorldConfig) -> World:
     rng = TickRng(config.seed, 0, "genesis")
 
     world.add(world.create_entity(), Blackboard())
+    world.add(world.create_entity(), SpawnQueue())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()
@@ -169,6 +173,8 @@ class Simulation:
                     "food": inventory.food,
                     "wood": inventory.wood,
                     "clan": reference.clan_id if reference is not None else None,
+                    "user": agent.user_deployed,
+                    "personality": agent.personality,
                 }
             )
 
@@ -227,5 +233,6 @@ class Simulation:
                 "buildings": len(buildings),
                 "clans": len(clans),
                 "clanned": sum(1 for a in agents if a["clan"] is not None),
+                "user_agents": sum(1 for a in agents if a["user"]),
             },
         }

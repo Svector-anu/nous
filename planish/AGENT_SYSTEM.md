@@ -12,7 +12,7 @@ an agent is an entity carrying:
 | `Position` | `x`, `y` |
 | `Needs` | `energy`, `hunger`, `social`, `safety` — only energy and hunger are driven |
 | `Inventory` | `food`, `wood`, each capped at `carry_capacity` |
-| `Agent` | `name`, `state`, target fields, `wants`, `huts_owned`, `last_request_tick`, `received` |
+| `Agent` | `name`, `state`, target fields, `wants`, `huts_owned`, `last_request_tick`, `received`, `personality`, `user_deployed` |
 | `ClanRef` | `clan_id` or none |
 | `Inbox` / `Outbox` | delivered and queued messages |
 
@@ -55,12 +55,26 @@ in `needs._already_addressing`: a rest is never cut short, and an agent already 
 what it needs is left alone. **both exemptions exist because their absence caused
 livelocks** where an agent was reset to `IDLE` every tick and never ate.
 
-## memory and personality — not built yet
+## memory and personality
 
-the prd calls for episodic memory plus llm-compressed summaries, and personality as a
-short system prompt. neither exists. agents currently have a generated name and nothing
-else. this arrives with the hierarchical llm tier, not before — bottom-tier agents are
-meant to stay free.
+**memory is not built.** the prd calls for episodic memory plus llm-compressed summaries.
+neither exists, and neither should until the hierarchical llm tier arrives — bottom-tier
+agents are meant to stay free.
+
+**personality exists, but only as a note.** user-deployed agents carry a `personality`
+string on `Agent`, stored, persisted and shown in the viewer and on `GET /agents`. nothing
+reads it: it does not steer the fsm and there is no llm to feed it to. it is deliberately
+the seam that middle-tier cognition plugs into later. genesis agents leave it empty.
+
+## user-deployed agents
+
+`POST /agents` appends to a `SpawnQueue` held by a world entity; the `spawning` system,
+first in the tick, is the only place an agent is created. that ordering is what keeps a
+deployment a reproducible *input* rather than a wall-clock event — position comes from the
+tick's rng stream, and a save carrying a pending request replays it identically.
+
+deployed agents are ordinary in every other respect: same needs, same fsm, they join
+clans, trade, starve and die. they are drawn larger with a white ring.
 
 ## roles
 

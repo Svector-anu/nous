@@ -8,12 +8,23 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field
 
 from ..persistence.sqlite_store import SqliteWorldStore
+from ..world.components import Agent, ClanRef, Position
 from ..world.config import WorldConfig
+from ..world.systems import spawning
 from ..world.tick import Simulation, create_world
+
+
+class DeployRequest(BaseModel):
+    """A user deploying an agent. Personality is a note the agent carries, not a prompt —
+    there is no llm in the loop yet."""
+
+    name: str = Field(..., description="display name for the agent")
+    personality: str = Field(default="", description="short personality note")
 
 logger = logging.getLogger("neociv")
 
@@ -82,6 +93,72 @@ def create_app(
     @app.get("/state")
     async def state() -> JSONResponse:
         return JSONResponse(app.state.simulation.snapshot())
+
+    @app.get("/agents")
+    async def agent_cards() -> JSONResponse:
+        world = app.state.simulation.world
+        cards = []
+        for entity in world.query(Agent, Position):
+            agent = world.get(entity, Agent)
+            if not agent.user_deployed:
+                continue
+            position = world.get(entity, Position)
+            reference = world.try_get(entity, ClanRef)
+            cards.append(
+                {
+                    "id": entity,
+                    "name": agent.name,
+                    "personality": agent.personality,
+                    "state": agent.state.value,
+                    "x": position.x,
+                    "y": position.y,
+                    "clan": reference.clan_id if reference is not None else None,
+                    "alive": True,
+                }
+            )
+        pending = spawning.queue(world)
+        return JSONResponse(
+            {
+                "agents": cards,
+                "pending": list(pending.pending) if pending is not None else [],
+                "limit": world.config.max_user_agents,
+            }
+        )
+
+    @app.post("/agents", status_code=202)
+    async def deploy_agent(request: DeployRequest) -> JSONResponse:
+        world = app.state.simulation.world
+        config = world.config
+
+        name = request.name.strip()
+        personality = request.personality.strip()
+        if not name:
+            raise HTTPException(422, "name must not be empty")
+        if len(name) > config.max_name_length:
+            raise HTTPException(422, f"name must be at most {config.max_name_length} characters")
+        if len(personality) > config.max_personality_length:
+            raise HTTPException(
+                422, f"personality must be at most {config.max_personality_length} characters"
+            )
+
+        pending = spawning.queue(world)
+        if pending is None:
+            raise HTTPException(503, "world is not ready")
+        if len(pending.pending) >= config.max_pending_spawns:
+            raise HTTPException(429, "spawn queue is full, try again in a moment")
+        if spawning.user_agent_count(world) + len(pending.pending) >= config.max_user_agents:
+            raise HTTPException(409, f"world is at its limit of {config.max_user_agents} user agents")
+
+        spawning.enqueue(world, name, personality)
+        return JSONResponse(
+            {
+                "queued": True,
+                "name": name,
+                "personality": personality,
+                "arrives_at_tick": world.tick + 1,
+            },
+            status_code=202,
+        )
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket) -> None:

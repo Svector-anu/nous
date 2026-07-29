@@ -33,13 +33,13 @@ token chaos. start near $0 cost with free tools.
 
 ## status
 
-phase 0 is complete and frozen. phase 1 is well underway: blackboard, structured
-messaging, resource transfer, clans, clan goals and soft influence are all live, and the
-spatial index was pulled forward from phase 3. combat and user agents are what remain.
+phase 0 is complete and frozen. phase 1 is nearly done: blackboard, structured messaging,
+resource transfer, clans, clan goals with soft influence and user-deployed agents are all
+live, and the spatial index was pulled forward from phase 3. **combat is what remains.**
 
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) is the handover doc — read that plus the
 [root readme](../README.md) and you can continue without asking anyone. code is in
-[`../src`](../src), 126 tests in [`../tests`](../tests).
+[`../src`](../src), 145 tests in [`../tests`](../tests).
 
 still untouched, deliberately: llm cognition, combat, hard territory, births, procedural
-3d, user-deployed agents, economy.
+3d, economy.

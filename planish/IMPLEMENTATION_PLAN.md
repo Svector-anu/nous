@@ -1,6 +1,6 @@
 # implementation plan
 
-status as of commit `6d13253`. this file is the handover doc: a fresh session should be
+status as of the user-agents milestone. this file is the handover doc: a fresh session should be
 able to read this plus the [root readme](../README.md) and continue without asking.
 
 ## where we are
@@ -8,12 +8,12 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | phase | state |
 |:--|:--|
 | **0 — skeleton** | ✅ complete, frozen |
-| **1 — social emergence** | 🟡 in progress: blackboard, messaging, trade, clans, goals + influence all shipped; combat and user agents outstanding |
+| **1 — social emergence** | 🟡 nearly done: blackboard, messaging, trade, clans, goals + influence and user agents all shipped; **combat is all that remains** |
 | **2 — visual upgrade** | ⬜ not started (intentionally) |
 | **3 — hierarchy & scale** | ⬜ not started; spatial index pulled forward and done |
 | **4 — spectator & economy** | ⬜ not started |
 
-126 tests green. local `main`, six lowercase commits, **no remote yet**.
+145 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -50,6 +50,10 @@ carrying capacity settles around 98–112 agents from a start of 120, and holds 
   walking in `MEET`. sharing measurably improves survival (98 → 103 agents).
 - **clans** — two idle unaffiliated agents in range found a clan, capped at
   `max_clan_size` (8). founder leads; lowest surviving id inherits; empty clans pruned.
+- **user-deployed agents** — `POST /agents` with a name and a short personality note.
+  queued on a `SpawnQueue` world entity and born in the `spawning` system, first in the
+  tick, so a deployment is a reproducible input rather than a wall-clock event. bounded by
+  `max_pending_spawns`, `max_user_agents` and length caps.
 - **clan goals + soft influence** — one active goal per clan
   (`gather_food`/`gather_wood`/`expand`/`rally`), reviewed every `goal_review_ticks` and
   published to `clan:{id}:goal`. centre is the mean member position; influence is a soft
@@ -59,22 +63,21 @@ carrying capacity settles around 98–112 agents from a start of 120, and holds 
 
 ### outstanding
 
-- **combat / raiding** — the `FLEE` state exists as an empty seam with no trigger.
-- **user-deployed agents** — name + short personality, per the prd.
+- **combat / raiding** — the `FLEE` state exists as an empty seam with no trigger. this
+  is the last thing standing between phase 1 and done.
 - **richer social use of messages** — agents act on request/offer/alert; nothing yet uses
   `info` beyond rally, and there is no bartering of wood.
 
 ## sequence from here
 
-1. **finish phase 1** — combat / raiding, then user agents
+1. **finish phase 1** — combat / raiding
 2. **stronger social** — alliances, rivalry, clan-vs-clan dynamics
 3. ~~spatial index~~ — **done early**, see below
 4. **hierarchical llm leaders** — middle tier only, per
    [TECHNICAL_ARCHITECTURE.md](TECHNICAL_ARCHITECTURE.md); the vast majority of agents
    stay pure fsm
 5. **selective procedural 3d** — claude-of-duty materials, hero areas only
-6. **user agents** — public deployment
-7. **economy layer** — prediction market stub, token chaos
+6. **economy layer** — prediction market stub, token chaos
 
 ### spatial index — done ahead of schedule
 
@@ -86,6 +89,9 @@ thing genuinely blocking phase 3 counts, so it was pulled forward.
 
 no llm brains · no combat · no hard territory exclusion · no births or reproduction ·
 no on-chain economy · no react or three.js viewer · no full 3d everywhere
+
+personality is stored on user-deployed agents but **nothing reads it** — it is the seam
+the middle llm tier plugs into, not a behaviour today.
 
 ## working notes for whoever picks this up
 

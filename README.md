@@ -12,9 +12,9 @@ don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.m
 handover doc — status, what's next, and the traps already fallen into.
 
 **where this is**: phase 0 complete and frozen. phase 1 has blackboard, structured
-messaging, resource transfer, clans, clan goals and soft influence — combat and user
-agents outstanding. the phase 3 spatial index got pulled forward because it was the only
-thing genuinely blocking scale. 126 tests, six commits on local `main`, no remote.
+messaging, resource transfer, clans, clan goals with soft influence, and user-deployed
+agents — combat is what remains. the phase 3 spatial index got pulled forward because it
+was the only thing genuinely blocking scale. 145 tests on local `main`, no remote.
 
 still deliberately absent: llm cognition, combat, hard territory, births, procedural 3d,
 user-deployed agents, economy.
@@ -35,7 +35,15 @@ state lands in `data/world.db` every 50 ticks and on clean shutdown. kill the pr
 start it again, it picks up exactly where it left off. delete the db for a new world.
 
 agents are coloured by clan by default; the button in the sidebar flips them back to fsm
-state colouring.
+state colouring. deploy your own agent from the sidebar form, or over http:
+
+```bash
+curl -X POST localhost:8000/agents -H 'Content-Type: application/json' \
+     -d '{"name":"Kestrel","personality":"hoards wood, distrusts strangers"}'
+```
+
+it arrives on the next tick, drawn larger with a white ring, and lives by exactly the same
+rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
 .venv/bin/python -m pytest tests/ -q      # 80 tests, ~46s
@@ -268,6 +276,27 @@ themselves and staying together.
 
 population went *up* with goals, from 103 to **112** at tick 40000: a clan that notices it
 is short of food and biases toward foraging feeds itself better than uncoordinated agents.
+
+### user-deployed agents
+
+`POST /agents` with a name and a short personality note. the agent arrives on the next
+tick and is an ordinary agent in every respect — same needs, same fsm, joins clans,
+trades, starves, dies. the personality is a **note it carries, not a prompt**; there is no
+llm in the loop yet, and this is the seam that tier will plug into.
+
+a deployment is an *input* to the simulation, not an event inside it, so the api never
+creates an agent. it appends to a `SpawnQueue` on a world entity, and the `spawning`
+system — first in the tick — is the single place an agent is born, drawing position from
+that tick's rng stream. history stays reproducible: same seed plus the same deployments at
+the same ticks rebuilds the same world, and a save carrying a pending request replays it
+identically on reload. both are tested.
+
+bounded on three axes, because every unbounded accumulator in this project has eventually
+eaten the simulation: `max_pending_spawns` (429), `max_user_agents` (409), and length caps
+on name and personality (422).
+
+deployed agents draw larger with a white ring and are listed with their notes in the
+sidebar. `GET /agents` returns the cards plus anything still queued.
 
 ### the cost of sociality
 

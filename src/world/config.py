@@ -56,6 +56,11 @@ class WorldConfig:
     surplus_reserve: int = 2
     request_cooldown_ticks: int = 40
 
+    max_pending_spawns: int = 32
+    max_user_agents: int = 50
+    max_name_length: int = 24
+    max_personality_length: int = 140
+
     goal_review_ticks: int = 120
     goal_bias_chance: float = 0.6
     influence_base_radius: int = 4
