@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neo-Civilization — live</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --line: #21262d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+    display: flex;
+    min-height: 100vh;
+  }
+  #stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  canvas { background: #010409; border: 1px solid var(--line); border-radius: 4px; max-width: 100%; image-rendering: pixelated; }
+  aside {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    padding: 16px;
+  }
+  h1 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 16px; }
+  dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin: 0 0 20px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  ul { list-style: none; padding: 0; margin: 0 0 20px; }
+  li { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  #status { color: var(--muted); }
+  #status.live { color: #3fb950; }
+</style>
+</head>
+<body>
+  <div id="stage"><canvas id="map" width="768" height="768"></canvas></div>
+  <aside>
+    <h1>Neo-Civilization</h1>
+    <dl>
+      <dt>status</dt><dd id="status">connecting</dd>
+      <dt>tick</dt><dd id="tick">—</dd>
+      <dt>day</dt><dd id="day">—</dd>
+      <dt>agents</dt><dd id="agents">—</dd>
+      <dt>resources</dt><dd id="resources">—</dd>
+      <dt>dormant</dt><dd id="dormant">—</dd>
+      <dt>huts</dt><dd id="buildings">—</dd>
+    </dl>
+    <h2>Agent state</h2>
+    <ul id="legend"></ul>
+    <h2>World</h2>
+    <ul>
+      <li><span class="swatch" style="background:#1a7f37"></span>food</li>
+      <li><span class="swatch" style="background:#6b5210"></span>wood</li>
+      <li><span class="swatch" style="background:#c9d1d9"></span>hut</li>
+      <li><span class="swatch" style="background:#1a7f37;opacity:.18"></span>dormant (regrowing)</li>
+    </ul>
+  </aside>
+
+<script>
+const STATE_COLORS = {
+  IDLE:      "#6e7681",
+  SEEK_NEED: "#58a6ff",
+  GATHER:    "#3fb950",
+  BUILD:     "#d29922",
+  REST:      "#a371f7",
+  FLEE:      "#f85149",
+};
+
+const canvas = document.getElementById("map");
+const ctx = canvas.getContext("2d");
+const statusEl = document.getElementById("status");
+
+const legend = document.getElementById("legend");
+for (const [state, color] of Object.entries(STATE_COLORS)) {
+  const item = document.createElement("li");
+  item.innerHTML = `<span class="swatch" style="background:${color}"></span>${state}`;
+  legend.appendChild(item);
+}
+
+function setText(id, value) {
+  document.getElementById(id).textContent = value;
+}
+
+function draw(snapshot) {
+  const { width, height } = snapshot.grid;
+  const cell = Math.floor(Math.min(canvas.width / width, canvas.height / height));
+  const originX = Math.floor((canvas.width - cell * width) / 2);
+  const originY = Math.floor((canvas.height - cell * height) / 2);
+
+  ctx.fillStyle = "#010409";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "#0d1117";
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= width; x += 8) {
+    ctx.beginPath();
+    ctx.moveTo(originX + x * cell + 0.5, originY);
+    ctx.lineTo(originX + x * cell + 0.5, originY + height * cell);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= height; y += 8) {
+    ctx.beginPath();
+    ctx.moveTo(originX, originY + y * cell + 0.5);
+    ctx.lineTo(originX + width * cell, originY + y * cell + 0.5);
+    ctx.stroke();
+  }
+
+  for (const node of snapshot.resources) {
+    const depleted = node.amount <= 0;
+    ctx.globalAlpha = depleted ? 0.18 : 0.35 + 0.65 * (node.amount / node.max);
+    ctx.fillStyle = node.kind === "FOOD" ? "#1a7f37" : "#6b5210";
+    ctx.fillRect(originX + node.x * cell, originY + node.y * cell, cell, cell);
+  }
+  ctx.globalAlpha = 1;
+
+  for (const building of snapshot.buildings) {
+    ctx.fillStyle = "#c9d1d9";
+    ctx.fillRect(originX + building.x * cell, originY + building.y * cell, cell, cell);
+  }
+
+  const radius = Math.max(1.5, cell * 0.4);
+  for (const agent of snapshot.agents) {
+    ctx.fillStyle = STATE_COLORS[agent.state] || "#ffffff";
+    ctx.beginPath();
+    ctx.arc(
+      originX + agent.x * cell + cell / 2,
+      originY + agent.y * cell + cell / 2,
+      radius, 0, Math.PI * 2
+    );
+    ctx.fill();
+  }
+
+  setText("tick", snapshot.tick);
+  setText("day", snapshot.day);
+  setText("agents", snapshot.stats.agents);
+  setText("resources", snapshot.stats.resources);
+  setText("dormant", snapshot.stats.dormant);
+  setText("buildings", snapshot.stats.buildings);
+}
+
+let socket = null;
+let retryDelay = 500;
+
+function connect() {
+  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  socket = new WebSocket(`${protocol}//${location.host}/ws`);
+
+  socket.onopen = () => {
+    retryDelay = 500;
+    statusEl.textContent = "live";
+    statusEl.className = "live";
+  };
+  socket.onmessage = (event) => draw(JSON.parse(event.data));
+  socket.onclose = () => {
+    statusEl.textContent = "reconnecting";
+    statusEl.className = "";
+    setTimeout(connect, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 10000);
+  };
+  socket.onerror = () => socket.close();
+}
+
+connect();
+</script>
+</body>
+</html>
