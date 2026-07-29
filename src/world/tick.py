@@ -6,6 +6,7 @@ import hashlib
 from typing import Protocol
 
 from .components import (
+    AdvisorState,
     Agent,
     Blackboard,
     Building,
@@ -81,6 +82,7 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), Blackboard())
     world.add(world.create_entity(), SpawnQueue())
     world.add(world.create_entity(), DecisionLog())
+    world.add(world.create_entity(), AdvisorState())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()

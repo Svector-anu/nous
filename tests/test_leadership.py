@@ -156,17 +156,22 @@ def test_a_clan_always_has_a_goal_while_a_decision_is_pending():
 
 def test_advisor_failure_falls_back_to_rules():
     class ExplodingAdvisor:
+        """Maximally hostile: raises from every method, and omits one entirely."""
+
         def submit(self, brief):
             raise RuntimeError("boom")
 
         def collect(self):
-            return []
+            raise RuntimeError("boom")
 
         def pending(self):
-            return 0
+            raise RuntimeError("boom")
+
+        # inflight_clans is deliberately absent — a third-party advisor may simply not
+        # implement the whole protocol.
 
         def close(self):
-            return None
+            raise RuntimeError("boom")
 
     simulation = _sim(advisor=ExplodingAdvisor())
     try:

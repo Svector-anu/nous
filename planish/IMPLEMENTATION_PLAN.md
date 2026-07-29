@@ -13,7 +13,7 @@ able to read this plus the [root readme](../README.md) and continue without aski
 | **3 — hierarchy & scale** | 🟡 middle llm tier built (opt-in, off by default); spatial index done |
 | **4 — spectator & economy** | ⬜ not started |
 
-186 tests green. local `main`, lowercase commits, **no remote yet**.
+199 tests green. local `main`, lowercase commits, **no remote yet**.
 
 ## phase 0 — skeleton ✅
 
@@ -100,7 +100,13 @@ bounded by `llm_enabled`, `llm_min_ticks_between_calls`, `llm_max_inflight`,
 `llm_max_calls_per_session`, `llm_timeout_seconds` and `llm_log_limit`; an auth failure
 disables the advisor permanently rather than burning the session budget.
 
+**advisor spend is durable.** `AdvisorState` persists `calls_made` and outstanding
+requests. adversarial review found that a restart previously reset the budget to zero and
+silently dropped in-flight requests; both are fixed and locked down by
+`tests/test_advisor_persistence.py`.
+
 **never verified against the real api** — no credentials existed on the build machine.
+`scripts/verify_llm.py` runs the whole single-clan comparison once a key is present.
 
 ### spatial index — done ahead of schedule
 
@@ -133,5 +139,8 @@ decides clan goals, not individual behaviour, so the seam is still unused.
 - **design the livelock out, don't tune it away.** raiders never pursue, so the obvious
   starving-raider-chases-forever failure cannot happen at any parameter setting.
 - **anything reaching outside the sim must be contained at the boundary.** the advisor is
-  the only such thing; a test that an advisor raising on every call leaves the world
-  running caught a real crash the implementation's own try/except had missed.
+  the only such thing. a hostile advisor — raising from every method and not implementing
+  the whole protocol — must leave the world running. that test has now caught two real
+  crashes, one per new code path added to `leadership`.
+- **anything that costs money is world state.** a counter kept in memory resets on restart,
+  which is the same thing as having no limit at all.

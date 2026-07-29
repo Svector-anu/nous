@@ -20,6 +20,7 @@ import logging
 
 from ..components import (
     Agent,
+    AdvisorState,
     Clan,
     ClanGoal,
     DecisionLog,
@@ -36,6 +37,87 @@ logger = logging.getLogger("neociv.leadership")
 def log(world: World) -> DecisionLog | None:
     entity = world.first(DecisionLog)
     return world.get(entity, DecisionLog) if entity is not None else None
+
+
+def advisor_state(world: World) -> AdvisorState | None:
+    entity = world.first(AdvisorState)
+    return world.get(entity, AdvisorState) if entity is not None else None
+
+
+def _inflight_clans(advisor) -> set[int]:
+    """What the advisor claims to be waiting on, or nothing if it cannot say.
+
+    An advisor is third-party code. Treating a missing or throwing method as "nothing in
+    flight" is the safe reading: recovery will re-send, bounded by attempts and budget,
+    rather than the tick loop dying.
+    """
+    try:
+        return set(advisor.inflight_clans())
+    except Exception as error:  # noqa: BLE001 - an advisor must never halt the sim
+        logger.warning("advisor.inflight_clans failed (%s); assuming nothing in flight", error)
+        return set()
+
+
+def _recover_in_flight(world: World, advisor, state: AdvisorState) -> None:
+    """Re-send requests that were in flight when the process stopped.
+
+    `AdvisorState.pending` is durable; the advisor's futures are not. After a reload the
+    two disagree, and every entry in that gap is a request the world is waiting on and
+    would otherwise wait on forever — the clan's `last_advisor_tick` persisted too, so it
+    is not eligible to be asked again.
+
+    A retry is a real API call, so it is counted like any other and capped by
+    `llm_max_recovery_attempts`.
+    """
+    live = _inflight_clans(advisor)
+    if not state.pending:
+        return
+
+    config = world.config
+    survivors: list[dict] = []
+
+    for entry in state.pending:
+        clan_id = entry["clan_id"]
+        if clan_id in live:
+            survivors.append(entry)
+            continue
+
+        clan = _clan_by_id(world, clan_id)
+        if clan is None or not clan.members:
+            logger.info("dropping orphaned advisor request for clan %d", clan_id)
+            continue
+
+        if entry["attempts"] >= config.llm_max_recovery_attempts:
+            logger.warning(
+                "clan %d: advisor request abandoned after %d attempts; rules stand",
+                clan_id,
+                entry["attempts"],
+            )
+            # Let the clan be asked afresh once its cooldown lapses.
+            clan.last_advisor_tick = world.tick
+            continue
+
+        if state.calls_made >= config.llm_max_calls_per_session:
+            logger.warning("clan %d: no budget left to recover request; rules stand", clan_id)
+            continue
+
+        try:
+            accepted = advisor.submit(_brief(world, clan, _nearby_clan_count(world, clan)))
+        except Exception as error:  # noqa: BLE001 - same containment as everywhere else
+            logger.warning("clan %d: recovery submit failed (%s)", clan_id, error)
+            accepted = False
+
+        if accepted:
+            state.calls_made += 1
+            entry["attempts"] += 1
+            survivors.append(entry)
+            logger.info(
+                "clan %d: re-sent advisor request after reload (attempt %d)",
+                clan_id,
+                entry["attempts"],
+            )
+
+    state.pending = survivors
 
 
 def record(world: World, entry: dict) -> None:
@@ -148,6 +230,12 @@ def run(world: World, rng: TickRng) -> None:
     if advisor is None:
         return
 
+    state = advisor_state(world)
+    if state is None:
+        return
+
+    _recover_in_flight(world, advisor, state)
+
     try:
         decisions = advisor.collect()
     except Exception as error:  # noqa: BLE001 - an advisor must never halt the sim
@@ -155,7 +243,13 @@ def run(world: World, rng: TickRng) -> None:
         decisions = []
 
     for decision in decisions:
+        state.drop_pending(decision.clan_id)
         _apply(world, decision)
+
+    # A request that failed or timed out leaves the advisor with nothing in flight for
+    # that clan; clear it so recovery does not keep re-sending a doomed request.
+    live = _inflight_clans(advisor)
+    state.pending = [e for e in state.pending if e["clan_id"] in live]
 
     config = world.config
     for entity in world.query(Clan):
@@ -174,6 +268,12 @@ def run(world: World, rng: TickRng) -> None:
             and world.tick - clan.last_advisor_tick < config.llm_min_ticks_between_calls
         ):
             continue
+        if state.is_pending(clan.clan_id):
+            continue
+        # The durable spend counter, not the advisor's in-memory one, is the authority:
+        # a restart must not hand the world a fresh budget.
+        if state.calls_made >= config.llm_max_calls_per_session:
+            continue
 
         try:
             accepted = advisor.submit(_brief(world, clan, _nearby_clan_count(world, clan)))
@@ -185,3 +285,5 @@ def run(world: World, rng: TickRng) -> None:
 
         if accepted:
             clan.last_advisor_tick = world.tick
+            state.calls_made += 1
+            state.add_pending(clan.clan_id, world.tick)

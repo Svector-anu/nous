@@ -177,6 +177,33 @@ class Blackboard:
 
 
 @dataclass
+class AdvisorState:
+    """Durable advisor bookkeeping. This is world state, not runtime state.
+
+    Money already spent is a fact about the world, not about the process that spent it.
+    Keeping `calls_made` on the in-memory advisor meant a restart silently reset the
+    session budget to zero, so a crash loop could spend without limit. And an in-flight
+    request vanished on reload while the clan's `last_advisor_tick` persisted — so the
+    request was never answered *and* never retried.
+
+    Both counters live here now, saved and reloaded with everything else.
+    """
+
+    calls_made: int = 0
+    pending: list[dict] = field(default_factory=list)
+
+    def is_pending(self, clan_id: int) -> bool:
+        return any(entry["clan_id"] == clan_id for entry in self.pending)
+
+    def add_pending(self, clan_id: int, tick: int) -> None:
+        if not self.is_pending(clan_id):
+            self.pending.append({"clan_id": clan_id, "tick": tick, "attempts": 1})
+
+    def drop_pending(self, clan_id: int) -> None:
+        self.pending = [e for e in self.pending if e["clan_id"] != clan_id]
+
+
+@dataclass
 class DecisionLog:
     """Every leader decision, rule-based or model-based, for inspection.
 

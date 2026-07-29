@@ -81,6 +81,13 @@ tick (once per tick, not per agent), and `social.find_clan` scans clans linearly
   stays the floor for any clan it does not answer for.
 - **top (empire / crises)** — frontier llm, rare. not built.
 
+**advisor spend is world state, not runtime state.** `AdvisorState` (`calls_made` plus
+outstanding requests) is persisted with everything else. money already spent is a fact
+about the world, not about the process that spent it — keeping the counter in memory meant
+a restart reset the budget to zero, and an in-flight request was silently dropped while the
+clan's cooldown persisted. an interrupted request is re-sent, bounded by
+`llm_max_recovery_attempts` and by the remaining budget.
+
 information asymmetry between tiers is a feature, not a limitation.
 
 **any proposal that puts an llm call in a bottom-tier agent's tick loop is wrong by

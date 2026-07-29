@@ -33,6 +33,7 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.Clan,
     component_module.SpawnQueue,
     component_module.DecisionLog,
+    component_module.AdvisorState,
 )
 
 _BY_NAME = {component_type.__name__: component_type for component_type in COMPONENT_TYPES}

@@ -96,6 +96,9 @@ class GoalAdvisor(Protocol):
 
     def pending(self) -> int: ...
 
+    def inflight_clans(self) -> set[int]:
+        """Clans with a request actually in flight in *this* process."""
+
     def close(self) -> None: ...
 
 
@@ -110,6 +113,9 @@ class NullAdvisor:
 
     def pending(self) -> int:
         return 0
+
+    def inflight_clans(self) -> set[int]:
+        return set()
 
     def close(self) -> None:
         return None
@@ -155,6 +161,9 @@ class ScriptedAdvisor:
 
     def pending(self) -> int:
         return len(self._queue)
+
+    def inflight_clans(self) -> set[int]:
+        return {decision.clan_id for _, decision in self._queue}
 
     def close(self) -> None:
         self._queue.clear()
@@ -374,6 +383,9 @@ class ClaudeAdvisor:
 
     def pending(self) -> int:
         return len(self._inflight)
+
+    def inflight_clans(self) -> set[int]:
+        return {brief.clan_id for _, brief, _ in self._inflight}
 
     def close(self) -> None:
         if self._pool is not None:

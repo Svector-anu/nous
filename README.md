@@ -364,9 +364,30 @@ the simulation running normally.
 | `llm_max_calls_per_session` | 200 | total spend for the life of the process |
 | `llm_timeout_seconds` | 30 | a stalled call falls back to rules |
 | `llm_log_limit` | 200 | the decision log is bounded like everything else |
+| `llm_max_recovery_attempts` | 2 | retries for a request interrupted by a restart |
 
 on top of those, an authentication failure disables the advisor **permanently** rather
 than spending the whole session budget rediscovering it 200 times.
+
+**advisor spend is durable world state.** `AdvisorState` holds `calls_made` and the list
+of outstanding requests, and is saved and reloaded with everything else. two bugs made
+that necessary, both found by adversarial review rather than by the tests:
+
+- the spend counter lived on the in-memory advisor, so **a restart handed the world a
+  fresh session budget** — a crash loop could spend without limit.
+- an in-flight request vanished on reload while the clan's `last_advisor_tick` persisted,
+  so the request was **never answered and never retried**; that clan sat on rule-based
+  goals with no indication anything had been lost.
+
+a request interrupted by a restart is now re-sent, capped by `llm_max_recovery_attempts`,
+and the retry is counted like any other call because it costs the same. with the budget
+exhausted there is nothing to retry with, so the request is abandoned and the rules carry
+the clan — the one thing that must never happen is spending past the cap.
+
+a reloaded world with **nothing** outstanding is byte-identical to one that ran straight
+through. with a request outstanding it cannot be — the retry is a real extra call and is
+correctly counted — so the test asserts the two worlds converge on the same clan goals and
+that the reloaded one never overspends.
 
 credentials are deliberately not gated on `ANTHROPIC_API_KEY` — the sdk also resolves an
 auth token or an `ant auth login` profile, so an env check would refuse a working setup.
