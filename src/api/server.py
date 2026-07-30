@@ -46,10 +46,24 @@ class ConnectionManager:
         self._connections.discard(websocket)
 
     async def broadcast(self, payload: dict) -> None:
+        """One bad client must never be able to stop the world.
+
+        This used to catch only WebSocketDisconnect and RuntimeError. A browser that dies
+        abruptly instead surfaces as ConnectionResetError, or anyio's BrokenResourceError,
+        and that escaped here, propagated out of the tick loop, and killed its asyncio
+        task. Nothing awaited that task until shutdown, so the failure was silent: the http
+        api carried on serving a frozen snapshot and the simulation looked alive while it
+        had stopped dead. Observed in the wild — the world sat on tick 21200 while dozens
+        of short-lived test browsers came and went.
+        """
         for websocket in list(self._connections):
             try:
                 await websocket.send_json(payload)
-            except (WebSocketDisconnect, RuntimeError):
+            except asyncio.CancelledError:
+                # Shutdown, not a client fault — must not be swallowed.
+                raise
+            except Exception:
+                logger.debug("dropping a websocket that failed to receive", exc_info=True)
                 self.disconnect(websocket)
 
 
@@ -76,8 +90,21 @@ def create_app(
         logger.info("clan advisor: %s", type(world.advisor).__name__)
 
         simulation = Simulation(world, store=store)
+        simulation.last_tick_at = None
         app.state.simulation = simulation
         loop_task = asyncio.create_task(_run_loop(simulation, manager))
+        app.state.loop_task = loop_task
+
+        def _report_stall(task: asyncio.Task) -> None:
+            """Nothing awaits the loop task until shutdown, so without this a crash inside
+            it leaves no trace at all."""
+            if task.cancelled():
+                return
+            error = task.exception()
+            if error is not None:
+                logger.error("simulation loop stopped: %r", error, exc_info=error)
+
+        loop_task.add_done_callback(_report_stall)
 
         try:
             yield
@@ -104,6 +131,26 @@ def create_app(
     @app.get("/state")
     async def state() -> JSONResponse:
         return JSONResponse(app.state.simulation.snapshot())
+
+    @app.get("/health")
+    async def health() -> JSONResponse:
+        """Is the world actually advancing? /state alone cannot answer that — a stopped
+        loop keeps serving a perfectly well-formed snapshot of a frozen world."""
+        task = getattr(app.state, "loop_task", None)
+        simulation = app.state.simulation
+        running = task is not None and not task.done()
+        error = None
+        if task is not None and task.done() and not task.cancelled():
+            exception = task.exception()
+            error = repr(exception) if exception is not None else None
+        return JSONResponse(
+            {
+                "running": running,
+                "tick": simulation.world.tick,
+                "error": error,
+            },
+            status_code=200 if running else 503,
+        )
 
     @app.get("/decisions")
     async def decisions() -> JSONResponse:
@@ -207,8 +254,20 @@ async def _run_loop(simulation: Simulation, manager: ConnectionManager) -> None:
     next_deadline = asyncio.get_running_loop().time()
 
     while True:
-        simulation.step()
-        await manager.broadcast(simulation.snapshot())
+        try:
+            simulation.step()
+            await manager.broadcast(simulation.snapshot())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A genuine fault in a system is a bug worth stopping on rather than repeating
+            # once a second forever — but it must be loud. Silence here is what let a dead
+            # loop masquerade as a running world.
+            logger.exception(
+                "tick %d raised; stopping the simulation loop", simulation.world.tick
+            )
+            raise
+        simulation.last_tick_at = asyncio.get_running_loop().time()
 
         next_deadline += interval
         delay = next_deadline - asyncio.get_running_loop().time()
