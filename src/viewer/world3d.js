@@ -342,23 +342,25 @@ const ZENITH = 0x2d4a72;
 
 // --- the view ---------------------------------------------------------------
 
-export class FocusView {
+export class WorldView {
   constructor(container) {
     this.container = container;
     this.active = false;
     this.disposables = [];
-    this.onClose = null;
   }
 
-  open(snapshot, centre, radius, label) {
-    if (this.active) this.close();
+  // Builds the persistent scene for a whole world. Measured at 49 draw calls and 148k
+  // triangles for 360 huts, 220 nodes and 114 agents — the same frame time as the old
+  // 25-tile overlay, which is why this no longer needs to be a focus square.
+  mount(snapshot) {
+    if (this.active) this.unmount();
     this.active = true;
-    this.centre = centre;
-    this.radius = radius;
-    this.label = label;
+    this.grid = { ...snapshot.grid };
+    this.worldSpan = Math.max(this.grid.width, this.grid.height) * TILE;
     this.staticKey = null;
     this.agentMeshes = new Map();
     this.clanMaterials = new Map();
+    this.agentIndex = new Map();
     // Reused every tick so the per-frame path allocates nothing.
     this.scratch = {
       matrix: new THREE.Matrix4(),
@@ -381,16 +383,16 @@ export class FocusView {
     this.renderer.toneMappingExposure = 1.35;
     this.container.appendChild(this.renderer.domElement);
 
-    const span = this.radius * TILE;
+    const span = this.worldSpan;
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(HORIZON);
     // Fog is the horizon colour rather than the page's, so the ground dissolves into the
-    // sky instead of into a dark band the eye reads as an edge. Range is set properly in
-    // _frameCamera once the camera distance is known; the plot size alone cannot say
-    // where the ground edge will actually fall on screen.
+    // sky instead of into a dark band the eye reads as an edge. Range is re-derived from
+    // the camera distance every frame, since that distance now spans street level to a
+    // whole-world overview.
     this.scene.fog = new THREE.Fog(HORIZON, span, span * 3);
 
-    this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, span * 12);
+    this.camera = new THREE.PerspectiveCamera(50, width / height, 0.1, span * 14);
 
     this.materials = {
       wood: buildSurface("wood"),
@@ -427,7 +429,7 @@ export class FocusView {
     this._ground();
     this._controls();
     this.update(snapshot);
-    this._frameCamera();
+    this.overview();
     this._frame();
   }
 
@@ -442,10 +444,14 @@ export class FocusView {
   // lands exactly where the ground meets it, at any camera angle, and the fog (same
   // colour) dissolves one into the other.
   _sky() {
-    const radius = this.radius * TILE * 8;
+    const radius = this.worldSpan * 6;
     const geometry = new THREE.SphereGeometry(radius, 32, 20);
-    const zenith = new THREE.Color(ZENITH);
-    const horizon = new THREE.Color(HORIZON);
+    // Converted to linear explicitly. Vertex colours in a BufferAttribute are consumed
+    // raw and bypass three's colour management, while fog.color is converted for us — so
+    // feeding sRGB values here rendered the horizon at rgb(196,206,215) against the
+    // fogged ground's rgb(159,178,196) and drew a hard edge where the two met.
+    const zenith = new THREE.Color(ZENITH).convertSRGBToLinear();
+    const horizon = new THREE.Color(HORIZON).convertSRGBToLinear();
     const colour = new THREE.Color();
     const position = geometry.attributes.position;
     const colours = new Float32Array(position.count * 3);
@@ -481,42 +487,47 @@ export class FocusView {
   _light() {
     this.scene.add(new THREE.HemisphereLight(0xbcd4ec, 0x4a3d2a, 1.6));
     const sun = new THREE.DirectionalLight(0xffe8c0, 3.0);
-    const span = this.radius * TILE;
+    // Offset is modest because the sun now rides with the look-at point; a world-scale
+    // offset would push the shadow frustum's near plane past the ground.
+    const span = Math.min(this.worldSpan * 0.5, TILE * 22);
     sun.position.set(span * 0.7, span * 1.1, span * 0.5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.02;
-    const extent = span + TILE * 4;
+    // The shadow camera covers a fixed window that follows what the user is looking at,
+    // rather than the whole world. One 2048 map stretched over a 128-unit world gives a
+    // hut only ~26 shadow pixels; keeping the window small holds detail where it is
+    // actually visible and simply drops shadows in the far distance, which the fog eats.
+    this.shadowExtent = Math.min(span * 0.55, TILE * 26);
     Object.assign(sun.shadow.camera, {
-      left: -extent, right: extent, top: extent, bottom: -extent,
+      left: -this.shadowExtent, right: this.shadowExtent,
+      top: this.shadowExtent, bottom: -this.shadowExtent,
       near: 1, far: span * 4,
     });
     sun.shadow.camera.updateProjectionMatrix();
     this.scene.add(sun);
     this.scene.add(sun.target);
+    this.sun = sun;
+    this.sunOffset = sun.position.clone();
   }
 
   _ground() {
-    const span = (this.radius * 2 + 1) * TILE;
-    // Generous subdivision: the displacement is what stops this reading as a flat card,
-    // and at this size the vertex count is trivial next to the buildings.
-    // Extends well past the focus square so its edge falls beyond the fog's far plane
-    // and is never seen — the settlement sits in open country, not on a floating tile.
-    const segments = Math.min(180, (this.radius * 2 + 1) * 5);
-    // Far larger than the fog can see. The outer region is tapered flat, so the extra
-    // area costs nothing in detail and guarantees the plane's own edge is never reached.
-    this.groundHalf = span * 6;
+    // The plane runs well past the world so that at a whole-world overview the eye reads
+    // land continuing to a fogged horizon, not a tile floating in space.
+    this.groundHalf = this.worldSpan * 1.3;
+    // Terrain features are ~36 units across at the base octave and ~4.5 at the finest, so
+    // roughly one segment per unit resolves the relief with room to spare.
+    const segments = 220;
     const geometry = new THREE.PlaneGeometry(this.groundHalf * 2, this.groundHalf * 2, segments, segments);
     geometry.rotateX(-Math.PI / 2);
 
-    // Relief fades out with distance. Left un-tapered, the far *corners* of the square
-    // plane ride up over the skyline as two hard triangles — the diagonal reaches 1.4x
-    // further than the edges. Beyond `outer` the ground is flat and the fog takes it.
-    // Everything the simulation can place sits inside `inner` for any radius
-    // (radius*TILE < 0.7*(2*radius+1)*TILE), so no hut is ever on tapered ground.
-    const inner = span * 0.7;
-    const outer = span * 1.15;
+    // Relief fades out past the world's own edge. Left un-tapered, the far *corners* of
+    // the square plane ride up over the skyline as two hard triangles — the diagonal
+    // reaches 1.4x further than the edges. Everything the simulation can place sits
+    // inside `inner`, so no hut is ever planted on tapered ground.
+    const inner = this.worldSpan * 0.75;
+    const outer = this.groundHalf * 0.92;
     const position = geometry.attributes.position;
     for (let i = 0; i < position.count; i++) {
       const x = position.getX(i);
@@ -529,9 +540,8 @@ export class FocusView {
     geometry.computeVertexNormals();
 
     const material = buildSurface("grass");
-    // One texture tile per two world tiles. This has to be derived from the plane's own
-    // size, not the focus square — the plane is much larger than the plot, and scaling
-    // this to the plot stretched every blade across 48 metres.
+    // One texture tile per two world tiles, derived from the plane's own size — scaling
+    // this to anything smaller stretched every blade across tens of metres.
     const repeat = (this.groundHalf * 2) / (TILE * 2);
     for (const map of [material.map, material.normalMap, material.roughnessMap]) {
       map.repeat.set(repeat, repeat);
@@ -541,6 +551,26 @@ export class FocusView {
     const ground = new THREE.Mesh(geometry, material);
     ground.receiveShadow = true;
     this.scene.add(ground);
+
+    // A second, far larger plane carrying the horizon. The detailed plane above has to
+    // stay modest so its segments land where the settlements are, which means its own
+    // edge falls inside the view — and a silhouette edge there meets the sky dome at a
+    // point where the dome is already graded toward the zenith, drawing a hard V. This
+    // one reaches well past the fog, so the horizon is always fogged ground: uniform
+    // HORIZON, exactly the colour the dome starts from. Two triangles, effectively free.
+    // Sits a hair below so the two never z-fight; the detailed plane tapers to zero at
+    // its rim, so the step is invisible.
+    const farGeometry = new THREE.PlaneGeometry(this.worldSpan * 24, this.worldSpan * 24, 1, 1);
+    farGeometry.rotateX(-Math.PI / 2);
+    const farMaterial = buildSurface("grass");
+    const farRepeat = (this.worldSpan * 24) / (TILE * 2);
+    for (const map of [farMaterial.map, farMaterial.normalMap, farMaterial.roughnessMap]) {
+      map.repeat.set(farRepeat, farRepeat);
+    }
+    this._own(farGeometry, farMaterial, farMaterial.map, farMaterial.normalMap, farMaterial.roughnessMap);
+    const far = new THREE.Mesh(farGeometry, farMaterial);
+    far.position.y = -0.02;
+    this.scene.add(far);
   }
 
   // Orbit + pan + zoom, hand-rolled: about seventy lines against another vendored file,
@@ -598,10 +628,8 @@ export class FocusView {
     };
     const wheel = (event) => {
       event.preventDefault();
-      const min = TILE * 1.2;
-      const max = this.radius * TILE * 4;
       const next = this.orbit.distance * (1 + event.deltaY * 0.0012);
-      this.orbit.distance = Math.max(min, Math.min(max, next));
+      this.orbit.distance = Math.max(this.minDistance, Math.min(this.maxDistance, next));
     };
     const menu = (event) => event.preventDefault();
 
@@ -624,37 +652,29 @@ export class FocusView {
     };
   }
 
+  get minDistance() {
+    return TILE * 1.2;
+  }
+
+  get maxDistance() {
+    // Far enough back to hold the whole world, with a little slack so the overview does
+    // not sit exactly on the stop.
+    return this._fitDistance(this.worldSpan / 2, this.worldSpan / 2) * 1.15;
+  }
+
   _clampTarget() {
-    // Panning past the edge of the plot loses the settlement off-screen with no way
-    // back except reopening.
-    const limit = (this.radius + 2) * TILE;
+    // Panning off the world entirely leaves nothing on screen and no way back.
+    const limit = this.worldSpan * 0.62;
     this.target.x = Math.max(-limit, Math.min(limit, this.target.x));
     this.target.z = Math.max(-limit, Math.min(limit, this.target.z));
   }
 
-  // Frame whatever is actually there, rather than assuming the plot is full. A clan of
-  // three huts and a cluster of ninety should both fill the view on open.
-  //
-  // The fit is done by projecting the content's corners onto the camera's own right/up
-  // axes. Fitting the raw width and depth instead is wrong for any camera that is not
-  // overhead: a low camera foreshortens the depth axis, and the naive version put the
-  // near row of huts off the bottom of the screen.
-  _frameCamera() {
-    const bounds = this.bounds;
-    const theta = Math.PI * 0.22;
-    const phi = Math.PI * 0.32;
+  // Distance needed to hold a half-extent, projected onto the camera's own right/up axes.
+  // Fitting raw width and depth instead is wrong for any camera that is not overhead: a
+  // low camera foreshortens the depth axis, which put the near row of huts off-screen.
+  _fitDistance(halfX, halfZ, theta = Math.PI * 0.22, phi = Math.PI * 0.32, relief = 4) {
     const fov = THREE.MathUtils.degToRad(this.camera.fov);
     const aspect = Math.max(0.4, this.camera.aspect);
-
-    const minX = bounds ? bounds.minX : -this.radius * TILE;
-    const maxX = bounds ? bounds.maxX : this.radius * TILE;
-    const minZ = bounds ? bounds.minZ : -this.radius * TILE;
-    const maxZ = bounds ? bounds.maxZ : this.radius * TILE;
-    const centreX = (minX + maxX) / 2;
-    const centreZ = (minZ + maxZ) / 2;
-    const centreY = terrainHeight(centreX, centreZ) + HUT.height * 0.5;
-    this.target.set(centreX, centreY, centreZ);
-
     const direction = new THREE.Vector3(
       Math.sin(phi) * Math.sin(theta),
       Math.cos(phi),
@@ -663,68 +683,68 @@ export class FocusView {
     const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), direction).normalize();
     const up = new THREE.Vector3().crossVectors(direction, right).normalize();
 
-    // Vertical span allows for terrain relief under the huts and the roof ridge above.
-    // Bounds come from hut centres, so pad by a hut's own footprint or the outermost
-    // row hangs off the edge of the screen.
-    const relief = 3.6;
-    const pad = TILE;
     const corner = new THREE.Vector3();
     let spanRight = TILE;
     let spanUp = TILE;
-    for (const x of [minX - pad, maxX + pad]) {
-      for (const z of [minZ - pad, maxZ + pad]) {
-        for (const y of [centreY - relief, centreY + relief]) {
-          corner.set(x - centreX, y - centreY, z - centreZ);
+    for (const x of [-halfX, halfX]) {
+      for (const z of [-halfZ, halfZ]) {
+        for (const y of [-relief, relief]) {
+          corner.set(x, y, z);
           spanRight = Math.max(spanRight, Math.abs(corner.dot(right)));
           spanUp = Math.max(spanUp, Math.abs(corner.dot(up)));
         }
       }
     }
-
     const tanHalf = Math.tan(fov / 2);
+    return Math.max(spanUp / tanHalf, spanRight / (tanHalf * aspect)) * 1.12;
+  }
+
+  // Pull back to hold the entire world. This is the default on mount.
+  overview() {
+    const half = this.worldSpan / 2;
+    this.target.set(0, terrainHeight(0, 0) + HUT.height * 0.5, 0);
     this.orbit = {
-      theta,
-      phi,
-      distance: Math.max(spanUp / tanHalf, spanRight / (tanHalf * aspect)) * 1.18,
+      theta: Math.PI * 0.22,
+      phi: Math.PI * 0.30,
+      distance: this._fitDistance(half, half),
     };
-    this.home = { ...this.orbit, target: this.target.clone() };
-
-    // Fog has to be measured against where the ground actually *is*, not the plot size:
-    // an earlier version put fog.near at 74 when the whole ground sat within 50 units of
-    // the camera, so no fog was ever applied and the plane ended on a hard edge. The far
-    // plane is pinned past the ground's own boundary so that boundary is always fully
-    // dissolved before it can be seen.
-    const eye = this.orbit.distance;
-    this.scene.fog.near = eye + this.radius * TILE * 0.4;
-    // Saturate at roughly twice the framed distance — well inside the ground's own
-    // boundary, so the plane's square corner is fully dissolved long before it is
-    // reached and never shows as a V against the sky.
-    this.scene.fog.far = eye + this.radius * TILE * 2.4;
   }
 
-  resetCamera() {
-    if (!this.active || !this.home) return;
-    this.orbit = { theta: this.home.theta, phi: this.home.phi, distance: this.home.distance };
-    this.target.copy(this.home.target);
-  }
-
-  inFocus(item) {
-    return (
-      Math.abs(item.x - this.centre[0]) <= this.radius &&
-      Math.abs(item.y - this.centre[1]) <= this.radius
+  // Move the camera to simulation coordinates. `span` is the half-extent in world units
+  // to hold in frame, so a clan of three huts and a cluster of ninety both fill the view.
+  flyTo(simX, simY, span = TILE * 9) {
+    if (!this.active) return;
+    const [x, z] = this.local({ x: simX, y: simY });
+    this.target.set(x, terrainHeight(x, z) + HUT.height * 0.5, z);
+    this._clampTarget();
+    this.orbit.theta = Math.PI * 0.22;
+    this.orbit.phi = Math.PI * 0.36;
+    this.orbit.distance = Math.max(
+      this.minDistance,
+      Math.min(this.maxDistance, this._fitDistance(span, span, this.orbit.theta, this.orbit.phi))
     );
   }
 
+  // Simulation (x, y) to world (x, z), with the world centred on the origin. Sim y maps
+  // to world z; centring keeps the camera maths simple.
   local(item) {
-    // Simulation y maps to world z; centring keeps the camera maths simple.
-    return [(item.x - this.centre[0]) * TILE, (item.y - this.centre[1]) * TILE];
+    return [
+      (item.x - this.grid.width / 2) * TILE,
+      (item.y - this.grid.height / 2) * TILE,
+    ];
+  }
+
+  // World (x, z) back to fractional simulation coordinates. Needed by the minimap and by
+  // click-to-fly, which both work in simulation space.
+  toSim(x, z) {
+    return [x / TILE + this.grid.width / 2, z / TILE + this.grid.height / 2];
   }
 
   update(snapshot) {
     if (!this.active || !snapshot) return;
-    const buildings = snapshot.buildings.filter((b) => this.inFocus(b));
-    const resources = snapshot.resources.filter((r) => this.inFocus(r) && r.amount > 0);
-    const agents = snapshot.agents.filter((a) => this.inFocus(a));
+    const buildings = snapshot.buildings;
+    const resources = snapshot.resources.filter((r) => r.amount > 0);
+    const agents = snapshot.agents;
 
     // Huts and trees only change when something is built or exhausted, which is rare
     // next to the tick rate. Rebuilding them every tick was throwing away and
@@ -736,20 +756,7 @@ export class FocusView {
     }
     this._syncAgents(agents);
 
-    this.bounds = this._bounds(buildings, agents);
-    this.stats = { huts: buildings.length, agents: agents.length };
-  }
-
-  _bounds(buildings, agents) {
-    const points = [...buildings, ...agents];
-    if (points.length === 0) return null;
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const point of points) {
-      const [x, z] = this.local(point);
-      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-      minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
-    }
-    return { minX, maxX, minZ, maxZ };
+    this.stats = { huts: buildings.length, agents: agents.length, nodes: resources.length };
   }
 
   _buildStatic(buildings, resources) {
@@ -887,12 +894,17 @@ export class FocusView {
           mesh.frustumCulled = false;
           this.scene.add(mesh);
         }
-        entry = { body, head, count: list.length };
+        entry = { body, head, count: list.length, ids: new Array(list.length) };
         this.agentMeshes.set(key, entry);
+        // Both batches share one id list: a raycast can land on either a body or a head
+        // and must resolve to the same person.
+        this.agentIndex.set(body, entry.ids);
+        this.agentIndex.set(head, entry.ids);
       }
 
       for (let i = 0; i < list.length; i++) {
         const agent = list[i];
+        entry.ids[i] = agent.id;
         const [x, z] = this.local(agent);
         const ground = terrainHeight(x, z);
 
@@ -952,6 +964,9 @@ export class FocusView {
     for (const mesh of [entry.body, entry.head]) {
       this.scene.remove(mesh);
       mesh.dispose();
+      // Must be dropped here too, or the pick index keeps a strong reference to every
+      // batch ever built and the raycast targets grow without bound.
+      this.agentIndex.delete(mesh);
     }
     this.agentMeshes.delete(key);
   }
@@ -978,7 +993,60 @@ export class FocusView {
       this.target.z + distance * Math.sin(phi) * Math.cos(theta)
     );
     this.camera.lookAt(this.target);
+
+    // The shadow window follows the look-at point, so shadow detail stays where the user
+    // is looking instead of being spread thin across the whole world.
+    this.sun.position.copy(this.target).add(this.sunOffset);
+    this.sun.target.position.copy(this.target);
+    this.sun.target.updateMatrixWorld();
+
+    // Fog is re-derived from the camera distance every frame because that distance now
+    // ranges from street level to a whole-world overview; a fixed range would either fog
+    // the settlement you zoomed into or leave the ground edge hard when zoomed out.
+    this.scene.fog.near = distance + this.worldSpan * 0.10;
+    this.scene.fog.far = distance + this.worldSpan * 0.95;
+
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // Where the camera is looking, in simulation coordinates, plus roughly how far it can
+  // see. The minimap draws this so you always know where you are in the world.
+  // `radius` is the half-extent perpendicular to the view direction — along the view it
+  // reaches further, but one number is enough for an indicator.
+  viewFootprint() {
+    if (!this.active) return null;
+    const [x, y] = this.toSim(this.target.x, this.target.z);
+    const halfFov = THREE.MathUtils.degToRad(this.camera.fov) / 2;
+    return {
+      x,
+      y,
+      radius: (this.orbit.distance * Math.tan(halfFov)) / TILE,
+    };
+  }
+
+  // Screen point to agent id, by raycasting the instanced agent batches. The 2d map is a
+  // minimap now, far too small to click one person on, so picking has to work in 3d.
+  pick(clientX, clientY) {
+    if (!this.active || this.agentMeshes.size === 0) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+
+    if (!this.raycaster) this.raycaster = new THREE.Raycaster();
+    const pointer = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1
+    );
+    this.raycaster.setFromCamera(pointer, this.camera);
+
+    const targets = [];
+    for (const entry of this.agentMeshes.values()) targets.push(entry.body, entry.head);
+    const hits = this.raycaster.intersectObjects(targets, false);
+    for (const hit of hits) {
+      if (hit.instanceId === undefined) continue;
+      const ids = this.agentIndex.get(hit.object);
+      if (ids && ids[hit.instanceId] !== undefined) return ids[hit.instanceId];
+    }
+    return null;
   }
 
   resize() {
@@ -989,8 +1057,10 @@ export class FocusView {
     this.renderer.setSize(width, height);
   }
 
-  // Closing must actually free the gpu memory, not just hide the panel.
-  close() {
+  // Unmounting must actually free the gpu memory, not just hide the element. Browsers cap
+  // live webgl contexts at around 16, so a leaked context here means a later mount
+  // silently renders nothing.
+  unmount() {
     if (!this.active) return;
     this.active = false;
     cancelAnimationFrame(this.frameHandle);
@@ -1004,6 +1074,7 @@ export class FocusView {
       this.rings = null;
     }
     this.clanMaterials.clear();
+    this.agentIndex.clear();
 
     for (const item of this.disposables) {
       if (item && typeof item.dispose === "function") item.dispose();
@@ -1016,9 +1087,9 @@ export class FocusView {
     this.scene = null;
     this.renderer = null;
     this.camera = null;
-    this.bounds = null;
+    this.raycaster = null;
+    this.sun = null;
     this.staticKey = null;
-    if (this.onClose) this.onClose();
   }
 }
 

@@ -48,7 +48,7 @@ def _walk() -> set[Path]:
 
 
 def test_the_index_imports_the_focus_module():
-    assert _resolve("/static/focus3d.js", VIEWER_INDEX) in _walk()
+    assert _resolve("/static/world3d.js", VIEWER_INDEX) in _walk()
 
 
 def test_every_module_in_the_graph_exists_on_disk():

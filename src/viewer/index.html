@@ -22,8 +22,9 @@
     display: flex;
     min-height: 100vh;
   }
-  #stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px; }
-  canvas { background: #010409; border: 1px solid var(--line); border-radius: 4px; max-width: 100%; image-rendering: pixelated; }
+  #stage { flex: 1; position: relative; min-width: 0; }
+  #world { position: absolute; inset: 0; }
+  #world canvas { display: block; width: 100%; height: 100%; border: 0; border-radius: 0; }
   aside {
     width: 300px;
     overflow-y: auto;
@@ -105,43 +106,55 @@
   #inspector .bar { height: 4px; border-radius: 2px; background: var(--line); margin-top: 3px; }
   #inspector .bar span { display: block; height: 100%; border-radius: 2px; }
 
-  #focusOverlay {
-    position: fixed; inset: 0; background: #0b1016; z-index: 50;
-    display: none; flex-direction: column;
-  }
-  #focusOverlay.open { display: flex; }
-  #focusBar {
+  /* Overlaid on the 3d view rather than in the sidebar: it names what you are looking
+     at, so it belongs next to the thing it describes. */
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
     display: flex; align-items: center; gap: 12px;
-    padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+    padding: 10px 14px; pointer-events: none;
+    background: linear-gradient(#0d1117cc, #0d111700);
   }
-  #focusBar .title { color: var(--text); }
-  #focusBar .meta { color: var(--muted); font-size: 11px; }
-  #focusBar .spacer { flex: 1; }
-  #focusBar button { width: auto; margin: 0; padding: 4px 10px; }
-  #focusCanvas { flex: 1; position: relative; min-height: 0; }
-  #focusCanvas canvas { display: block; width: 100%; height: 100%; }
-  .focusBtn { width: 100%; margin-top: 8px; }
+  #hud .title { color: #fff; text-shadow: 0 1px 3px #000; }
+  #hud .meta { color: #c9d1d9; font-size: 11px; text-shadow: 0 1px 3px #000; }
+  #hud .spacer { flex: 1; }
+
+  /* The 2d map, demoted to a minimap. Fixed square so the world is never distorted. */
+  #minimap {
+    position: absolute; right: 12px; bottom: 12px; z-index: 10;
+    width: 200px; height: 200px;
+    border: 1px solid var(--line); border-radius: 4px;
+    background: #010409cc; overflow: hidden;
+  }
+  #minimap canvas {
+    display: block; width: 100%; height: 100%;
+    image-rendering: pixelated; cursor: crosshair; border: 0; border-radius: 0;
+  }
+  #minimapHint {
+    position: absolute; right: 12px; bottom: 216px; z-index: 10;
+    color: var(--muted); font-size: 10px; text-align: right;
+    text-shadow: 0 1px 3px #000; pointer-events: none;
+  }
   #legend li.clickable { cursor: pointer; }
   #legend li.clickable:hover { color: #fff; }
 </style>
 </head>
 <body>
-  <div id="stage"><canvas id="map" width="768" height="768"></canvas></div>
-
-  <div id="focusOverlay">
-    <div id="focusBar">
-      <span class="title" id="focusTitle">focus</span>
-      <span class="meta" id="focusMeta"></span>
+  <div id="stage">
+    <div id="world"></div>
+    <div id="hud">
+      <span class="title" id="hudTitle">world</span>
+      <span class="meta" id="hudMeta"></span>
       <span class="spacer"></span>
-      <span class="meta">drag orbit · shift-drag or right-drag pan · wheel zoom · esc close</span>
-      <button id="focusClose">close ✕</button>
+      <span class="meta">drag orbit · shift-drag pan · wheel zoom · click an agent</span>
     </div>
-    <div id="focusCanvas"></div>
+    <p id="minimapHint">click the minimap to travel</p>
+    <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
+
   <aside>
     <h1>Neo-Civilization</h1>
-    <button id="focusCluster" class="focusBtn">enter 3d · densest settlement</button>
-    <p class="hint" style="margin:6px 0 14px">or double-click anywhere on the map</p>
+    <button id="flyDensest">fly to densest settlement</button>
+    <button id="flyOverview">whole-world overview</button>
     <dl>
       <dt>status</dt><dd id="status">connecting</dd>
       <dt>tick</dt><dd id="tick">—</dd>
@@ -199,9 +212,10 @@ window.addEventListener("error", (event) => {
 </script>
 
 <script type="module">
-import { FocusView, densestCluster } from "/static/focus3d.js";
+import { WorldView, densestCluster } from "/static/world3d.js";
 
-const FOCUS_RADIUS = 12;
+// Half-extent in world units to hold in frame when flying to a settlement.
+const TILE_SPAN = 18;
 
 const STATE_COLORS = {
   IDLE:      "#6e7681",
@@ -257,8 +271,10 @@ function renderLegend(snapshot) {
       `${clan.size} · ${clan.goal || "—"}`;
     if (clan.centre) {
       item.className = "clickable";
-      item.title = `focus 3d on clan ${clan.id}`;
-      item.addEventListener("click", () => openFocus(clan.centre, `clan ${clan.id}`));
+      item.title = `fly to clan ${clan.id}`;
+      item.addEventListener("click", () =>
+        flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
+      );
     }
     legend.appendChild(item);
   }
@@ -296,43 +312,57 @@ function renderDeployed(snapshot) {
   }
 }
 
-// --- selective 3d focus -----------------------------------------------------
+// --- the 3d world view ------------------------------------------------------
 
-const overlay = document.getElementById("focusOverlay");
-const focusView = new FocusView(document.getElementById("focusCanvas"));
-// Test hook: the 3d lifecycle tests drive open/close and read renderer.info from here.
+const worldView = new WorldView(document.getElementById("world"));
+// Test hook: the lifecycle tests drive mount/unmount and read renderer.info from here.
 // Read-only by convention — nothing in the viewer reads it back.
-window.__focus = focusView;
+window.__world = worldView;
 
-function openFocus(centre, label) {
-  if (!lastSnapshot) return;
-  overlay.classList.add("open");
-  document.getElementById("focusTitle").textContent = label;
-  // Sized after the overlay is visible, or the container measures zero.
-  focusView.open(lastSnapshot, centre, FOCUS_RADIUS, label);
-  updateFocusMeta();
+const hudTitle = document.getElementById("hudTitle");
+const hudMeta = document.getElementById("hudMeta");
+
+// The view is mounted once, on the first snapshot that arrives, and then lives for the
+// session. A remount would throw away every texture and rebuild the whole scene.
+function ensureMounted(snapshot) {
+  if (worldView.active) return;
+  worldView.mount(snapshot);
+  setLabel("whole world");
 }
 
-function updateFocusMeta() {
-  const stats = focusView.stats;
-  document.getElementById("focusMeta").textContent = stats
-    ? `${stats.huts} huts · ${stats.agents} agents · ${FOCUS_RADIUS * 2 + 1} tiles across`
+function setLabel(text) {
+  hudTitle.textContent = text;
+}
+
+function updateHud() {
+  const stats = worldView.stats;
+  hudMeta.textContent = stats
+    ? `${stats.huts} huts · ${stats.agents} agents · ${stats.nodes} live nodes`
     : "";
 }
 
-function closeFocus() {
-  overlay.classList.remove("open");
-  focusView.close();
+function flyToSim(x, y, label, span) {
+  if (!worldView.active) return;
+  worldView.flyTo(x, y, span);
+  setLabel(label);
 }
 
-document.getElementById("focusClose").addEventListener("click", closeFocus);
-window.addEventListener("resize", () => focusView.resize());
+window.addEventListener("resize", () => {
+  worldView.resize();
+  drawMinimap(lastSnapshot);
+});
 
-document.getElementById("focusCluster").addEventListener("click", () => {
+document.getElementById("flyDensest").addEventListener("click", () => {
   if (!lastSnapshot) return;
-  const cluster = densestCluster(lastSnapshot, FOCUS_RADIUS);
+  const cluster = densestCluster(lastSnapshot, 12);
   if (!cluster) return;
-  openFocus(cluster.centre, `densest huts · ${cluster.count} in range`);
+  flyToSim(cluster.centre[0], cluster.centre[1], `densest settlement · ${cluster.count} huts`, TILE_SPAN);
+});
+
+document.getElementById("flyOverview").addEventListener("click", () => {
+  if (!worldView.active) return;
+  worldView.overview();
+  setLabel("whole world");
 });
 
 const inspector = document.getElementById("inspector");
@@ -424,11 +454,19 @@ function renderInspector(snapshot) {
 
   inspector.innerHTML = html;
 
+  const follow = document.createElement("button");
+  follow.textContent = `fly to ${agent.name}`;
+  follow.addEventListener("click", () =>
+    flyToSim(agent.x, agent.y, `${agent.name} · ${agent.state}`, 8)
+  );
+  inspector.appendChild(follow);
+
   if (clan && clan.centre) {
     const button = document.createElement("button");
-    button.className = "focusBtn";
-    button.textContent = `focus 3d on clan ${clan.id}`;
-    button.addEventListener("click", () => openFocus(clan.centre, `clan ${clan.id}`));
+    button.textContent = `fly to clan ${clan.id}`;
+    button.addEventListener("click", () =>
+      flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
+    );
     inspector.appendChild(button);
   }
 }
@@ -464,19 +502,22 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
 modeButton.addEventListener("click", () => {
   colourBy = colourBy === "clan" ? "state" : "clan";
   modeButton.textContent = `colour: ${colourBy}`;
-  if (lastSnapshot) draw(lastSnapshot);
+  if (lastSnapshot) render(lastSnapshot);
 });
 
 function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
 
-function draw(snapshot) {
+// The minimap is now an overview, not the main view: at 4 px a tile there is no room for
+// per-agent rings or target lines, so it carries position, territory, and where the camera
+// is pointing. Detail belongs in the 3d view and the inspector.
+function drawMinimap(snapshot) {
+  if (!snapshot) return;
   const { width, height } = snapshot.grid;
   const { cell, originX, originY } = geometry(snapshot);
   lastGeometry = { cell, originX, originY };
 
-  // A selection also answers "where is this clan" — clanmates stay bright, the rest dim.
   const selected = selectedId === null
     ? null
     : snapshot.agents.find((a) => a.id === selectedId) || null;
@@ -485,33 +526,13 @@ function draw(snapshot) {
   ctx.fillStyle = "#010409";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.strokeStyle = "#0d1117";
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= width; x += 8) {
-    ctx.beginPath();
-    ctx.moveTo(originX + x * cell + 0.5, originY);
-    ctx.lineTo(originX + x * cell + 0.5, originY + height * cell);
-    ctx.stroke();
-  }
-  for (let y = 0; y <= height; y += 8) {
-    ctx.beginPath();
-    ctx.moveTo(originX, originY + y * cell + 0.5);
-    ctx.lineTo(originX + width * cell, originY + y * cell + 0.5);
-    ctx.stroke();
-  }
-
   for (const node of snapshot.resources) {
-    const depleted = node.amount <= 0;
-    ctx.globalAlpha = depleted ? 0.18 : 0.35 + 0.65 * (node.amount / node.max);
+    if (node.amount <= 0) continue;
+    ctx.globalAlpha = 0.3 + 0.5 * (node.amount / node.max);
     ctx.fillStyle = node.kind === "FOOD" ? "#1a7f37" : "#6b5210";
     ctx.fillRect(originX + node.x * cell, originY + node.y * cell, cell, cell);
   }
   ctx.globalAlpha = 1;
-
-  for (const building of snapshot.buildings) {
-    ctx.fillStyle = "#c9d1d9";
-    ctx.fillRect(originX + building.x * cell, originY + building.y * cell, cell, cell);
-  }
 
   // soft influence: a tinted disc per clan, no hard boundary
   for (const clan of snapshot.clans || []) {
@@ -522,7 +543,7 @@ function draw(snapshot) {
     const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     gradient.addColorStop(0, clanColour(clan.id));
     gradient.addColorStop(1, "transparent");
-    ctx.globalAlpha = 0.16;
+    ctx.globalAlpha = 0.22;
     ctx.fillStyle = gradient;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -530,7 +551,12 @@ function draw(snapshot) {
     ctx.globalAlpha = 1;
   }
 
-  const radius = Math.max(1.5, cell * 0.4);
+  for (const building of snapshot.buildings) {
+    ctx.fillStyle = "#c9d1d9";
+    ctx.fillRect(originX + building.x * cell, originY + building.y * cell, cell, cell);
+  }
+
+  const radius = Math.max(1.2, cell * 0.45);
   for (const agent of snapshot.agents) {
     const cx = originX + agent.x * cell + cell / 2;
     const cy = originY + agent.y * cell + cell / 2;
@@ -538,37 +564,47 @@ function draw(snapshot) {
     const inFocus = selected === null || isSelected ||
       (focusClan !== null && agent.clan === focusClan);
 
-    ctx.globalAlpha = inFocus ? 1 : 0.22;
+    ctx.globalAlpha = inFocus ? 1 : 0.25;
     ctx.fillStyle = agentColour(agent);
     ctx.beginPath();
-    ctx.arc(cx, cy, agent.user ? radius * 1.4 : radius, 0, Math.PI * 2);
+    ctx.arc(cx, cy, agent.user ? radius * 1.5 : radius, 0, Math.PI * 2);
     ctx.fill();
-    if (agent.user) {
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    }
     ctx.globalAlpha = 1;
 
     if (isSelected) {
       ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(cx, cy, radius + 4, 0, Math.PI * 2);
+      ctx.arc(cx, cy, radius + 3, 0, Math.PI * 2);
       ctx.stroke();
-      if (agent.target) {
-        ctx.strokeStyle = "rgba(255,255,255,0.35)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(
-          originX + agent.target[0] * cell + cell / 2,
-          originY + agent.target[1] * cell + cell / 2
-        );
-        ctx.stroke();
-      }
     }
   }
+
+  // where the 3d camera is looking
+  const view = worldView.viewFootprint();
+  if (view) {
+    const cx = originX + view.x * cell;
+    const cy = originY + view.y * cell;
+    ctx.strokeStyle = "rgba(255,255,255,0.75)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(3, view.radius * cell), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.9)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // world bounds, so the edge of the map is legible against the black
+  ctx.strokeStyle = "#21262d";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(originX + 0.5, originY + 0.5, width * cell, height * cell);
+}
+
+function render(snapshot) {
+  lastSnapshot = snapshot;
+  ensureMounted(snapshot);
 
   setText("tick", snapshot.tick);
   setText("day", snapshot.day);
@@ -581,13 +617,13 @@ function draw(snapshot) {
   setText("userAgents", snapshot.stats.user_agents);
   renderDeployed(snapshot);
 
-  lastSnapshot = snapshot;
   renderLegend(snapshot);
   renderInspector(snapshot);
-  if (focusView.active) {
-    focusView.update(snapshot);
-    updateFocusMeta();
+  if (worldView.active) {
+    worldView.update(snapshot);
+    updateHud();
   }
+  drawMinimap(snapshot);
 }
 
 // Selection is keyed by agent id, not by index or position, so it survives ticks as
@@ -605,57 +641,86 @@ function geometry(snapshot) {
   };
 }
 
-function agentAt(clientX, clientY) {
+// Minimap point to simulation tile, or null outside the world.
+function minimapTile(clientX, clientY) {
   if (!lastSnapshot || !lastGeometry) return null;
   const rect = canvas.getBoundingClientRect();
   // The canvas is CSS-scaled, so map back into its own pixel space first.
   const px = (clientX - rect.left) * (canvas.width / rect.width);
   const py = (clientY - rect.top) * (canvas.height / rect.height);
   const { cell, originX, originY } = lastGeometry;
-
-  let best = null;
-  let bestDistance = Infinity;
-  const reach = Math.max(10, cell * 1.5);
-  for (const agent of lastSnapshot.agents) {
-    const dx = originX + agent.x * cell + cell / 2 - px;
-    const dy = originY + agent.y * cell + cell / 2 - py;
-    const distance = dx * dx + dy * dy;
-    if (distance < bestDistance && distance <= reach * reach) {
-      bestDistance = distance;
-      best = agent;
-    }
-  }
-  return best;
-}
-
-canvas.addEventListener("click", (event) => {
-  const hit = agentAt(event.clientX, event.clientY);
-  selectedId = hit ? hit.id : null;
-  if (lastSnapshot) draw(lastSnapshot);
-});
-
-canvas.addEventListener("dblclick", (event) => {
-  if (!lastSnapshot || !lastGeometry) return;
-  const rect = canvas.getBoundingClientRect();
-  const { cell, originX, originY } = lastGeometry;
-  const px = (event.clientX - rect.left) * (canvas.width / rect.width);
-  const py = (event.clientY - rect.top) * (canvas.height / rect.height);
   const x = Math.floor((px - originX) / cell);
   const y = Math.floor((py - originY) / cell);
   const { width, height } = lastSnapshot.grid;
-  if (x < 0 || y < 0 || x >= width || y >= height) return;
-  openFocus([x, y], `tile ${x},${y}`);
+  if (x < 0 || y < 0 || x >= width || y >= height) return null;
+  return [x, y];
+}
+
+// Click or drag anywhere on the minimap to send the camera there.
+let travelling = false;
+
+function travel(clientX, clientY) {
+  const tile = minimapTile(clientX, clientY);
+  if (!tile) return;
+  flyToSim(tile[0], tile[1], `tile ${tile[0]},${tile[1]}`, TILE_SPAN);
+  drawMinimap(lastSnapshot);
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  travelling = true;
+  try {
+    canvas.setPointerCapture(event.pointerId);
+  } catch {
+    /* dragging still works, it just stops at the canvas edge */
+  }
+  travel(event.clientX, event.clientY);
+});
+canvas.addEventListener("pointermove", (event) => {
+  if (travelling) travel(event.clientX, event.clientY);
+});
+for (const kind of ["pointerup", "pointercancel", "pointerleave"]) {
+  canvas.addEventListener(kind, () => { travelling = false; });
+}
+
+// Clicking an agent in the 3d view selects it. A click that hits nothing clears the
+// selection, but only if it was not the end of an orbit drag — otherwise every camera
+// move would silently deselect.
+const worldEl = document.getElementById("world");
+let pressAt = null;
+
+worldEl.addEventListener("pointerdown", (event) => {
+  pressAt = { x: event.clientX, y: event.clientY };
+});
+
+worldEl.addEventListener("pointerup", (event) => {
+  if (!pressAt) return;
+  const moved = Math.hypot(event.clientX - pressAt.x, event.clientY - pressAt.y);
+  pressAt = null;
+  if (moved > 5) return;
+  const hit = worldView.pick(event.clientX, event.clientY);
+  selectedId = hit;
+  if (lastSnapshot) {
+    renderInspector(lastSnapshot);
+    drawMinimap(lastSnapshot);
+  }
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  if (overlay.classList.contains("open")) {
-    closeFocus();
-  } else if (selectedId !== null) {
+  if (event.key === "Escape" && selectedId !== null) {
     selectedId = null;
-    if (lastSnapshot) draw(lastSnapshot);
+    if (lastSnapshot) {
+      renderInspector(lastSnapshot);
+      drawMinimap(lastSnapshot);
+    }
   }
 });
+
+// The camera moves between ticks, so the viewport ring would lag a second behind the
+// scene if it only redrew on a snapshot.
+(function trackCamera() {
+  requestAnimationFrame(trackCamera);
+  if (worldView.active && lastSnapshot) drawMinimap(lastSnapshot);
+})();
 
 let socket = null;
 let retryDelay = 500;
@@ -669,7 +734,7 @@ function connect() {
     statusEl.textContent = "live";
     statusEl.className = "live";
   };
-  socket.onmessage = (event) => draw(JSON.parse(event.data));
+  socket.onmessage = (event) => render(JSON.parse(event.data));
   socket.onclose = () => {
     statusEl.textContent = "reconnecting";
     statusEl.className = "";

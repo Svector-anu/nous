@@ -1,6 +1,6 @@
 """The focus view's pure logic, exercised under node.
 
-Anything touching webgl needs a real gpu and lives in scripts/verify_focus3d.mjs. What is
+Anything touching webgl needs a real gpu and lives in scripts/verify_world3d.mjs. What is
 left is still worth guarding here: the cluster search picks where the camera goes, and the
 terrain function decides where every hut is planted, so a silent change to either moves
 the whole scene.
@@ -22,16 +22,16 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is no
 
 
 def _run(body: str, tmp_path: Path) -> dict:
-    """Run a snippet against focus3d.js. The module imports three.js by absolute url, which
+    """Run a snippet against world3d.js. The module imports three.js by absolute url, which
     only resolves when the server is serving it, so rewrite that to a relative path."""
     shutil.copytree(VIEWER_DIR / "vendor", tmp_path / "vendor")
-    source = (VIEWER_DIR / "focus3d.js").read_text()
+    source = (VIEWER_DIR / "world3d.js").read_text()
     source = source.replace('"/static/vendor/three.module.min.js"', '"./vendor/three.module.min.js"')
-    (tmp_path / "focus3d.mjs").write_text(source)
+    (tmp_path / "world3d.mjs").write_text(source)
     (tmp_path / "main.mjs").write_text(
         textwrap.dedent(
             """
-            import { densestCluster, terrainHeight, clanHue } from "./focus3d.mjs";
+            import { densestCluster, terrainHeight, clanHue } from "./world3d.mjs";
             """
         )
         + body
@@ -138,7 +138,7 @@ def test_every_surface_tiles_without_a_seam(tmp_path):
     """
     out = _run(
         """
-        import { buildSurface } from "./focus3d.mjs";
+        import { buildSurface } from "./world3d.mjs";
         const size = 128;
         const report = {};
         for (const name of ["grass", "plaster", "wood", "roof", "stone"]) {

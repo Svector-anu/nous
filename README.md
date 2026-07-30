@@ -35,26 +35,32 @@ grow back. one tick per second, full snapshot pushed over `/ws` every tick.
 state lands in `data/world.db` every 50 ticks and on clean shutdown. kill the process,
 start it again, it picks up exactly where it left off. delete the db for a new world.
 
-**click an agent to inspect it.** the side panel shows its name and personality, fsm
-state, what it wants, energy and hunger as bars, inventory, huts owned, raid record, its
-clan and whether it leads, the clan's current goal and who set it (`rules` or `llm`), and
-the clan's grudges and truces. selecting also dims every agent outside that clan, so a
-click answers "where is this clan" as well as "what is this agent doing" — and draws a
-line to whatever the agent is walking toward. `esc` clears it.
+**click an agent in the 3d view to inspect it.** picking is a raycast against the instanced
+agent batches, so it works on the person you can actually see. the side panel shows its name
+and personality, fsm state, what it wants, energy and hunger as bars, inventory, huts owned,
+raid record, its clan and whether it leads, the clan's current goal and who set it (`rules`
+or `llm`), and the clan's grudges and truces — plus buttons to fly to that agent or to its
+clan's centre. selecting also dims every agent outside that clan on the minimap, so a click
+answers "where is this clan" as well as "what is this agent doing". `esc` clears it.
 
 selection is keyed by agent id, so it survives ticks as the agent moves, and says so
 plainly when the agent starves or loses a raid.
 
-**selective 3d focus.** the world map stays cheap canvas — only a *local square* of it
-ever gets meshes. click a clan in the legend, press the button in the inspector, or use
-`focus 3d: densest huts`, and a three.js overlay opens on a 25-tile square: procedural
-huts, agents, and resource nodes, with orbit / shift-drag pan / wheel zoom. `esc` or ✕
-closes it and disposes every geometry, material, texture and the renderer.
+**3d is the main view.** the whole world is meshed in three.js and fills the page. the old
+canvas map is now a 200 px minimap in the corner carrying territory, resources, and a ring
+showing where the camera is looking. click the minimap to travel, click an agent in 3d to
+inspect it, click a clan in the legend to fly to it, or take the whole-world overview.
+orbit / shift-drag pan / wheel zoom throughout.
 
-it reads the same websocket snapshot the canvas does, so it is live for free and needed no
-new endpoint — the only backend addition was `owner` on buildings. a focus square holds
-~700 meshes against ~2 860 for the whole world, which is the entire point of doing it
-selectively.
+this used to be a 25-tile focus overlay, because when each hut was seven separate meshes 93
+huts cost 651 draw calls. instancing removed the reason for the constraint: the **entire**
+world — 360 huts, 220 nodes, 114 agents — now measures **50 draw calls and 179k triangles at
+a vsync-locked 60fps**, the same frame time the 25-tile overlay had. so nothing streams and
+nothing is chunk-loaded; it is all resident and the camera just moves.
+
+it reads the same websocket snapshot the minimap does, so it is live for free and needed no
+new endpoint — the only backend addition was `owner` on buildings, and no simulation rule
+changed for any of the visual work.
 
 materials follow the claude-of-duty rules rather than its full gpu forge: **zero art
 assets, everything generated at init, nothing allocated per frame**. the pipeline is
@@ -71,12 +77,15 @@ not fetched from a cdn, because the same reference holds itself to working offli
 a hut is modular — a stone plinth bedded into the ground, four walls with real thickness, a
 doorway gap with a lintel, and a pitched roof of two leaning slabs — so it can grow into a
 real kit without being rebuilt. every box in every hut is the same unit cube sized by its
-instance matrix, and agents are batched per clan, so a settlement of 93 huts and 30 people
-costs about 21 draw calls and the per-tick path allocates nothing.
+instance matrix, and agents are batched per clan, so the whole world costs ~50 draw calls
+and the per-tick path allocates nothing: huts rebuild only when something is built, and
+agents just get new matrices.
 
-open it with **enter 3d** at the top of the sidebar, or by double-clicking anywhere on the
-map. `scripts/verify_focus3d.mjs` is the adversarial check for it — it drives real chrome
-and asserts on `renderer.info` for leaks, draw calls and camera edge cases.
+`scripts/verify_world3d.mjs` is the adversarial check — 26 assertions in real chrome covering
+leaks across both synthetic and live ticks, mount/unmount symmetry, webgl context
+exhaustion, camera framing per clan, input clamps through the real event handlers, picking
+accuracy, and minimap/camera agreement. it needs `npm i playwright` in a scratch dir;
+playwright is deliberately not a project dependency.
 
 agents are coloured by clan by default; the button in the sidebar flips them back to fsm
 state colouring. deploy your own agent from the sidebar form, or over http:
