@@ -26,6 +26,32 @@ the page; the phase 0 canvas is now a 200 px minimap in the corner showing terri
 ring for where the camera is looking. click the minimap to travel, click an agent in 3d to
 inspect it, click a clan in the legend to fly to it.
 
+**the camera directs itself (phase b2).** `src/viewer/director.js` watches the per-tick
+snapshot, works out what is worth looking at, and composes a shot around it. this is the
+"cinematic follow" from the original visual spec, generalised: you do not have to drive.
+
+- **events come from diffing two snapshots.** a single snapshot cannot tell you a raid just
+  happened, only that raid counts are non-zero. so the director keeps the previous one and
+  reports raids, deaths, births of user agents, new huts, clan goal changes and fleeing
+  agents.
+- **scores are the editorial policy**: violence > construction > an empty field. pinned by a
+  test, because if it inverts the camera dutifully films nothing while a war happens.
+- **shot kinds**: orbit (slow circle), push (dolly in), follow (track a mover from low),
+  survey (crane across), establish (wide, slow drift). chosen with a *seeded* rng, so the
+  same world produces the same film and behaviour changes show up as a diff.
+- **nothing sets the camera directly any more.** everything sets a goal and the frame loop
+  eases toward it, frame-rate independently, with distance eased in log space — from a
+  whole-world overview to street level is two orders of magnitude, and easing that linearly
+  crawls then lurches.
+- **touching the view takes control instantly** and pins the goal to where the camera
+  actually is; without that pinning the view keeps drifting toward the director's in-flight
+  destination after you let go. autopilot resumes after 12s idle, unless you turned it off
+  by hand, in which case it stays off.
+- **standing events are penalised on repeat.** a user-deployed agent generates an event every
+  tick, so without a repeat penalty *and* treating the crowd/world as real candidates rather
+  than an empty-list fallback, one agent held the camera for the whole session. both were
+  needed; the first alone did not fix it.
+
 this replaced the earlier "selective focus square" because the reason for that constraint
 went away. it existed when every hut was seven separate meshes — 651 draw calls for 93
 huts. after instancing, the *entire* world measured **50 draw calls and 179k triangles at a
@@ -118,14 +144,27 @@ this is scenery, not simulation: the sim still has no elevation, and nothing in 
 
 ## verifying it
 
-`scripts/verify_world3d.mjs` drives real chrome against a running server — 26 checks on
+`scripts/verify_world3d.mjs` drives real chrome against a running server — 34 checks on
 `renderer.info` and on the view's own state: leaks across 60 synthetic ticks *and* across ~12
 seconds of real ones (agents actually moving and clans changing size is what rebuilds the
 instanced batches, so it is the path most likely to leak), draw calls, mount/unmount
 symmetry, webgl context exhaustion, camera framing for every clan, zoom and orbit clamps
 driven through the real event handlers, picking accuracy against projected instance matrices,
-and minimap/camera agreement. it needs `npm i playwright` in a scratch directory; playwright
-is never a project dependency.
+minimap/camera agreement, and the autopilot (it moves unattended, it cuts between subjects,
+a drag seizes it, and it holds still afterwards). it needs `npm i playwright` in a scratch
+directory; playwright is never a project dependency.
+
+two traps in that harness, both of which hid real defects:
+
+- **`settle()` before asserting a camera position.** the camera glides now, so it is not at
+  its destination the instant a move is requested. but a check that only ever settles could
+  not tell easing from a hard cut, so there are separate assertions that a move *is* gradual
+  after two frames and that it *does* arrive.
+- **read `renderer.info` in the same evaluate as `unmount()`.** the old check read a helper
+  that returned hardcoded zeros for an unmounted view, so it asserted nothing at all —
+  and had been passing vacuously while a 2048² shadow map leaked on every unmount. the
+  shadow map is owned by the light, not the scene graph, and `renderer.dispose()` does not
+  free it.
 
 `tests/test_viewer_3d.py` covers the gpu-free logic (cluster search proved equivalent to the
 exhaustive scan, terrain determinism and gradient bounds, texture seams, clan colours) under

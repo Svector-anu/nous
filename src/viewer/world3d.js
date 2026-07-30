@@ -361,6 +361,13 @@ export class WorldView {
     this.agentMeshes = new Map();
     this.clanMaterials = new Map();
     this.agentIndex = new Map();
+    // Where the camera is, and where it is heading. `ease` is the approach rate in units of
+    // "fraction of the remaining gap per second", so a bigger number is a faster move.
+    // Both must exist before anything calls overview() or settle(), which read one and
+    // write the other.
+    this.orbit = { theta: Math.PI * 0.22, phi: Math.PI * 0.30, distance: this.worldSpan };
+    this.goal = { x: 0, z: 0, theta: Math.PI * 0.22, phi: Math.PI * 0.30, distance: this.worldSpan, ease: 1.4 };
+    this.lastFrameAt = null;
     // Reused every tick so the per-frame path allocates nothing.
     this.scratch = {
       matrix: new THREE.Matrix4(),
@@ -430,6 +437,9 @@ export class WorldView {
     this._controls();
     this.update(snapshot);
     this.overview();
+    // Start already framed rather than gliding in from wherever the defaults happened to
+    // put the camera.
+    this.settle();
     this._frame();
   }
 
@@ -578,6 +588,18 @@ export class WorldView {
   _controls() {
     const canvas = this.renderer.domElement;
     this.target = new THREE.Vector3(0, 0, 0);
+    // Manual input writes to the goal, same as the director does, so the two can never
+    // fight over the camera — whoever wrote last owns it. Taking over pins the goal to
+    // wherever the camera *actually is* first: without that, a drag inherits the
+    // director's in-flight destination and the view keeps drifting after you let go.
+    const seized = () => {
+      this.goal.theta = this.orbit.theta;
+      this.goal.phi = this.orbit.phi;
+      this.goal.distance = this.orbit.distance;
+      this.goal.x = this.target.x;
+      this.goal.z = this.target.z;
+      if (this.onManualInput) this.onManualInput();
+    };
 
     let dragging = null;
     let lastX = 0;
@@ -602,11 +624,15 @@ export class WorldView {
       const dy = event.clientY - lastY;
       lastX = event.clientX;
       lastY = event.clientY;
+      seized();
       if (dragging === "orbit") {
+        // Dragging is direct, with the goal following the hand — a lagging goal would feel
+        // like dragging through treacle. Stop just shy of the poles: at exactly vertical
+        // the lookAt up-vector flips and the scene spins on its own axis.
         this.orbit.theta -= dx * 0.006;
-        // Stop just shy of the poles: at exactly vertical the lookAt up-vector flips
-        // and the scene spins on its own axis.
         this.orbit.phi = Math.max(0.12, Math.min(Math.PI / 2 - 0.04, this.orbit.phi - dy * 0.006));
+        this.goal.theta = this.orbit.theta;
+        this.goal.phi = this.orbit.phi;
       } else {
         const scale = this.orbit.distance * 0.0016;
         const forward = new THREE.Vector3(Math.sin(this.orbit.theta), 0, Math.cos(this.orbit.theta));
@@ -614,6 +640,9 @@ export class WorldView {
         this.target.addScaledVector(right, -dx * scale);
         this.target.addScaledVector(forward, -dy * scale);
         this._clampTarget();
+        this.goal.x = this.target.x;
+        this.goal.z = this.target.z;
+        this._clampGoal();
       }
     };
     const release = (event) => {
@@ -628,8 +657,10 @@ export class WorldView {
     };
     const wheel = (event) => {
       event.preventDefault();
+      seized();
       const next = this.orbit.distance * (1 + event.deltaY * 0.0012);
       this.orbit.distance = Math.max(this.minDistance, Math.min(this.maxDistance, next));
+      this.goal.distance = this.orbit.distance;
     };
     const menu = (event) => event.preventDefault();
 
@@ -699,30 +730,86 @@ export class WorldView {
     return Math.max(spanUp / tanHalf, spanRight / (tanHalf * aspect)) * 1.12;
   }
 
+  // --- camera goals ---------------------------------------------------------
+  //
+  // Nothing sets the camera directly any more; everything sets a *goal* and the frame loop
+  // glides toward it. That is what makes a move read as a shot rather than a cut, and it
+  // is what the director needs in order to compose anything at all.
+
+  _setGoal({ x, z, theta, phi, distance, ease }) {
+    const goal = this.goal;
+    if (x !== undefined) goal.x = x;
+    if (z !== undefined) goal.z = z;
+    if (theta !== undefined) goal.theta = theta;
+    if (phi !== undefined) {
+      goal.phi = Math.max(0.12, Math.min(Math.PI / 2 - 0.04, phi));
+    }
+    if (distance !== undefined) {
+      goal.distance = Math.max(this.minDistance, Math.min(this.maxDistance, distance));
+    }
+    if (ease !== undefined) goal.ease = ease;
+    this._clampGoal();
+  }
+
+  _clampGoal() {
+    const limit = this.worldSpan * 0.62;
+    this.goal.x = Math.max(-limit, Math.min(limit, this.goal.x));
+    this.goal.z = Math.max(-limit, Math.min(limit, this.goal.z));
+  }
+
+  // Snap the camera onto its goal immediately. Used on mount, and by tests that assert a
+  // position without waiting out the glide.
+  settle() {
+    if (!this.active) return;
+    this.orbit.theta = this.goal.theta;
+    this.orbit.phi = this.goal.phi;
+    this.orbit.distance = this.goal.distance;
+    this.target.set(this.goal.x, terrainHeight(this.goal.x, this.goal.z) + HUT.height * 0.5, this.goal.z);
+  }
+
+  // Frame-rate independent exponential approach: the fraction covered per second is what
+  // is fixed, not the fraction per frame, so the glide looks the same at 30 and 144 fps.
+  _easeCamera(dt) {
+    const rate = 1 - Math.exp(-this.goal.ease * Math.min(dt, 0.25));
+    const orbit = this.orbit;
+
+    // Take the short way round the circle, or a shot crossing the seam spins the long way.
+    let dTheta = (this.goal.theta - orbit.theta) % (Math.PI * 2);
+    if (dTheta > Math.PI) dTheta -= Math.PI * 2;
+    if (dTheta < -Math.PI) dTheta += Math.PI * 2;
+
+    orbit.theta += dTheta * rate;
+    orbit.phi += (this.goal.phi - orbit.phi) * rate;
+    // Distance is eased in log space: from a whole-world overview down to street level is
+    // two orders of magnitude, and easing it linearly crawls at the start and lurches at
+    // the end.
+    orbit.distance *= Math.exp(Math.log(this.goal.distance / orbit.distance) * rate);
+
+    const height = terrainHeight(this.goal.x, this.goal.z) + HUT.height * 0.5;
+    this.target.x += (this.goal.x - this.target.x) * rate;
+    this.target.y += (height - this.target.y) * rate;
+    this.target.z += (this.goal.z - this.target.z) * rate;
+  }
+
   // Pull back to hold the entire world. This is the default on mount.
-  overview() {
+  overview({ ease = 0.9 } = {}) {
     const half = this.worldSpan / 2;
-    this.target.set(0, terrainHeight(0, 0) + HUT.height * 0.5, 0);
-    this.orbit = {
+    this._setGoal({
+      x: 0, z: 0,
       theta: Math.PI * 0.22,
       phi: Math.PI * 0.30,
       distance: this._fitDistance(half, half),
-    };
+      ease,
+    });
   }
 
   // Move the camera to simulation coordinates. `span` is the half-extent in world units
   // to hold in frame, so a clan of three huts and a cluster of ninety both fill the view.
-  flyTo(simX, simY, span = TILE * 9) {
+  flyTo(simX, simY, span = TILE * 9, options = {}) {
     if (!this.active) return;
+    const { theta = Math.PI * 0.22, phi = Math.PI * 0.36, ease = 1.6 } = options;
     const [x, z] = this.local({ x: simX, y: simY });
-    this.target.set(x, terrainHeight(x, z) + HUT.height * 0.5, z);
-    this._clampTarget();
-    this.orbit.theta = Math.PI * 0.22;
-    this.orbit.phi = Math.PI * 0.36;
-    this.orbit.distance = Math.max(
-      this.minDistance,
-      Math.min(this.maxDistance, this._fitDistance(span, span, this.orbit.theta, this.orbit.phi))
-    );
+    this._setGoal({ x, z, theta, phi, distance: this._fitDistance(span, span, theta, phi), ease });
   }
 
   // Simulation (x, y) to world (x, z), with the world centred on the origin. Sim y maps
@@ -982,9 +1069,16 @@ export class WorldView {
     this.built = null;
   }
 
-  _frame() {
+  _frame(now = performance.now()) {
     if (!this.active) return;
-    this.frameHandle = requestAnimationFrame(() => this._frame());
+    this.frameHandle = requestAnimationFrame((next) => this._frame(next));
+
+    // Real elapsed time, so the glide is the same speed on any display. A first frame or a
+    // backgrounded tab reports a useless delta, hence the clamp.
+    const dt = this.lastFrameAt === null ? 0 : Math.min((now - this.lastFrameAt) / 1000, 0.25);
+    this.lastFrameAt = now;
+    if (this.onBeforeFrame) this.onBeforeFrame(dt);
+    if (dt > 0) this._easeCamera(dt);
 
     const { theta, phi, distance } = this.orbit;
     this.camera.position.set(
@@ -1080,6 +1174,13 @@ export class WorldView {
       if (item && typeof item.dispose === "function") item.dispose();
     }
     this.disposables = [];
+
+    // The shadow map is a 2048x2048 render target the renderer allocates lazily, and it is
+    // owned by the light rather than by the scene graph — renderer.dispose() does not free
+    // it. It survived every unmount until the lifecycle check started reading the real
+    // texture count instead of a helper that returned zero for an unmounted view.
+    if (this.sun?.shadow?.map) this.sun.shadow.map.dispose();
+    this.sun?.shadow?.dispose?.();
 
     this.renderer.dispose();
     this.renderer.forceContextLoss();

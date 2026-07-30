@@ -134,6 +134,7 @@
     color: var(--muted); font-size: 10px; text-align: right;
     text-shadow: 0 1px 3px #000; pointer-events: none;
   }
+  #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
   #legend li.clickable { cursor: pointer; }
   #legend li.clickable:hover { color: #fff; }
 </style>
@@ -153,6 +154,7 @@
 
   <aside>
     <h1>Neo-Civilization</h1>
+    <button id="autoCamera" data-on="1">camera: cinematic</button>
     <button id="flyDensest">fly to densest settlement</button>
     <button id="flyOverview">whole-world overview</button>
     <dl>
@@ -213,6 +215,7 @@ window.addEventListener("error", (event) => {
 
 <script type="module">
 import { WorldView, densestCluster } from "/static/world3d.js";
+import { Director } from "/static/director.js";
 
 // Half-extent in world units to hold in frame when flying to a settlement.
 const TILE_SPAN = 18;
@@ -328,6 +331,8 @@ function ensureMounted(snapshot) {
   if (worldView.active) return;
   worldView.mount(snapshot);
   setLabel("whole world");
+  // Cinematic by default: the point is that it is already moving when you arrive.
+  setAuto(true);
 }
 
 function setLabel(text) {
@@ -343,6 +348,9 @@ function updateHud() {
 
 function flyToSim(x, y, label, span) {
   if (!worldView.active) return;
+  // An explicit destination is the user's intent, so it takes the camera off autopilot.
+  director.disable();
+  autoResumeAt = performance.now() + RESUME_AFTER_MS;
   worldView.flyTo(x, y, span);
   setLabel(label);
 }
@@ -351,6 +359,55 @@ window.addEventListener("resize", () => {
   worldView.resize();
   drawMinimap(lastSnapshot);
 });
+
+// --- cinematic autopilot ----------------------------------------------------
+//
+// The camera drives itself, cutting between whatever the world is doing. Touching the view
+// hands control straight back to you, and it picks up again once you stop.
+
+const director = new Director(worldView);
+window.__director = director;
+
+const RESUME_AFTER_MS = 12000;
+let autoResumeAt = 0;
+const autoButton = document.getElementById("autoCamera");
+
+function setAuto(on, { resumeDelay = RESUME_AFTER_MS } = {}) {
+  if (on) {
+    director.enable();
+    autoResumeAt = 0;
+  } else {
+    director.disable();
+    autoResumeAt = performance.now() + resumeDelay;
+  }
+  autoButton.textContent = on ? "camera: cinematic" : "camera: manual";
+  autoButton.dataset.on = on ? "1" : "";
+}
+
+autoButton.addEventListener("click", () => {
+  const turningOff = director.enabled;
+  // Turning it off by hand should stay off, not silently resume in twelve seconds.
+  setAuto(!director.enabled, { resumeDelay: turningOff ? Infinity : RESUME_AFTER_MS });
+});
+
+// Dragging or zooming the view means you want the camera, immediately.
+worldView.onManualInput = () => {
+  if (director.enabled) setAuto(false);
+  else autoResumeAt = performance.now() + RESUME_AFTER_MS;
+};
+
+// The director composes per frame, not per tick: a tick is a whole second and a shot has to
+// move within it.
+worldView.onBeforeFrame = (dt) => {
+  if (!director.enabled && autoResumeAt && performance.now() >= autoResumeAt) {
+    setAuto(true);
+  }
+  director.advance(dt);
+  if (director.enabled) {
+    const shot = director.describe();
+    if (shot) setLabel(shot);
+  }
+};
 
 document.getElementById("flyDensest").addEventListener("click", () => {
   if (!lastSnapshot) return;
@@ -361,6 +418,8 @@ document.getElementById("flyDensest").addEventListener("click", () => {
 
 document.getElementById("flyOverview").addEventListener("click", () => {
   if (!worldView.active) return;
+  director.disable();
+  autoResumeAt = performance.now() + RESUME_AFTER_MS;
   worldView.overview();
   setLabel("whole world");
 });
@@ -621,6 +680,10 @@ function render(snapshot) {
   renderInspector(snapshot);
   if (worldView.active) {
     worldView.update(snapshot);
+    // Events come from the difference between two snapshots, so the director has to see
+    // every one of them even while the user is driving — otherwise resuming autopilot
+    // would compare against a snapshot from minutes ago and invent a flurry of "events".
+    director.observe(snapshot);
     updateHud();
   }
   drawMinimap(snapshot);

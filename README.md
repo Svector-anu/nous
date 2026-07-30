@@ -13,12 +13,12 @@ handover doc — status, what's next, and the traps already fallen into.
 
 **where this is**: phase 0 complete and frozen. **phase 1 is done** — blackboard,
 structured messaging, resource transfer, clans, clan goals with soft influence,
-user-deployed agents and scarcity-driven raiding. the phase 3 spatial index got pulled
-forward because it was the only thing genuinely blocking scale. 164 tests on local `main`,
-no remote.
+user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
+the phase 3 spatial index got pulled forward because it was the only thing genuinely
+blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
+self-directing camera. 294 tests on local `main`, no remote.
 
-still deliberately absent: hard territory ownership, births, alliances and rivalry
-memory, procedural 3d, economy.
+still deliberately absent: hard territory ownership, births, economy.
 
 ## run it
 
@@ -28,9 +28,10 @@ python3 -m venv .venv
 .venv/bin/python -m src.main
 ```
 
-open <http://127.0.0.1:8000>. agents are coloured dots (colour = fsm state), resource
-nodes and huts are tiles, dormant nodes render dimmed so you can watch a stripped region
-grow back. one tick per second, full snapshot pushed over `/ws` every tick.
+open <http://127.0.0.1:8000>. a procedural 3d world fills the page and the camera starts
+directing itself — no input needed to watch. the minimap in the corner shows the whole world:
+agents as coloured dots, huts and resource nodes as tiles, clan territory as soft discs. one
+tick per second, full snapshot pushed over `/ws` every tick.
 
 state lands in `data/world.db` every 50 ticks and on clean shutdown. kill the process,
 start it again, it picks up exactly where it left off. delete the db for a new world.
@@ -51,6 +52,13 @@ canvas map is now a 200 px minimap in the corner carrying territory, resources, 
 showing where the camera is looking. click the minimap to travel, click an agent in 3d to
 inspect it, click a clan in the legend to fly to it, or take the whole-world overview.
 orbit / shift-drag pan / wheel zoom throughout.
+
+**the camera runs itself.** it opens cinematic: a director watches each tick, works out what
+is worth looking at — a raid beats a building site beats an empty field — and composes a shot
+around it. orbits, dolly-ins, tracking shots on somebody fleeing, slow cranes over a
+settlement. the hud names what you are watching ("push · Branwyn-016 won a raid"). you do not
+have to drive it, and if you grab the camera it hands over instantly and picks up again once
+you stop. `camera: cinematic` in the sidebar toggles it, and toggling it off keeps it off.
 
 this used to be a 25-tile focus overlay, because when each hut was seven separate meshes 93
 huts cost 651 draw calls. instancing removed the reason for the constraint: the **entire**
@@ -81,7 +89,7 @@ instance matrix, and agents are batched per clan, so the whole world costs ~50 d
 and the per-tick path allocates nothing: huts rebuild only when something is built, and
 agents just get new matrices.
 
-`scripts/verify_world3d.mjs` is the adversarial check — 26 assertions in real chrome covering
+`scripts/verify_world3d.mjs` is the adversarial check — 34 assertions in real chrome covering
 leaks across both synthetic and live ticks, mount/unmount symmetry, webgl context
 exhaustion, camera framing per clan, input clamps through the real event handlers, picking
 accuracy, and minimap/camera agreement. it needs `npm i playwright` in a scratch dir;
@@ -99,7 +107,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 164 tests, ~110s
+.venv/bin/python -m pytest tests/ -q      # 294 tests, ~145s
 ```
 
 ## layout
@@ -120,7 +128,11 @@ src/
   llm/advisor.py             clan leader cognition (opt-in, off by default)
   persistence/sqlite_store.py
   api/server.py              fastapi + websocket
-  viewer/index.html          canvas viewer, no build step, no npm, no react
+  viewer/
+    index.html               page, minimap, sidebar; no build step, no npm, no react
+    world3d.js               procedural materials, hut kit, instancing, picking
+    director.js              cinematic autopilot: events -> subjects -> shots
+    vendor/                  three.js, vendored for offline
 data/                        world.db
 tests/
 ```
