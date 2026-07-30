@@ -1,7 +1,13 @@
-"""One live Claude call for one clan, compared against the rules it must beat.
+"""One live model call for one clan, compared against the rules it must beat.
 
-    .venv/bin/python -m scripts.verify_llm            # live, needs credentials
-    .venv/bin/python -m scripts.verify_llm --scripted # offline harness check
+    .venv/bin/python -m scripts.verify_llm --scripted   # offline harness check, no key
+
+    # live — pass the key inline so it never lands in a shell history file or a repo
+    DGRID_API_KEY=... .venv/bin/python -m scripts.verify_llm \
+        --provider dgrid --model anthropic/claude-opus-4.7
+
+    ANTHROPIC_API_KEY=... .venv/bin/python -m scripts.verify_llm \
+        --provider anthropic --model claude-opus-5
 
 Settles a world, picks a single clan, consults the model for that clan only, and reports:
 the exact prompt sent, the raw response, the goal chosen, what `_choose_goal` would have
@@ -18,7 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from src.llm.advisor import AdvisorBudget, ClaudeAdvisor, ScriptedAdvisor
+from src.llm.advisor import PROVIDERS, AdvisorBudget, ScriptedAdvisor, build_advisor
 from src.persistence.sqlite_store import SqliteWorldStore
 from src.world.components import Clan, DecisionLog
 from src.world.config import WorldConfig
@@ -38,12 +44,21 @@ def main() -> int:
     parser.add_argument("--scripted", action="store_true", help="offline harness check")
     parser.add_argument("--max-calls", type=int, default=3)
     parser.add_argument("--model", default="claude-opus-5")
+    parser.add_argument(
+        "--provider",
+        default="anthropic",
+        choices=[p for p in PROVIDERS if p != "none"],
+        help="dgrid routes to any provider through one gateway; models are provider/model",
+    )
+    parser.add_argument("--api-key-env", default="", help="override the env var holding the key")
     parser.add_argument("--seed", type=int, default=20260728)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    config = WorldConfig(seed=args.seed, llm_enabled=True, llm_model=args.model)
+    config = WorldConfig(
+        seed=args.seed, llm_enabled=True, llm_model=args.model, llm_provider=args.provider
+    )
     simulation = Simulation(create_world(config))
     world = simulation.world
 
@@ -65,8 +80,12 @@ def main() -> int:
         seed=args.seed,
         llm_enabled=True,
         llm_model=args.model,
+        llm_provider=args.provider,
+        llm_api_key_env=args.api_key_env,
         llm_only_clan_id=target.clan_id,
         llm_min_ticks_between_calls=50,
+        llm_max_calls_per_session=args.max_calls,
+        llm_max_inflight=1,
     )
     world.config = config
 
@@ -74,11 +93,13 @@ def main() -> int:
         world.advisor = ScriptedAdvisor({target.clan_id: "expand"}, lag_calls=1, reason="offline harness")
         print("advisor: ScriptedAdvisor (offline)")
     else:
-        world.advisor = ClaudeAdvisor(
-            model=args.model,
-            budget=AdvisorBudget(max_inflight=1, max_calls_per_session=args.max_calls),
+        # Built through the same factory the server uses, so this verifies the real path
+        # rather than a bespoke one that might diverge from it.
+        world.advisor = build_advisor(config)
+        print(
+            f"advisor: {type(world.advisor).__name__} provider={args.provider} "
+            f"model={args.model} max_calls={args.max_calls}"
         )
-        print(f"advisor: ClaudeAdvisor model={args.model} max_calls={args.max_calls}")
 
     _rule("2. waiting for a decision")
     before = len(decision_log(world).entries)

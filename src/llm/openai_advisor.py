@@ -31,6 +31,10 @@ from .base import (
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
+# Gateway in front of many providers. Auth is `Authorization: Bearer <key>` — not the
+# x-api-key that anthropic's own endpoint wants — which is exactly why it fits this
+# openai-shaped client rather than the native claude one.
+DGRID_BASE_URL = "https://api.dgrid.ai/v1"
 
 _JSON_OBJECT = re.compile(r"\{.*\}", re.S)
 
@@ -169,4 +173,36 @@ class GrokAdvisor(OpenAICompatibleAdvisor):
             api_key_env=api_key_env,
             budget=budget,
             max_tokens=max_tokens,
+        )
+
+
+class DGridAdvisor(OpenAICompatibleAdvisor):
+    """DGrid, a gateway that fronts many providers behind one openai-compatible endpoint.
+
+    Worth its own class rather than reusing the plain "openai" path for one reason: that
+    path only *requires* a key when the base url is openai's own, so a missing DGrid key
+    would be sent as no key at all and come back as an opaque 401. Here it fails loudly.
+
+    Models are named `provider/model` — `anthropic/claude-opus-4.7`, `openai/gpt-4o`. The
+    default below is a starting point, not a promise; set `llm_model` explicitly.
+    """
+
+    name = "dgrid"
+    DEFAULT_MODEL = "anthropic/claude-opus-4.7"
+
+    def __init__(
+        self,
+        model: str = "",
+        base_url: str = DGRID_BASE_URL,
+        api_key_env: str = "DGRID_API_KEY",
+        budget: AdvisorBudget | None = None,
+        max_tokens: int = 2048,
+    ) -> None:
+        super().__init__(
+            model=model or self.DEFAULT_MODEL,
+            base_url=base_url,
+            api_key_env=api_key_env,
+            budget=budget,
+            max_tokens=max_tokens,
+            require_api_key=True,
         )

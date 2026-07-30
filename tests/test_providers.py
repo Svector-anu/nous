@@ -17,6 +17,7 @@ import pytest
 from src.llm.advisor import (
     PROVIDERS,
     ClaudeAdvisor,
+    DGridAdvisor,
     GrokAdvisor,
     NullAdvisor,
     OpenAICompatibleAdvisor,
@@ -29,7 +30,7 @@ from src.llm.base import (
     GoalDecision,
     ThreadedAdvisor,
 )
-from src.llm.openai_advisor import OPENAI_BASE_URL, XAI_BASE_URL
+from src.llm.openai_advisor import DGRID_BASE_URL, OPENAI_BASE_URL, XAI_BASE_URL
 from src.world.config import WorldConfig
 
 BRIEF = GoalBrief(1, 100, 5, 42.0, 0.6, 2.0, 3, "rally", 2, 0, rules_goal="gather_food")
@@ -60,6 +61,7 @@ def test_anthropic_is_the_default_provider():
         ("anthropic", ClaudeAdvisor, None),
         ("xai", GrokAdvisor, XAI_BASE_URL),
         ("openai", OpenAICompatibleAdvisor, OPENAI_BASE_URL),
+        ("dgrid", DGridAdvisor, DGRID_BASE_URL),
     ],
 )
 def test_each_provider_is_selectable(provider, expected, base_url):
@@ -105,6 +107,27 @@ def test_local_endpoints_do_not_require_a_key():
         )
     )
     assert advisor.require_api_key is False
+    advisor.close()
+
+
+def test_dgrid_always_requires_a_key():
+    """A gateway needs its key. The plain "openai" path only requires one when the base url
+    is openai's own, so routing dgrid through that would send no auth at all and surface as
+    an opaque 401 instead of a clear local error."""
+    advisor = build_advisor(WorldConfig(llm_enabled=True, llm_provider="dgrid", llm_model="m"))
+    assert advisor.require_api_key is True
+    assert advisor.api_key_env == "DGRID_API_KEY"
+    advisor.close()
+
+
+def test_dgrid_takes_provider_prefixed_model_names():
+    """Models are addressed as provider/model on the gateway, so a slash must survive."""
+    advisor = build_advisor(
+        WorldConfig(
+            llm_enabled=True, llm_provider="dgrid", llm_model="anthropic/claude-opus-4.7"
+        )
+    )
+    assert advisor.model == "anthropic/claude-opus-4.7"
     advisor.close()
 
 

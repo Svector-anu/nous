@@ -29,8 +29,10 @@ from .base import (
     logger,
 )
 from .openai_advisor import (
+    DGRID_BASE_URL,
     OPENAI_BASE_URL,
     XAI_BASE_URL,
+    DGridAdvisor,
     GrokAdvisor,
     OpenAICompatibleAdvisor,
 )
@@ -41,6 +43,7 @@ __all__ = [
     "SYSTEM_PROMPT",
     "AdvisorBudget",
     "ClaudeAdvisor",
+    "DGridAdvisor",
     "GoalAdvisor",
     "GoalBrief",
     "GoalDecision",
@@ -53,7 +56,7 @@ __all__ = [
     "build_advisor",
 ]
 
-PROVIDERS = ("none", "anthropic", "xai", "openai")
+PROVIDERS = ("none", "anthropic", "xai", "openai", "dgrid")
 
 
 class NullAdvisor:
@@ -160,6 +163,14 @@ def build_advisor(config) -> GoalAdvisor:
 
     if provider == "anthropic":
         return ClaudeAdvisor(model=model, budget=budget, effort=config.llm_effort)
+
+    if provider == "dgrid":
+        return DGridAdvisor(
+            model=model,
+            base_url=base_url or DGRID_BASE_URL,
+            api_key_env=getattr(config, "llm_api_key_env", "") or "DGRID_API_KEY",
+            budget=budget,
+        )
 
     if provider == "xai":
         return GrokAdvisor(
