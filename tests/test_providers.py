@@ -336,3 +336,57 @@ def test_grok_defaults_to_the_xai_host():
     assert advisor.base_url == XAI_BASE_URL
     assert advisor.api_key_env == "XAI_API_KEY"
     assert advisor.name == "xai"
+
+
+def test_dgrid_rejects_a_management_key_with_a_useful_message(monkeypatch):
+    """The gateway issues two kinds of credential. A management key (mk-) can read
+    /v1/models but cannot infer, so listing models succeeds and then chat/completions
+    returns a bare 401 — which reads like a bad key rather than the wrong kind of key.
+    Caught locally, where the reason can be stated."""
+    monkeypatch.setenv("DGRID_API_KEY", "mk-abcdef123456")
+    advisor = build_advisor(
+        WorldConfig(
+            llm_enabled=True, llm_provider="dgrid", llm_model="anthropic/claude-opus-5"
+        )
+    )
+    with pytest.raises(RuntimeError) as caught:
+        advisor._create_client()
+    message = str(caught.value)
+    assert "management key" in message
+    assert "sk-" in message, "the message has to say what to do instead"
+    advisor.close()
+
+
+def test_dgrid_accepts_a_model_key(monkeypatch):
+    monkeypatch.setenv("DGRID_API_KEY", "sk-abcdef123456")
+    advisor = build_advisor(
+        WorldConfig(
+            llm_enabled=True, llm_provider="dgrid", llm_model="anthropic/claude-opus-5"
+        )
+    )
+    client = advisor._create_client()
+    assert client.headers["Authorization"] == "Bearer sk-abcdef123456"
+    client.close()
+    advisor.close()
+
+
+def test_dgrid_rejects_a_model_without_a_provider_prefix(monkeypatch):
+    """WorldConfig.llm_model defaults to a plain anthropic id, which is correct for the
+    anthropic provider and wrong for the gateway. Unprefixed, it would come back as a remote
+    400 about an unknown model rather than pointing at the missing prefix."""
+    monkeypatch.setenv("DGRID_API_KEY", "sk-abcdef123456")
+    advisor = build_advisor(WorldConfig(llm_enabled=True, llm_provider="dgrid"))
+    assert advisor.model == "claude-opus-5", "the config default should reach the advisor"
+    with pytest.raises(RuntimeError) as caught:
+        advisor._create_client()
+    assert "provider prefix" in str(caught.value)
+    assert "anthropic/claude-opus-5" in str(caught.value), "say the likely right answer"
+    advisor.close()
+
+
+def test_dgrid_own_default_model_is_prefixed():
+    """When llm_model is blank the advisor's own default is used, and that one must be
+    shaped for the gateway."""
+    advisor = DGridAdvisor()
+    assert advisor.model.startswith("anthropic/")
+    advisor.close()

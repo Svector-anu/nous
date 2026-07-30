@@ -4,7 +4,7 @@
 
     # live — pass the key inline so it never lands in a shell history file or a repo
     DGRID_API_KEY=... .venv/bin/python -m scripts.verify_llm \
-        --provider dgrid --model anthropic/claude-opus-4.7
+        --provider dgrid --model anthropic/claude-opus-5
 
     ANTHROPIC_API_KEY=... .venv/bin/python -m scripts.verify_llm \
         --provider anthropic --model claude-opus-5

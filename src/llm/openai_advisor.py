@@ -188,7 +188,10 @@ class DGridAdvisor(OpenAICompatibleAdvisor):
     """
 
     name = "dgrid"
-    DEFAULT_MODEL = "anthropic/claude-opus-4.7"
+    DEFAULT_MODEL = "anthropic/claude-opus-5"
+
+    # The gateway issues two kinds of credential and only one of them can infer.
+    MANAGEMENT_KEY_PREFIX = "mk-"
 
     def __init__(
         self,
@@ -206,3 +209,25 @@ class DGridAdvisor(OpenAICompatibleAdvisor):
             max_tokens=max_tokens,
             require_api_key=True,
         )
+
+    def _create_client(self):
+        # A management key (mk-) administers other keys and cannot call inference, but it
+        # *can* read /v1/models — so listing models succeeds and then chat/completions
+        # returns a bare 401, which reads like a bad key rather than the wrong kind of key.
+        # Catch it here, where the reason can actually be stated.
+        api_key = os.environ.get(self.api_key_env, "")
+        if api_key.startswith(self.MANAGEMENT_KEY_PREFIX):
+            raise RuntimeError(
+                f"{self.api_key_env} holds a management key ({self.MANAGEMENT_KEY_PREFIX}...), "
+                "which cannot call inference. create a model key (sk-...) in the dgrid console"
+            )
+        # Every model on the gateway is addressed provider/model. A bare name is the config
+        # default leaking through — llm_model defaults to a plain anthropic id, which is
+        # right for the anthropic provider and wrong here — and would come back as a remote
+        # 400 about an unknown model rather than pointing at the missing prefix.
+        if "/" not in self.model:
+            raise RuntimeError(
+                f"dgrid model {self.model!r} has no provider prefix; "
+                f"use e.g. 'anthropic/{self.model}' (see GET {self.base_url}/models)"
+            )
+        return super()._create_client()
