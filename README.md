@@ -15,6 +15,28 @@ behind one openai-compatible endpoint, where models are addressed `provider/mode
 > list models but returns 401 from chat/completions; a **model** key (`sk-`) is the one you
 > want. that asymmetry makes a wrong key look like a broken request, so both the advisor
 > and `scripts/verify_llm.py` check the prefix up front and say which is which.
+>
+> dgrid also **drops system-role messages**. measured, not guessed: the same instruction
+> sent as `system` came back "I don't have context for this", and sent in the user turn came
+> back as exactly the requested json. so `DGridAdvisor` folds the system prompt into the
+> user turn. without that, the goal list and the output shape never reach the model and it
+> answers plausibly from the state summary alone — which reads as a parsing bug and is not
+> one. it accepts `response_format: json_schema` and ignores it too, so the system prompt
+> states the output shape itself rather than relying on that parameter.
+
+**the live path is verified.** one real call, one clan, through the running simulation:
+
+```
+[raw response]
+{"goal": "gather_food", "reason": "Hunger sits near half with eight rival clans nearby,
+ so keep stores topped up rather than chase the last hut."}
+
+model chose : gather_food      rules chose : gather_food      verdict : same
+latency     : 4101 ms          applied at tick 813, survives save/reload
+```
+
+reproduce with `.venv/bin/python -m scripts.verify_llm --provider dgrid --model
+anthropic/claude-opus-5`. it is deliberately bounded to one clan and three calls.
 
 design docs live in [`planish/`](planish/). nothing here invents behaviour those docs
 don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md) is the
@@ -25,7 +47,7 @@ structured messaging, resource transfer, clans, clan goals with soft influence,
 user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
 the phase 3 spatial index got pulled forward because it was the only thing genuinely
 blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 309 tests on local `main`, no remote.
+self-directing camera. 312 tests on local `main`, no remote.
 
 still deliberately absent: hard territory ownership, births, economy.
 
@@ -116,7 +138,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 309 tests, ~150s
+.venv/bin/python -m pytest tests/ -q      # 312 tests, ~155s
 ```
 
 ## layout

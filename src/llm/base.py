@@ -122,7 +122,16 @@ standing next to; they never give chase. Fights cost both sides energy and can k
 Choose only in genuine famine — it is a last resort, not a strategy, and a raiding clan \
 that was not desperate simply loses energy for nothing.
 
-Answer with the goal and one short sentence of reasoning. Be decisive."""
+Be decisive.
+
+Reply with a single JSON object and nothing else. No prose, no markdown, no code fence:
+
+{"goal": "<one of: gather_food, gather_wood, expand, rally, raid>", "reason": "<one short \
+sentence>"}
+
+The shape is stated here rather than left to `response_format` because not every endpoint \
+honours that parameter — gateways in particular accept it and ignore it, and the answer \
+comes back as prose that cannot be parsed."""
 
 RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",

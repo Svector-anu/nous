@@ -25,6 +25,7 @@ from src.llm.advisor import (
 )
 from src.llm.base import (
     RESPONSE_SCHEMA,
+    SYSTEM_PROMPT,
     AdvisorBudget,
     GoalBrief,
     GoalDecision,
@@ -390,3 +391,36 @@ def test_dgrid_own_default_model_is_prefixed():
     advisor = DGridAdvisor()
     assert advisor.model.startswith("anthropic/")
     advisor.close()
+
+
+def test_dgrid_folds_the_system_prompt_into_the_user_turn():
+    """The gateway drops system-role messages. Measured, not guessed: the same instruction
+    sent as `system` came back "I don't have context for this", and sent in the user turn
+    came back as exactly the requested JSON. Unfolded, the entire system prompt — goal list,
+    rules, output shape — never reaches the model, which then answers plausibly from the
+    state summary alone. That reads as a parsing bug and is not one."""
+    advisor = DGridAdvisor(model="anthropic/claude-opus-5")
+    payload = advisor._payload(BRIEF)
+
+    assert [m["role"] for m in payload["messages"]] == ["user"], "no system role may survive"
+    body = payload["messages"][0]["content"]
+    assert SYSTEM_PROMPT in body, "the system prompt has to still be sent, just relocated"
+    assert BRIEF.as_prompt() in body, "and the state summary must not be lost"
+    assert body.index(SYSTEM_PROMPT) < body.index(BRIEF.as_prompt()), "instructions first"
+    advisor.close()
+
+
+def test_other_openai_providers_keep_the_system_role():
+    """Only the gateway needs the fold. OpenAI, ollama, vllm and lm studio all honour a
+    system message, and merging it there would be a silent behaviour change."""
+    advisor = OpenAICompatibleAdvisor(model="gpt-4", api_key_env="X", require_api_key=False)
+    roles = [m["role"] for m in advisor._payload(BRIEF)["messages"]]
+    assert roles == ["system", "user"]
+    advisor.close()
+
+
+def test_the_system_prompt_states_the_output_shape_itself():
+    """Shape must not depend on response_format being honoured — the gateway accepts that
+    parameter and ignores it."""
+    assert "JSON" in SYSTEM_PROMPT
+    assert '"goal"' in SYSTEM_PROMPT and '"reason"' in SYSTEM_PROMPT

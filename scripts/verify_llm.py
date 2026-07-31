@@ -22,6 +22,7 @@ import argparse
 import logging
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from src.env import load_env
@@ -34,6 +35,8 @@ from src.world.tick import Simulation, create_world
 
 SETTLE_TICKS = 400
 WAIT_TICKS = 400
+# A live request takes tens of seconds; ticks alone cannot wait for the network.
+REPLY_GRACE_SECONDS = 90.0
 
 
 def _rule(title: str) -> None:
@@ -131,11 +134,33 @@ def main() -> int:
     _rule("2. waiting for a decision")
     before = len(decision_log(world).entries)
     llm_entries: list[dict] = []
+
+    def _llm_entries() -> list[dict]:
+        return [e for e in decision_log(world).entries if e["source"] == "llm"]
+
     for _ in range(WAIT_TICKS):
         simulation.step()
-        llm_entries = [e for e in decision_log(world).entries if e["source"] == "llm"]
+        llm_entries = _llm_entries()
         if llm_entries:
             break
+
+    # Ticks are the sim's clock, not the network's. 400 steps run in about a second here
+    # while a real request takes tens of seconds, so the loop above always finished first
+    # and reported failure while the answer was still in flight — pending=1 was the tell.
+    # Keep stepping in wall-clock time for as long as the advisor still owes us something.
+    if not llm_entries and world.advisor.pending():
+        deadline = time.monotonic() + REPLY_GRACE_SECONDS
+        print(f"request still in flight; waiting up to {REPLY_GRACE_SECONDS:.0f}s for it")
+        while time.monotonic() < deadline and world.advisor.pending():
+            simulation.step()
+            llm_entries = _llm_entries()
+            if llm_entries:
+                break
+            time.sleep(0.25)
+        # One last tick: a reply collected on the final pass is applied on the next one.
+        if not llm_entries:
+            simulation.step()
+            llm_entries = _llm_entries()
 
     if not llm_entries:
         print(f"no model decision arrived in {WAIT_TICKS} ticks.")

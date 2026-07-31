@@ -231,3 +231,25 @@ class DGridAdvisor(OpenAICompatibleAdvisor):
                 f"use e.g. 'anthropic/{self.model}' (see GET {self.base_url}/models)"
             )
         return super()._create_client()
+
+    def _payload(self, brief: GoalBrief) -> dict[str, Any]:
+        """Fold the system prompt into the user turn.
+
+        The gateway drops system-role messages. Measured, not guessed: the same
+        instruction sent as `system` came back "I don't have context for this", and sent in
+        the user turn came back as exactly the requested JSON. So on this route the entire
+        system prompt — the goal list, the rules, the output shape — never reached the
+        model, and it answered plausibly from the state summary alone. That looked like a
+        parsing bug and is not one.
+
+        `response_format` is left in place; the gateway accepts and ignores it, and it
+        costs nothing for the day it starts honouring it.
+        """
+        payload = super()._payload(brief)
+        messages = payload["messages"]
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+        rest = [m for m in messages if m["role"] != "system"]
+        if system and rest:
+            rest[0] = {**rest[0], "content": f"{system}\n\n{rest[0]['content']}"}
+        payload["messages"] = rest or messages
+        return payload
