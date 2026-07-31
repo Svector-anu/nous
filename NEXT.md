@@ -35,7 +35,12 @@ prediction markets.
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.
 
-## Next task — LOD
+## Roadmap
+
+`PLAN.md` holds the sequence from here — step 0 measurements, then onboarding, then
+on-chain identity. Read it before picking work.
+
+## Deferred — LOD
 
 Humanoids landed (`buildHumanoid` in `world3d.js`). Measured, whole world, 120 agents:
 
