@@ -119,6 +119,27 @@ agents just get new matrices. instanced batches set `frustumCulled = false`, bec
 is computed from the source geometry rather than the instances and a whole batch can
 otherwise vanish while its members are plainly on screen.
 
+**agents are humanoids, merged into two geometries.** head, torso, arms, legs, hands — but
+six InstancedMeshes per clan would be ~90 draw calls for the agents alone, more than the
+whole world costs. so the parts are merged at init into one clan-coloured geometry and one
+skin geometry, which is exactly the two batches per clan the capsule-and-sphere placeholder
+used. measured: **40 -> 38 draw calls and 147k -> 134k triangles**. blocky boxes are cheaper
+than the smooth capsule they replaced, so readable people cost less than the placeholder.
+
+the trade-off is real and worth naming: an instance carries one matrix for the whole body,
+so **limbs cannot swing**. walk is a bob and a lean instead, which reads at the distance
+these are viewed from. per-limb animation needs a batch per limb; that is a job for after
+LOD, when only nearby agents would pay for it.
+
+every gap in the figure is load-bearing. flush against the torso the arms read as shoulders
+and the head reads as fused — the first pass looked like a bollard, and it only showed at
+magnification, not in a full-frame screenshot. `tests/test_viewer_3d.py` pins the head
+clearing the torso, the feet sitting at local y=0, and the triangle budget.
+
+the walk runs from the render clock in `_poseAgents`, called per frame rather than per
+snapshot — animated on tick arrival it would step at 1 Hz. it is cosmetic and touches no
+simulation state.
+
 **picking is a raycast against the agent batches**, resolving `instanceId` back to an agent
 id through a per-batch id array. bodies and heads share one array so a hit on either
 resolves to the same person. when testing this, project from the *instance matrix*, not from

@@ -299,7 +299,8 @@ check("collapsed container keeps a finite aspect", edges.collapsed);
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyDensest");
 await page.waitForTimeout(1200);
-const picking = await page.evaluate(() => {
+const TORSO_Y = 0.9; // world units from the feet to mid-torso
+const picking = await page.evaluate((TORSO_Y) => {
   const view = window["__world"];
   view.settle();
   const rect = view.renderer.domElement.getBoundingClientRect();
@@ -309,8 +310,11 @@ const picking = await page.evaluate(() => {
   for (const entry of view.agentMeshes.values()) {
     for (let i = 0; i < entry.count; i++) {
       entry.body.getMatrixAt(i, matrix);
+      // The humanoid is modelled with its feet at local y=0, so the instance matrix
+      // translation is the ground under the agent, not its middle. Aiming a pick ray there
+      // hits grass. Offset to torso height — this is a probe correction, not a code fix.
       positions.set(entry.ids[i], {
-        x: matrix.elements[12], y: matrix.elements[13], z: matrix.elements[14],
+        x: matrix.elements[12], y: matrix.elements[13] + TORSO_Y, z: matrix.elements[14],
       });
     }
   }
@@ -336,7 +340,7 @@ const picking = await page.evaluate(() => {
     }
   }
   return { onScreen, exact, nearerWon, fartherWon, missed };
-});
+}, TORSO_Y);
 // Aiming at an agent may legitimately return a different one when somebody stands in
 // front — that is what picking means. What must never happen is returning an agent that is
 // *further away* than the one aimed at, which is the signature of a broken instanceId to

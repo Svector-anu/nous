@@ -344,6 +344,88 @@ const ZENITH = 0x2d4a72;
 // and the huts recede rather than being seen from above.
 const STREET_PHI = Math.PI * 0.455;
 
+// --- humanoid agents ---------------------------------------------------------
+//
+// A person is six parts, but six InstancedMeshes per clan would be ~90 draw calls for the
+// agents alone — more than the entire world costs today. So the parts are merged into two
+// geometries instead: everything that takes the clan colour, and everything that takes skin.
+// That is exactly the two batches per clan the old capsule-and-sphere used, so readable
+// people cost the same number of draw calls as the placeholders did.
+//
+// The cost of merging is that the limbs cannot swing independently — an instance carries one
+// matrix for the whole body. Walk is expressed as a bob and a lean instead, which reads at
+// the distance these are actually viewed from. Per-limb animation would need a batch per
+// limb; that is a job for after LOD, when only nearby agents pay for it.
+
+function mergeParts(parts) {
+  // three's mergeGeometries lives in examples/jsm, which is not vendored — only the core
+  // module is. Non-indexing first sidesteps having to rebase index buffers by hand.
+  const pieces = parts.map(({ geometry, matrix }) => {
+    const piece = geometry.clone().applyMatrix4(matrix);
+    return piece.index ? piece.toNonIndexed() : piece;
+  });
+
+  const total = pieces.reduce((sum, piece) => sum + piece.attributes.position.count, 0);
+  const position = new Float32Array(total * 3);
+  const normal = new Float32Array(total * 3);
+  const uv = new Float32Array(total * 2);
+
+  let vertex = 0;
+  for (const piece of pieces) {
+    position.set(piece.attributes.position.array, vertex * 3);
+    normal.set(piece.attributes.normal.array, vertex * 3);
+    if (piece.attributes.uv) uv.set(piece.attributes.uv.array, vertex * 2);
+    vertex += piece.attributes.position.count;
+    piece.dispose();
+  }
+
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute("position", new THREE.BufferAttribute(position, 3));
+  merged.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
+  merged.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+export function buildHumanoid() {
+  const at = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
+  // Proportions are deliberately blocky and slightly stylised: a realistic figure at this
+  // scale reads as a smudge, while a clear head-shoulders-legs silhouette reads at distance.
+  const limb = (w, h, d) => new THREE.BoxGeometry(w, h, d);
+
+  // Every gap here is load-bearing. Flush against the torso the arms read as shoulders and
+  // the head reads as fused — at magnification the first pass looked like a bollard. The
+  // silhouette needs air between limb and body, and a neck, to say "person" at distance.
+  const torso = limb(TILE * 0.155, TILE * 0.30, TILE * 0.105);
+  const armL = limb(TILE * 0.05, TILE * 0.27, TILE * 0.06);
+  const armR = armL.clone();
+  const legL = limb(TILE * 0.062, TILE * 0.30, TILE * 0.075);
+  const legR = legL.clone();
+
+  const body = mergeParts([
+    { geometry: torso, matrix: at(0, TILE * 0.45, 0) },
+    // Arm inner edge clears the torso by ~0.012 TILE, which is a visible line of shadow.
+    { geometry: armL, matrix: at(-TILE * 0.115, TILE * 0.445, 0) },
+    { geometry: armR, matrix: at(TILE * 0.115, TILE * 0.445, 0) },
+    { geometry: legL, matrix: at(-TILE * 0.058, TILE * 0.15, 0) },
+    { geometry: legR, matrix: at(TILE * 0.058, TILE * 0.15, 0) },
+  ]);
+
+  // Head and hands share the skin batch, so a clan colour never lands on skin. The head sits
+  // just clear of the torso top (0.60) rather than sinking into it.
+  const head = new THREE.SphereGeometry(TILE * 0.082, 10, 8);
+  const handL = limb(TILE * 0.05, TILE * 0.045, TILE * 0.06);
+  const handR = handL.clone();
+  const skin = mergeParts([
+    { geometry: head, matrix: at(0, TILE * 0.688, 0) },
+    { geometry: handL, matrix: at(-TILE * 0.115, TILE * 0.30, 0) },
+    { geometry: handR, matrix: at(TILE * 0.115, TILE * 0.30, 0) },
+  ]);
+
+  for (const part of [torso, armL, armR, legL, legR, head, handL, handR]) part.dispose();
+  return { body, skin };
+}
+
 // --- the view ---------------------------------------------------------------
 
 export class WorldView {
@@ -372,6 +454,8 @@ export class WorldView {
     this.orbit = { theta: Math.PI * 0.22, phi: Math.PI * 0.30, distance: this.worldSpan };
     this.goal = { x: 0, z: 0, theta: Math.PI * 0.22, phi: Math.PI * 0.30, distance: this.worldSpan, ease: 1.4 };
     this.lastFrameAt = null;
+    // Seconds of render time. Drives the walk cycle only — never simulation state.
+    this.clock = 0;
     // Reused every tick so the per-frame path allocates nothing.
     this.scratch = {
       matrix: new THREE.Matrix4(),
@@ -415,11 +499,13 @@ export class WorldView {
       this._own(material, material.map, material.normalMap, material.roughnessMap);
     }
 
-    // One cube and one capsule serve every instance in the scene.
+    // One cube serves every box in every hut. Agents get two merged humanoid geometries —
+    // see buildHumanoid for why the parts are merged rather than instanced separately.
+    const humanoid = buildHumanoid();
     this.geometries = {
       box: new THREE.BoxGeometry(1, 1, 1),
-      body: new THREE.CapsuleGeometry(TILE * 0.12, TILE * 0.3, 4, 10),
-      head: new THREE.SphereGeometry(TILE * 0.105, 10, 8),
+      body: humanoid.body,
+      head: humanoid.skin,
       ring: new THREE.TorusGeometry(TILE * 0.28, TILE * 0.035, 8, 20),
       food: new THREE.IcosahedronGeometry(TILE * 0.17, 0),
       trunk: new THREE.CylinderGeometry(TILE * 0.07, TILE * 0.1, TILE * 0.8, 6),
@@ -1011,9 +1097,6 @@ export class WorldView {
       if (!byClan.has(key)) this._disposeAgentGroup(key);
     }
 
-    const { matrix, position, quaternion, scale, euler } = this.scratch;
-    scale.set(1, 1, 1);
-
     for (const [key, list] of byClan) {
       let entry = this.agentMeshes.get(key);
       // An InstancedMesh has a fixed capacity, so a change in headcount means a new one.
@@ -1029,7 +1112,7 @@ export class WorldView {
           mesh.frustumCulled = false;
           this.scene.add(mesh);
         }
-        entry = { body, head, count: list.length, ids: new Array(list.length) };
+        entry = { body, head, count: list.length, ids: new Array(list.length), pose: new Array(list.length) };
         this.agentMeshes.set(key, entry);
         // Both batches share one id list: a raycast can land on either a body or a head
         // and must resolve to the same person.
@@ -1044,26 +1127,61 @@ export class WorldView {
         const ground = terrainHeight(x, z);
 
         let facing = 0;
+        let walking = false;
         if (agent.target) {
           const [tx, tz] = this.local({ x: agent.target[0], y: agent.target[1] });
-          if (tx !== x || tz !== z) facing = Math.atan2(tx - x, tz - z);
+          if (tx !== x || tz !== z) {
+            facing = Math.atan2(tx - x, tz - z);
+            walking = true;
+          }
         }
-        euler.set(0, facing, 0);
-        quaternion.setFromEuler(euler);
+        // The pose is kept so the frame loop can re-place this agent without another
+        // snapshot. A walk animated only on tick arrival would step at 1 Hz.
+        entry.pose[i] = { x, z, ground, facing, walking, id: agent.id };
+      }
+    }
 
-        position.set(x, ground + TILE * 0.33, z);
+    this._poseAgents();
+    this._syncRings(agents.filter((agent) => agent.user));
+  }
+
+  // Writes every agent's instance matrix from its stored pose. Called on each snapshot and
+  // again on every frame, so the walk runs at render rate rather than stepping once a
+  // second. Allocates nothing: the scratch objects are reused and the pose is already there.
+  //
+  // Walk is a bob and a lean, not swinging limbs — the parts are merged into one geometry,
+  // so an instance carries a single matrix for the whole body. Phase is offset per agent so
+  // a crowd does not march in lockstep. Purely cosmetic: it reads the render clock and never
+  // touches simulation state, which is why nothing here can affect determinism.
+  _poseAgents() {
+    const { matrix, position, quaternion, scale, euler } = this.scratch;
+    scale.set(1, 1, 1);
+
+    for (const entry of this.agentMeshes.values()) {
+      for (let i = 0; i < entry.count; i++) {
+        const pose = entry.pose[i];
+        if (!pose) continue;
+
+        let bob = 0;
+        let lean = 0;
+        if (pose.walking) {
+          const phase = this.clock * 7 + pose.id * 1.7;
+          bob = Math.abs(Math.sin(phase)) * TILE * 0.025;
+          lean = Math.sin(phase) * 0.07;
+        }
+        euler.set(lean, pose.facing, 0);
+        quaternion.setFromEuler(euler);
+        // Both merged geometries are modelled with the feet at local y = 0, so body and
+        // skin share one placement rather than the two hand-tuned heights the capsule and
+        // sphere each needed.
+        position.set(pose.x, pose.ground + bob, pose.z);
         matrix.compose(position, quaternion, scale);
         entry.body.setMatrixAt(i, matrix);
-
-        position.set(x, ground + TILE * 0.62, z);
-        matrix.compose(position, quaternion, scale);
         entry.head.setMatrixAt(i, matrix);
       }
       entry.body.instanceMatrix.needsUpdate = true;
       entry.head.instanceMatrix.needsUpdate = true;
     }
-
-    this._syncRings(agents.filter((agent) => agent.user));
   }
 
   // User-deployed agents wear a ring so they can be picked out of a crowd. One batch for
@@ -1125,8 +1243,12 @@ export class WorldView {
     // backgrounded tab reports a useless delta, hence the clamp.
     const dt = this.lastFrameAt === null ? 0 : Math.min((now - this.lastFrameAt) / 1000, 0.25);
     this.lastFrameAt = now;
+    this.clock += dt;
     if (this.onBeforeFrame) this.onBeforeFrame(dt);
-    if (dt > 0) this._easeCamera(dt);
+    if (dt > 0) {
+      this._easeCamera(dt);
+      this._poseAgents();
+    }
 
     const { theta, phi, distance } = this.orbit;
     this.camera.position.set(

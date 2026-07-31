@@ -31,7 +31,7 @@ def _run(body: str, tmp_path: Path) -> dict:
     (tmp_path / "main.mjs").write_text(
         textwrap.dedent(
             """
-            import { densestCluster, terrainHeight, clanHue } from "./world3d.mjs";
+            import { densestCluster, terrainHeight, clanHue, buildHumanoid } from "./world3d.mjs";
             """
         )
         + body
@@ -211,3 +211,72 @@ def test_clan_colours_are_stable_and_distinct(tmp_path):
     )
     assert out["repeat"]
     assert out["distinct"] >= 20
+
+
+def test_the_humanoid_is_two_merged_geometries_not_six(tmp_path):
+    """Six parts as six InstancedMeshes would be ~90 draw calls for the agents alone, more
+    than the entire world costs. Merging into a clan-coloured batch and a skin batch keeps
+    the exact two batches per clan the capsule-and-sphere placeholder used."""
+    out = _run(
+        """
+        const h = buildHumanoid();
+        const shape = (g) => ({
+          verts: g.attributes.position.count,
+          hasNormal: !!g.attributes.normal,
+          hasUv: !!g.attributes.uv,
+          indexed: !!g.index,
+        });
+        console.log(JSON.stringify({ body: shape(h.body), skin: shape(h.skin) }));
+        """,
+        tmp_path,
+    )
+    for part in ("body", "skin"):
+        assert out[part]["verts"] > 0
+        assert out[part]["hasNormal"], f"{part} lost its normals in the merge"
+        assert out[part]["hasUv"], f"{part} lost its uvs in the merge"
+        assert not out[part]["indexed"], "merged parts are non-indexed by construction"
+
+
+def test_the_humanoid_stands_on_its_feet(tmp_path):
+    """Both merged geometries are modelled with the feet at local y=0, so body and skin
+    share one instance matrix. If either drifts the figure floats or sinks."""
+    out = _run(
+        """
+        const h = buildHumanoid();
+        const box = (g) => { g.computeBoundingBox(); const b = g.boundingBox;
+          return { minY: b.min.y, maxY: b.max.y, halfWidth: Math.max(Math.abs(b.min.x), b.max.x) }; };
+        console.log(JSON.stringify({ body: box(h.body), skin: box(h.skin) }));
+        """,
+        tmp_path,
+    )
+    assert abs(out["body"]["minY"]) < 0.05, "feet are not on the ground"
+    total_height = out["skin"]["maxY"]
+    assert 1.2 < total_height < 1.9, f"a person should be about 1.5 units tall, got {total_height}"
+
+
+def test_the_head_clears_the_torso(tmp_path):
+    """A head sunk into the shoulders reads as a bollard, not a person. This was the first
+    pass, and it only showed at magnification."""
+    out = _run(
+        """
+        const h = buildHumanoid();
+        h.body.computeBoundingBox(); h.skin.computeBoundingBox();
+        console.log(JSON.stringify({ torsoTop: h.body.boundingBox.max.y, skinTop: h.skin.boundingBox.max.y }));
+        """,
+        tmp_path,
+    )
+    # the head must sit above the shoulders, not inside them
+    assert out["skinTop"] > out["torsoTop"] + 0.1
+
+
+def test_a_person_stays_cheap(tmp_path):
+    """The whole point of the blocky silhouette. If this grows, LOD stops being optional."""
+    out = _run(
+        """
+        const h = buildHumanoid();
+        const tris = (g) => g.attributes.position.count / 3;
+        console.log(JSON.stringify({ tris: tris(h.body) + tris(h.skin) }));
+        """,
+        tmp_path,
+    )
+    assert out["tris"] < 400, f"a humanoid costs {out['tris']} triangles; budget is 400"

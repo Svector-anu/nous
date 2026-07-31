@@ -47,7 +47,7 @@ structured messaging, resource transfer, clans, clan goals with soft influence,
 user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
 the phase 3 spatial index got pulled forward because it was the only thing genuinely
 blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 343 tests on local `main`, no remote.
+self-directing camera. 347 tests on local `main`, no remote.
 
 still deliberately absent: hard territory ownership, births, economy.
 
@@ -142,7 +142,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 343 tests, ~180s
+.venv/bin/python -m pytest tests/ -q      # 347 tests, ~130s
 ```
 
 **prediction markets.** spectators bet on what the world will do. markets open on a

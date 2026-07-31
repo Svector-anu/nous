@@ -19,44 +19,42 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **343 passed in 178s** (`pytest -q`, actual output) |
+| Tests | **347 passed in 129s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 30, `main`, pushed to `origin` (private) |
+| Commits | 32, `main`, pushed to `origin` (private) |
 | Working tree | clean |
 | Lint / typecheck / CI | **none exist** |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
 clans, goals, influence, user-deployed agents, raiding, grudges, truces); chunked spatial
 index; multi-provider LLM advisor, off by default, **verified live once** through DGrid;
-procedural 3D as the main view with a self-directing cinematic camera; prediction markets.
+procedural 3D as the main view with a self-directing cinematic camera; humanoid agents;
+prediction markets.
 
-**Not built:** humanoid agents (capsule + sphere today), LOD (none anywhere), births,
-economy, hard territory ownership, on-chain identity.
+**Not built:** LOD (none anywhere, and not yet justified — see below), per-limb walk
+animation, births, economy, hard territory ownership, on-chain identity.
 
-## Next task — humanoid agents
+## Next task — LOD
 
-Locked as Option B. Replace the capsule-and-sphere agent with a readable low-poly humanoid.
+Humanoids landed (`buildHumanoid` in `world3d.js`). Measured, whole world, 120 agents:
 
-**Do first, before designing anything:** most of the "continuous world / free movement"
-milestone is already shipped. The whole world is meshed and resident (51 draw calls, 180k
-triangles, vsync-locked), there is no focus-cluster limit, and the camera already travels
-freely. Verify that yourself rather than trusting this file, then build only what is missing.
+| | before | after |
+|---|---|---|
+| draw calls | 40 | **38** |
+| triangles | 147k | **134k** |
+| p50 frame | 16.6 ms | 16.7 ms (vsync) |
 
-**Scope**
-- Head, torso, arms, legs — readable at street level, not at GTA fidelity
-- Clan colour on clothing; keep the skin-toned head
-- Basic idle/walk if it stays cheap
-- Stay instanced and batched per clan; the per-tick path must still allocate nothing
+Blocky boxes are cheaper than the smooth capsule they replaced, so the humanoid cost nothing.
+That means **LOD is still not justified by measurement** — the GPU idles waiting for vsync.
 
-**Acceptance**
-- `pytest -q` still 343+ passing
-- `verify_world3d.mjs` still 39/39, draw calls still under 90
-- Measure draw calls and frame time before and after, and put the numbers in the commit
-- Cinematic camera, picking, minimap all still work
+Do not build LOD until something makes it necessary. The honest triggers are:
+- agent counts well past 120 (the sim supports 500; the viewer has never been asked to)
+- per-limb walk animation, which needs a batch per limb and *would* blow the draw-call budget
+- a lower-end GPU than this machine
 
-**Then LOD, and only then.** Today LOD would be premature — the GPU idles waiting for vsync
-at 51 draw calls. Humanoids are ~6 primitives against today's 2, which is the first time agent
-count actually costs something. **Let the measurement design the LOD, not the other way round.**
+**Measure first, then decide.** `scripts/verify_world3d.mjs` reports calls and triangles;
+raise `agent_count` in `WorldConfig` and see where it actually hurts. If it does not hurt,
+say so and pick different work rather than building LOD because it was on a list.
 
 ## Blocked on a human
 
