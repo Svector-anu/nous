@@ -11,7 +11,7 @@
 // merely looking painted.
 //
 // Everything that can be shared is built once per open and reused: one unit box carries
-// every wall, roof and plinth through InstancedMesh, and agents draw from one capsule and
+// every wall,,  roof and plinth through InstancedMesh, and agents draw from one capsule and
 // one material per clan. The per-tick path allocates nothing in the steady state — an
 // earlier version built a material per agent per tick and only freed them on close, which
 // measured at +27 live materials every second.
@@ -397,10 +397,12 @@ function mergeParts(parts) {
   merged.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   merged.setAttribute("limb", new THREE.BufferAttribute(limb, 1));
   merged.computeBoundingSphere();
+
   return merged;
 }
 
-// Rotates tagged vertices about their pivot, by a phase carried per instance.
+// Rotates tagged vertices about their pivot, by a phase carried per instance, plus posture
+// and gait speed so idle, work and panic read as different physical states.
 //
 // This is what buys real locomotion without giving up the two-batches-per-clan budget. The
 // alternative — a separate InstancedMesh per limb so each could carry its own matrix — is
@@ -416,8 +418,30 @@ export function applyWalkShader(material) {
         `#include <common>
         attribute float limb;
         attribute float phase;
+        attribute float speed;
+        attribute float lean;
+        attribute float breath;
         const float HIP_Y = ${HIP_Y.toFixed(4)};
         const float SHOULDER_Y = ${SHOULDER_Y.toFixed(4)};
+
+        // Posture is applied even when an agent is standing: gathering leans forward, resting
+        // leans back, idle breathes. All rotations happen around the hip so the feet stay put.
+        void applyPosture(inout vec3 p, inout vec3 n) {
+          if (breath > 0.0 && phase < 0.0) {
+            p.y += sin(breath) * 0.015;
+          }
+          if (lean != 0.0) {
+            float pivot = HIP_Y;
+            float y = p.y - pivot;
+            float c = cos(lean);
+            float s = sin(lean);
+            float ny = n.y;
+            p.y = pivot + y * c - p.z * s;
+            p.z = y * s + p.z * c;
+            n.y = ny * c - n.z * s;
+            n.z = ny * s + n.z * c;
+          }
+        }
 
         void swingLimb(inout vec3 p, inout vec3 n) {
           if (limb < 0.5 || phase < 0.0) return;   // negative phase marks a standing agent
@@ -427,8 +451,9 @@ export function applyWalkShader(material) {
           float side   = isLeft > 0.5 ? 1.0 : -1.0;
           float amount = isLeg > 0.5 ? 0.62 : 0.38;
           float pivot  = isLeg > 0.5 ? HIP_Y : SHOULDER_Y;
-          // Arms swing against the legs on the same side.
-          float angle  = sin(phase) * side * amount * (isLeg > 0.5 ? 1.0 : -1.0);
+          // speed lets a fleeing figure sprint while a follower strolls, without changing the
+          // per-instance clock that keeps agents out of lockstep.
+          float angle  = sin(phase * max(speed, 0.0)) * side * amount * (isLeg > 0.5 ? 1.0 : -1.0);
 
           float c = cos(angle), s = sin(angle);
           float y = p.y - pivot;
@@ -443,6 +468,7 @@ export function applyWalkShader(material) {
         "#include <beginnormal_vertex>",
         `#include <beginnormal_vertex>
         vec3 walkPos = position;
+        applyPosture(walkPos, objectNormal);
         swingLimb(walkPos, objectNormal);`
       )
       .replace("#include <begin_vertex>", "vec3 transformed = walkPos;");
@@ -450,6 +476,68 @@ export function applyWalkShader(material) {
   // Every agent material injects the identical program, so they can share a cache entry.
   material.customProgramCacheKey = () => "walk";
   return material;
+}
+
+// Map the simulation state to cosmetic gait and posture parameters. These are purely visual:
+// the simulation itself decides where the agent is and what it is doing, and this only says how
+// to present it.
+export function agentAnimation(state, isWalking) {
+  let speed = 1.0;
+  let lean = 0.0;
+  let breath = 0.0;
+
+  if (isWalking) {
+    switch (state) {
+      case "FLEE":
+        speed = 1.55;
+        lean = 0.32;
+        break;
+      case "SEEK_NEED":
+        speed = 1.0;
+        lean = 0.12;
+        break;
+      case "FOLLOW":
+        speed = 0.95;
+        lean = 0.08;
+        break;
+      case "MEET":
+        speed = 1.0;
+        lean = 0.10;
+        break;
+      default:
+        speed = 0.9;
+        lean = 0.05;
+    }
+  } else {
+    switch (state) {
+      case "REST":
+        breath = 0.6;
+        lean = -0.06;
+        break;
+      case "GATHER":
+        breath = 0.5;
+        lean = 0.18;
+        break;
+      case "BUILD":
+        breath = 0.55;
+        lean = 0.15;
+        break;
+      case "IDLE":
+      default:
+        breath = 0.75;
+        lean = 0.0;
+    }
+  }
+
+  return { speed, lean, breath };
+}
+
+export function lerpAngle(a, b, t) {
+  let diff = b - a;
+  diff = (diff + Math.PI) % (Math.PI * 2);
+  if (diff < 0) diff += Math.PI * 2;
+  diff -= Math.PI;
+  return a + diff * t;
 }
 
 export function buildHumanoid() {
@@ -531,6 +619,7 @@ export class WorldView {
       scale: new THREE.Vector3(1, 1, 1),
       euler: new THREE.Euler(),
     };
+    this.lastSnapshotAt = 0;
 
     const { width, height } = this._size();
 
@@ -1042,6 +1131,9 @@ export class WorldView {
       this.staticKey = key;
       this._buildStatic(buildings, resources);
     }
+    // Record when this snapshot arrived so _poseAgents can interpolate between it and the
+    // next one. The simulation clock is 1 second per tick, but render frames arrive far faster.
+    this.lastSnapshotAt = this.clock;
     this._syncAgents(agents);
 
     this.stats = { huts: buildings.length, agents: agents.length, nodes: resources.length };
@@ -1175,11 +1267,19 @@ export class WorldView {
         // into the same buffer and the last one mounted won. The clone is ~200 triangles.
         const bodyGeometry = this.geometries.body.clone();
         const headGeometry = this.geometries.head.clone();
-        // One walk phase per agent, shared by the body and skin batches so an arm and the
-        // hand on the end of it swing together.
+        // Per-instance animation state. These are shared between the body and skin batches so
+        // a limb and its attached hand move together, and cloned per clan so different clans
+        // cannot overwrite each other's buffers.
         const phase = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(-1), 1);
-        bodyGeometry.setAttribute("phase", phase);
-        headGeometry.setAttribute("phase", phase);
+        const speed = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(1), 1);
+        const lean = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(0), 1);
+        const breath = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(0), 1);
+        for (const geometry of [bodyGeometry, headGeometry]) {
+          geometry.setAttribute("phase", phase);
+          geometry.setAttribute("speed", speed);
+          geometry.setAttribute("lean", lean);
+          geometry.setAttribute("breath", breath);
+        }
         const body = new THREE.InstancedMesh(bodyGeometry, this._clanMaterial(key), list.length);
         const head = new THREE.InstancedMesh(headGeometry, this.sharedMaterials.head, list.length);
         for (const mesh of [body, head]) {
@@ -1189,7 +1289,7 @@ export class WorldView {
           mesh.frustumCulled = false;
           this.scene.add(mesh);
         }
-        entry = { body, head, phase, count: list.length, ids: new Array(list.length), pose: new Array(list.length) };
+        entry = { body, head, phase, speed, lean, breath, count: list.length, ids: new Array(list.length), pose: new Array(list.length) };
         this.agentMeshes.set(key, entry);
         // Both batches share one id list: a raycast can land on either a body or a head
         // and must resolve to the same person.
@@ -1203,7 +1303,7 @@ export class WorldView {
         const [x, z] = this.local(agent);
         const ground = terrainHeight(x, z);
 
-        let facing = 0;
+        let facing = entry.pose[i] ? entry.pose[i].facing : 0;
         let walking = false;
         if (agent.target) {
           const [tx, tz] = this.local({ x: agent.target[0], y: agent.target[1] });
@@ -1212,9 +1312,23 @@ export class WorldView {
             walking = true;
           }
         }
-        // The pose is kept so the frame loop can re-place this agent without another
-        // snapshot. A walk animated only on tick arrival would step at 1 Hz.
-        entry.pose[i] = { x, z, ground, facing, walking, id: agent.id };
+        // Keep the previous pose so the frame loop can interpolate between ticks. A walk
+        // animated only on tick arrival would step at 1 Hz; a position set only to the latest
+        // snapshot would teleport one tile per tick.
+        const prev = entry.pose[i]
+          ? {
+              x: entry.pose[i].x,
+              z: entry.pose[i].z,
+              ground: entry.pose[i].ground,
+              facing: entry.pose[i].facing,
+              walking: entry.pose[i].walking,
+              speed: entry.pose[i].speed,
+              lean: entry.pose[i].lean,
+              breath: entry.pose[i].breath,
+            }
+          : null;
+        const animation = agentAnimation(agent.state, walking);
+        entry.pose[i] = { x, z, ground, facing, walking, prev, id: agent.id, ...animation };
       }
     }
 
@@ -1226,18 +1340,39 @@ export class WorldView {
   // again on every frame, so the walk runs at render rate rather than stepping once a
   // second. Allocates nothing: the scratch objects are reused and the pose is already there.
   //
-  // Walk is a bob and a lean, not swinging limbs — the parts are merged into one geometry,
-  // so an instance carries a single matrix for the whole body. Phase is offset per agent so
-  // a crowd does not march in lockstep. Purely cosmetic: it reads the render clock and never
-  // touches simulation state, which is why nothing here can affect determinism.
+  // Pose is interpolated between snapshots so the figure glides across tiles rather than
+  // teleporting once per second, and facing is eased so turns look like steps rather than a
+  // snapped compass. State drives gait speed and posture in the vertex shader: a fleeing
+  // agent sprints and leans forward, a resting one breathes and leans back. Purely cosmetic:
+  // it reads the render clock and never touches simulation state.
   _poseAgents() {
     const { matrix, position, quaternion, scale, euler } = this.scratch;
+    const tickSeconds = 1.0;
+    const t = this.lastSnapshotAt === null
+      ? 0
+      : Math.min(1, Math.max(0, (this.clock - this.lastSnapshotAt) / tickSeconds));
     scale.set(1, 1, 1);
 
     for (const entry of this.agentMeshes.values()) {
       for (let i = 0; i < entry.count; i++) {
         const pose = entry.pose[i];
         if (!pose) continue;
+        const prev = pose.prev || pose;
+
+        // Interpolate position and facing between the previous snapshot and the current one.
+        // The simulation only moves one tile per tick, but the viewer can render at 60 Hz.
+        const ix = prev.x + (pose.x - prev.x) * t;
+        const iz = prev.z + (pose.z - prev.z) * t;
+        const iground = prev.ground + (pose.ground - prev.ground) * t;
+        const facing = lerpAngle(prev.facing, pose.facing, t);
+
+        // Gait speed and posture are interpolated too, so a state change does not pop.
+        const ispeed = prev.speed + (pose.speed - prev.speed) * t;
+        const ilean = prev.lean + (pose.lean - prev.lean) * t;
+        const ibreath = prev.breath + (pose.breath - prev.breath) * t;
+        // A breath phase keeps advancing when idle; standing is signalled to the shader by a
+        // negative walk phase, so a non-walking agent still gets idle motion.
+        const breathPhase = ibreath > 0 ? this.clock * 1.5 + pose.id * 2.3 : 0;
 
         // The gait itself lives in the vertex shader; this only supplies its phase.
         // Standing is signalled by a negative phase, not by a large one: the phase grows
@@ -1253,13 +1388,16 @@ export class WorldView {
           bob = (Math.cos(phase * 2) * 0.5 + 0.5) * TILE * 0.012;
         }
         entry.phase.array[i] = phase;
+        entry.speed.array[i] = ispeed;
+        entry.lean.array[i] = ilean;
+        entry.breath.array[i] = breathPhase;
 
-        euler.set(0, pose.facing, 0);
+        euler.set(0, facing, 0);
         quaternion.setFromEuler(euler);
         // Both merged geometries are modelled with the feet at local y = 0, so body and
         // skin share one placement rather than the two hand-tuned heights the capsule and
         // sphere each needed.
-        position.set(pose.x, pose.ground + bob, pose.z);
+        position.set(ix, iground + bob, iz);
         matrix.compose(position, quaternion, scale);
         entry.body.setMatrixAt(i, matrix);
         entry.head.setMatrixAt(i, matrix);
@@ -1267,6 +1405,9 @@ export class WorldView {
       entry.body.instanceMatrix.needsUpdate = true;
       entry.head.instanceMatrix.needsUpdate = true;
       entry.phase.needsUpdate = true;
+      entry.speed.needsUpdate = true;
+      entry.lean.needsUpdate = true;
+      entry.breath.needsUpdate = true;
     }
   }
 

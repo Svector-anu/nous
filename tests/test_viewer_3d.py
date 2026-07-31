@@ -9,6 +9,7 @@ the whole scene.
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 import textwrap
@@ -325,17 +326,75 @@ def test_the_walk_shader_is_injected_and_cacheable(tmp_path):
         console.log(JSON.stringify({
           hasLimb: shader.vertexShader.includes("attribute float limb"),
           hasPhase: shader.vertexShader.includes("attribute float phase"),
+          hasSpeed: shader.vertexShader.includes("attribute float speed"),
+          hasLean: shader.vertexShader.includes("attribute float lean"),
+          hasBreath: shader.vertexShader.includes("attribute float breath"),
           swings: shader.vertexShader.includes("swingLimb"),
+          postures: shader.vertexShader.includes("applyPosture"),
           usesWalkPos: shader.vertexShader.includes("vec3 transformed = walkPos"),
           cacheKey: m.customProgramCacheKey(),
         }));
         """,
         tmp_path,
     )
-    assert out["hasLimb"] and out["hasPhase"], "the shader needs both attributes"
+    assert out["hasLimb"] and out["hasPhase"], "the shader needs limb and phase"
+    assert out["hasSpeed"] and out["hasLean"] and out["hasBreath"], "the shader needs gait and posture attributes"
     assert out["swings"], "the swing function was not injected"
+    assert out["postures"], "the posture function was not injected"
     assert out["usesWalkPos"], "begin_vertex still uses the unswung position"
     assert out["cacheKey"], "identical programs must share a cache entry"
+
+
+def test_lerp_angle_chooses_the_shortest_path(tmp_path):
+    """Facing is a single angle, so interpolating the naive difference makes a figure spin
+    the long way around. The helper must wrap across the +/-PI boundary."""
+    out = _run(
+        """
+        import { lerpAngle } from "./world3d.mjs";
+        const cases = [
+          { a: 0, b: 1, t: 0.5, expected: 0.5 },
+          { a: 0, b: 3, t: 0.5, expected: 1.5 },
+          { a: 3, b: -3, t: 1, expected: -3 },
+          { a: 0.1, b: 6.2, t: 1, expected: 6.2 },
+        ];
+        const results = cases.map(c => ({ ...c, got: lerpAngle(c.a, c.b, c.t) }));
+        console.log(JSON.stringify({ results }));
+        """,
+        tmp_path,
+    )
+    for row in out["results"]:
+        diff = row["got"] - row["expected"]
+        diff = ((diff + math.pi) % (math.pi * 2)) - math.pi
+        if diff < -math.pi:
+            diff += math.pi * 2
+        assert abs(diff) < 0.01, f"lerpAngle({row['a']}, {row['b']}, {row['t']}) = {row['got']} expected {row['expected']}"
+
+
+def test_agent_animation_maps_states_to_gait_and_posture(tmp_path):
+    """A fleeing agent should move faster and lean harder than a resting one. These are
+    viewer-only cosmetic parameters, but they are the contract between the CPU pose and the
+    vertex shader."""
+    out = _run(
+        """
+        import { agentAnimation } from "./world3d.mjs";
+        console.log(JSON.stringify({
+          idle: agentAnimation('IDLE', false),
+          rest: agentAnimation('REST', false),
+          gather: agentAnimation('GATHER', false),
+          build: agentAnimation('BUILD', false),
+          seek: agentAnimation('SEEK_NEED', true),
+          follow: agentAnimation('FOLLOW', true),
+          flee: agentAnimation('FLEE', true),
+        }));
+        """,
+        tmp_path,
+    )
+    assert out["idle"]["breath"] > 0 and out["idle"]["lean"] == 0
+    assert out["rest"]["lean"] < 0
+    assert out["gather"]["lean"] > 0
+    assert out["build"]["lean"] > 0
+    assert out["flee"]["speed"] > out["seek"]["speed"]
+    assert out["flee"]["lean"] > out["seek"]["lean"]
 
 
 def test_standing_is_signalled_by_a_negative_phase(tmp_path):
