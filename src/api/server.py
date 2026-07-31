@@ -17,8 +17,16 @@ from ..persistence.sqlite_store import SqliteWorldStore
 from ..world.components import Agent, ClanRef, Position
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
-from ..world.systems import leadership, spawning
+from ..world.systems import leadership, markets, spawning
 from ..world.tick import Simulation, create_world
+
+
+class PositionRequest(BaseModel):
+    """A spectator taking a side. Demo credits only — there is no real money here."""
+
+    user: str = Field(..., description="display name of the bettor")
+    side: str = Field(..., description="yes or no")
+    stake: int = Field(..., description="credits to stake")
 
 
 class DeployRequest(BaseModel):
@@ -165,6 +173,77 @@ def create_app(
                 "pending": advisor.pending() if advisor is not None else 0,
                 "entries": list(current.entries) if current is not None else [],
             }
+        )
+
+    @app.get("/markets")
+    async def market_list() -> JSONResponse:
+        """Open and settled markets, plus balances and a leaderboard.
+
+        Reading is cheap and the book is bounded, so this serves the whole thing rather
+        than paginating something that cannot grow.
+        """
+        world = app.state.simulation.world
+        book = markets.book(world)
+        if book is None:
+            return JSONResponse({"markets": [], "balances": {}, "leaderboard": []})
+
+        live = [m for m in book.markets if m["state"] != markets.RESOLVED]
+        settled = [m for m in book.markets if m["state"] == markets.RESOLVED]
+        leaderboard = sorted(
+            ({"user": u, "credits": c} for u, c in book.balances.items()),
+            key=lambda row: (-row["credits"], row["user"]),
+        )
+        return JSONResponse(
+            {
+                "tick": world.tick,
+                "open": live,
+                "settled": settled[-20:],
+                "balances": dict(sorted(book.balances.items())),
+                "leaderboard": leaderboard,
+                "starting_balance": world.config.market_starting_balance,
+                "max_stake": world.config.market_max_stake,
+                "pending": len(book.pending),
+            }
+        )
+
+    @app.post("/markets/{market_id}/positions", status_code=202)
+    async def take_position(market_id: int, request: PositionRequest) -> JSONResponse:
+        world = app.state.simulation.world
+        config = world.config
+        book = markets.book(world)
+        if book is None:
+            raise HTTPException(503, "world is not ready")
+
+        user = request.user.strip()
+        if not user:
+            raise HTTPException(422, "user must not be empty")
+        if len(user) > config.max_name_length:
+            raise HTTPException(422, f"user must be at most {config.max_name_length} characters")
+        if request.side not in (markets.YES, markets.NO):
+            raise HTTPException(422, "side must be 'yes' or 'no'")
+        if request.stake <= 0:
+            raise HTTPException(422, "stake must be positive")
+        if request.stake > config.market_max_stake:
+            raise HTTPException(422, f"stake must be at most {config.market_max_stake}")
+
+        entry = next((m for m in book.markets if m["id"] == market_id), None)
+        if entry is None:
+            raise HTTPException(404, f"no market {market_id}")
+        if entry["state"] != markets.OPEN:
+            raise HTTPException(409, f"market {market_id} is {entry['state']}")
+
+        balance = book.balances.get(user, config.market_starting_balance)
+        if balance < request.stake:
+            raise HTTPException(409, f"{user} holds {balance} credits, not {request.stake}")
+
+        # Queued, not applied: a position is an input to the simulation in exactly the way
+        # a deployment is, so it lands at a fixed point in the next tick.
+        markets.place(world, user, market_id, request.side, request.stake)
+        return JSONResponse(
+            {"queued": True, "market": market_id, "user": user,
+             "side": request.side, "stake": request.stake,
+             "applies_at_tick": world.tick + 1},
+            status_code=202,
         )
 
     @app.get("/agents")

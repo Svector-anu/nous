@@ -15,6 +15,7 @@ from .components import (
     DecisionLog,
     Inbox,
     Inventory,
+    MarketBook,
     Needs,
     Outbox,
     Position,
@@ -31,6 +32,7 @@ from .systems import (
     combat,
     fsm,
     leadership,
+    markets,
     messaging,
     movement,
     needs,
@@ -65,6 +67,9 @@ def build_registry() -> SystemRegistry:
     registry.register("leadership", leadership.run)
     registry.register("social", social.run)
     registry.register("blackboard", blackboard.run)
+    # Last: a market resolves against the tick's final state, so it must run after every
+    # system that can change the world. It only ever reads that state.
+    registry.register("markets", markets.run)
     return registry
 
 
@@ -83,6 +88,7 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), SpawnQueue())
     world.add(world.create_entity(), DecisionLog())
     world.add(world.create_entity(), AdvisorState())
+    world.add(world.create_entity(), MarketBook())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()

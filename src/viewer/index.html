@@ -135,6 +135,25 @@
     text-shadow: 0 1px 3px #000; pointer-events: none;
   }
   #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
+  #markets .market {
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 8px; margin-bottom: 8px; background: var(--bg);
+  }
+  #markets .q { color: var(--text); margin-bottom: 6px; }
+  #markets .meta { color: var(--muted); font-size: 10px; margin-bottom: 6px; }
+  #markets .sides { display: flex; gap: 6px; }
+  #markets .sides button { margin: 0; padding: 4px 6px; font-size: 11px; }
+  #markets .sides button.yes:hover { border-color: #3fb950; color: #3fb950; }
+  #markets .sides button.no:hover  { border-color: #f85149; color: #f85149; }
+  #markets .held { color: var(--muted); font-size: 10px; margin-top: 5px; }
+  #markets .settled { opacity: .65; }
+  #markets .out { font-size: 10px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--line); }
+  #markets .out.yes  { border-color: #3fb950; color: #3fb950; }
+  #markets .out.no   { border-color: #f85149; color: #f85149; }
+  #markets .out.void { border-color: var(--muted); color: var(--muted); }
+  #whoami { margin-bottom: 8px; }
+  #leaderboard li { justify-content: space-between; }
+  #leaderboard .credits { font-variant-numeric: tabular-nums; }
   #legend li.clickable { cursor: pointer; }
   #legend li.clickable:hover { color: #fff; }
 </style>
@@ -170,6 +189,12 @@
       <dt>in a clan</dt><dd id="clanned">—</dd>
       <dt>yours</dt><dd id="userAgents">—</dd>
     </dl>
+    <h2>prediction markets</h2>
+    <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+    <div id="markets"></div>
+    <h2>leaderboard</h2>
+    <ul id="leaderboard"></ul>
+
     <h2>inspector</h2>
     <div id="inspector"><p class="hint">click an agent on the map</p></div>
 
@@ -545,6 +570,120 @@ function renderInspector(snapshot) {
     inspector.appendChild(button);
   }
 }
+
+// --- prediction markets -----------------------------------------------------
+//
+// Polled rather than pushed. The book changes on the order of minutes while the world
+// snapshot arrives every second, so carrying markets in the snapshot would resend the same
+// bytes sixty times for every change.
+
+const marketsEl = document.getElementById("markets");
+const leaderboardEl = document.getElementById("leaderboard");
+const whoami = document.getElementById("whoami");
+whoami.value = localStorage.getItem("neociv.user") || "";
+whoami.addEventListener("input", () => {
+  localStorage.setItem("neociv.user", whoami.value.trim());
+  if (lastBook) renderMarkets(lastBook);
+});
+
+let lastBook = null;
+
+function renderMarkets(book) {
+  lastBook = book;
+  const me = whoami.value.trim();
+  const mine = (entry) => (me && entry.positions[me]) || null;
+  marketsEl.innerHTML = "";
+
+  if (!book.open.length && !book.settled.length) {
+    marketsEl.innerHTML = '<p class="hint">no markets open yet</p>';
+  }
+
+  for (const entry of book.open) {
+    const held = mine(entry);
+    const open = entry.state === "open";
+    const node = document.createElement("div");
+    node.className = "market";
+    node.innerHTML =
+      `<div class="q">${escapeHtml(entry.question)}</div>` +
+      `<div class="meta">${entry.state} · pool ${entry.pool.yes} yes / ${entry.pool.no} no` +
+      ` · settles t${entry.resolves_tick}</div>` +
+      (open
+        ? `<div class="sides">
+             <button class="yes" data-id="${entry.id}" data-side="yes">yes · 25</button>
+             <button class="no"  data-id="${entry.id}" data-side="no">no · 25</button>
+           </div>`
+        : '<div class="meta">betting closed</div>') +
+      (held ? `<div class="held">you: ${held.yes} yes / ${held.no} no</div>` : "");
+    marketsEl.appendChild(node);
+  }
+
+  for (const entry of book.settled.slice(-4).reverse()) {
+    const held = mine(entry);
+    const outcome = entry.outcome || "";
+    const node = document.createElement("div");
+    node.className = "market settled";
+    node.innerHTML =
+      `<div class="q">${escapeHtml(entry.question)} <span class="out ${outcome}">${outcome || "—"}</span></div>` +
+      `<div class="meta">settled t${entry.resolved_tick} · pool ${entry.pool.yes}/${entry.pool.no}</div>` +
+      (held ? `<div class="held">you had ${held.yes} yes / ${held.no} no</div>` : "");
+    marketsEl.appendChild(node);
+  }
+
+  leaderboardEl.innerHTML = "";
+  for (const row of book.leaderboard.slice(0, 8)) {
+    const item = document.createElement("li");
+    item.innerHTML = `<span>${escapeHtml(row.user)}</span><span class="credits">${row.credits}</span>`;
+    leaderboardEl.appendChild(item);
+  }
+  if (!book.leaderboard.length) {
+    leaderboardEl.innerHTML = '<li class="note">nobody has taken a position yet</li>';
+  }
+}
+
+marketsEl.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-id]");
+  if (!button) return;
+  const user = whoami.value.trim();
+  if (!user) {
+    whoami.placeholder = "enter a name first";
+    whoami.focus();
+    return;
+  }
+  const label = button.textContent;
+  button.disabled = true;
+  try {
+    const response = await fetch(`/markets/${button.dataset.id}/positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user, side: button.dataset.side, stake: 25 }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      button.textContent = String(body.detail || "refused").slice(0, 20);
+    }
+  } catch {
+    button.textContent = "no connection";
+  } finally {
+    // A position is queued, not applied, so the book only changes on the next tick.
+    setTimeout(() => {
+      button.disabled = false;
+      button.textContent = label;
+      refreshMarkets();
+    }, 1400);
+  }
+});
+
+async function refreshMarkets() {
+  try {
+    const response = await fetch("/markets");
+    if (response.ok) renderMarkets(await response.json());
+  } catch {
+    /* the status field already reports a dead server; no need to shout twice */
+  }
+}
+
+refreshMarkets();
+setInterval(refreshMarkets, 5000);
 
 document.getElementById("deploy").addEventListener("submit", async (event) => {
   event.preventDefault();

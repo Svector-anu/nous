@@ -47,7 +47,7 @@ structured messaging, resource transfer, clans, clan goals with soft influence,
 user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
 the phase 3 spatial index got pulled forward because it was the only thing genuinely
 blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 314 tests on local `main`, no remote.
+self-directing camera. 343 tests on local `main`, no remote.
 
 still deliberately absent: hard territory ownership, births, economy.
 
@@ -142,7 +142,29 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 314 tests, ~160s
+.venv/bin/python -m pytest tests/ -q      # 343 tests, ~180s
+```
+
+**prediction markets.** spectators bet on what the world will do. markets open on a
+schedule and on events (a truce forms, a clan takes a beating), resolve automatically from
+world state with no human oracle, and pay out parimutuel — winners split the pool, no house.
+five kinds: will a clan survive, will population fall below a bar, will a truce hold, will a
+clan be raided, will an agent live. demo credits only; 1000 to start, 100 max a position.
+
+the load-bearing property is that **a market cannot change the world it bets on**. the
+markets system only reads agent and clan state. `test_markets_cannot_change_the_world_they_bet_on`
+runs two worlds from one seed, with markets and without, and asserts every agent position,
+need and state and every clan goal, membership, truce and grudge is identical.
+
+a bet is an *input*, queued like a deployment and applied at a fixed point in the tick, so
+history never depends on wall clock. payouts are integer parimutuel with the division
+remainder going to the lowest user id — the same ascending-id tie-break determinism rests on
+everywhere else.
+
+```bash
+curl localhost:8000/markets
+curl -X POST localhost:8000/markets/3/positions -H 'Content-Type: application/json' \
+     -d '{"user":"ana","side":"yes","stake":25}'
 ```
 
 ## layout

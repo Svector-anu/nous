@@ -93,6 +93,22 @@ class WorldConfig:
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200
 
+    # --- prediction markets ---------------------------------------------------
+    # Spectators bet on world events. Reads world state, never writes to it.
+    markets_enabled: bool = True
+    # A scheduled market opens on this cadence, so there is always something to bet on
+    # even in a quiet world. Event-driven markets open on top of these.
+    market_open_every_ticks: int = 400
+    # How long a market takes to settle, and how long before that betting closes.
+    market_horizon_ticks: int = 1200
+    market_lock_before_ticks: int = 400
+    market_max_open: int = 8
+    # Settled markets keep their audit trail, but not forever.
+    market_history_limit: int = 60
+    # Demo money. There is no real currency in this system.
+    market_starting_balance: int = 1000
+    market_max_stake: int = 100
+
     goal_review_ticks: int = 120
     goal_bias_chance: float = 0.6
     influence_base_radius: int = 4

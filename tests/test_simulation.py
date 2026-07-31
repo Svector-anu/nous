@@ -29,6 +29,9 @@ def test_systems_run_in_the_documented_order():
         "leadership",
         "social",
         "blackboard",
+        # Last on purpose: a market resolves against the tick's final state, so it must
+        # run after every system that can change the world. It only ever reads.
+        "markets",
     ]
 
 

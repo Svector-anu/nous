@@ -312,3 +312,30 @@ class Clan:
             self.members.remove(entity)
         if self.leader == entity:
             self.leader = self.members[0] if self.members else None
+
+
+@dataclass
+class MarketBook:
+    """Prediction markets on simulation events, held by a single world entity.
+
+    A bet is an *input* to the simulation in exactly the way a deployment is: applying it
+    the moment an http request lands would make history depend on wall clock. Positions
+    queue in `pending` and are drained at a fixed point in the tick, so the same seed plus
+    the same bets at the same ticks rebuilds the same book.
+
+    This component is read-write for the markets system and read-only for everything else.
+    Nothing here may write to an agent or a clan — spectators watch the world, they do not
+    move it.
+
+    `markets` holds both open and settled entries so a settled market keeps its audit
+    trail. It is bounded by `market_history_limit`, because every unbounded accumulator in
+    this project has eventually eaten the simulation.
+    """
+
+    markets: list[dict] = field(default_factory=list)
+    # Positions waiting for the next tick. Same shape and same reason as SpawnQueue.
+    pending: list[dict] = field(default_factory=list)
+    # user -> credits. Demo money; there is no real currency anywhere in this system.
+    balances: dict[str, int] = field(default_factory=dict)
+    next_id: int = 1
+    last_scheduled_tick: int = 0
