@@ -3,10 +3,8 @@
 Status verified 2026-08-01. Two corrections to the working summary, both load-bearing:
 
 - **Tests are 352 Python + 39 browser**, not "300+".
-- **"Handles 500 agents cleanly" is true of the simulation, not the viewer.** That number came
-  from `spatial.py` timings at the sim layer. The viewer has only ever rendered 120. Do not
-  quote 500 as a whole-system figure until someone measures it — it is one command, and it is
-  step 0 below.
+- **"Handles 500 agents cleanly" is now true of the whole system** — measured 2026-08-01, see
+  step 0 below. It was previously a sim-only number being quoted as a system figure.
 
 Everything else in the summary matches the code.
 
@@ -17,9 +15,31 @@ Everything else in the summary matches the code.
 Three cheap facts that change what the rest of this plan should be. None involves writing a
 feature.
 
-1. **Render 500 agents.** Set `agent_count=500`, run `verify_world3d.mjs`, record draw calls
-   and frame time. Either the viewer holds and "500 agents" becomes an honest claim, or it
-   does not and LOD stops being hypothetical.
+1. ~~**Render 500 agents.**~~ **Done 2026-08-01. The viewer holds it.** 500 agents, 682 huts,
+   70 clans, at a vsync-locked 60fps in all three camera positions:
+
+   | | overview | settlement | street |
+   |---|---|---|---|
+   | draw calls | 150 | 152 | 152 |
+   | triangles | 294k | 294k | 297k |
+   | p50 frame | 16.6 ms | 16.7 ms | 16.5 ms |
+   | worst frame | 31.0 ms | 32.6 ms | 32.7 ms |
+
+   "500 agents" is now an honest whole-system claim. Occasional 31-33 ms frames mean a
+   dropped frame here and there, not a stall.
+
+   **But it corrects the LOD plan, and this is the useful part.** Draw calls went 38 → 150
+   because clan batches went 14 → 70. Agents are batched *per clan*, two batches each, so
+   **cost scales with clan count, not agent count**: 70 clans × 2 = 140 calls, plus ~10 for
+   the world.
+
+   LOD would not fix that. LOD reduces triangle detail at distance, and triangles are not the
+   constraint — 294k is nothing. The fix, if the budget ever binds, is **per-instance colour**
+   (`InstancedMesh.setColorAt`) collapsing every clan into one or two batches regardless of how
+   many clans exist. That is a smaller change than LOD and addresses the actual limit.
+
+   Note the harness asserts `calls < 90`, tuned for the 120-agent default. At 500 it would
+   fail — correctly, since that is a different world.
 2. **Watch a stranger deploy an agent.** Anyone who has not seen this project. Say nothing.
    Note where they hesitate. That is the onboarding spec, and it will be shorter and more
    specific than anything written from a chair.
@@ -99,12 +119,17 @@ clan in between.
 - Surface it on the agent card. An identity nobody can see is a database row.
 - Wallet association without making a wallet mandatory to watch. Spectating must stay free.
 
-**Open question that is yours, not mine:** does an identity confer anything in-world, or is it
-purely external? "Purely external" is one sprint. "Confers advantage" is a simulation rule
-change and needs the same measurement discipline everything else here got.
+**Settled 2026-08-01: an identity is a label, not an advantage.** A registered agent lives by
+exactly the same rules as everyone else — same hunger, same starvation, same chances. The
+chain knows who owns it; the simulation does not read it and must never start.
 
-**Cost**: 3–5 days once the chain target is fixed. **Blocked on**: which chain, and the answer
-above.
+The alternative was letting registration confer in-world advantage, and it was rejected on
+two grounds. It is a simulation rule change, which in this codebase means a measured control
+run (raiding cost 47 agents before the real trigger was found). And it is pay-to-win in a
+world whose appeal is that nobody's hand is on the scale — easy to add later, very hard to
+take back once people have paid for it.
+
+**Cost**: 3–5 days once the chain target is fixed. **Blocked on**: which chain.
 
 ---
 
@@ -124,6 +149,9 @@ survival balance, so it needs control runs.
 
 **Later**: hard territory, real-money markets (regulatory, not technical), further visual
 polish (explicitly accepted as good enough), public launch.
+
+**Not LOD.** Measured above: the constraint at scale is draw calls from per-clan batching, not
+triangle detail. If 500+ agents ever need to be cheaper, do per-instance colour first.
 
 ---
 

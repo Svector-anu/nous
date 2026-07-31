@@ -56,14 +56,15 @@ animation did **not** cost the draw calls that a batch-per-limb approach would h
 
 That means **LOD is still not justified by measurement** — the GPU idles waiting for vsync.
 
-Do not build LOD until something makes it necessary. The honest triggers are:
-- agent counts well past 120 (the sim supports 500; the viewer has never been asked to)
-- ~~per-limb walk animation~~ — done in the vertex shader instead, at no draw-call cost
-- a lower-end GPU than this machine
+**Measured 2026-08-01: the viewer holds 500 agents at a vsync-locked 60fps** (150 draw calls,
+294k triangles, p50 16.6 ms). So LOD is still not justified — and the measurement shows it
+would be the wrong tool anyway. Draw calls scale with **clan count**, not agent count: agents
+are batched two per clan, so 70 clans cost 140 calls. Triangles are not the constraint.
 
-**Measure first, then decide.** `scripts/verify_world3d.mjs` reports calls and triangles;
-raise `agent_count` in `WorldConfig` and see where it actually hurts. If it does not hurt,
-say so and pick different work rather than building LOD because it was on a list.
+If the budget ever binds, do **per-instance colour** (`setColorAt`) to collapse all clans into
+one or two batches. Smaller change than LOD, and it addresses the actual limit.
+
+`PLAN.md` holds the sequence from here.
 
 ## Blocked on a human
 
@@ -77,6 +78,10 @@ say so and pick different work rather than building LOD because it was on a list
   key-free (scanned), but that is the owner's call.
 
 ## Do not reopen
+
+- **On-chain identity confers nothing in-world** (settled 2026-08-01). It is ownership, not
+  advantage. Registered agents starve like everyone else. Rejected the alternative because it
+  is a simulation rule change *and* pay-to-win in a world whose appeal is impartiality.
 
 - **Full-world 3D vs a focus square** — settled by measurement at four radii; identical frame
   times. Do not reintroduce chunking or streaming.
