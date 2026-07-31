@@ -155,6 +155,7 @@
   <aside>
     <h1>Neo-Civilization</h1>
     <button id="autoCamera" data-on="1">camera: cinematic</button>
+    <button id="flyStreet">street level · walk among them</button>
     <button id="flyDensest">fly to densest settlement</button>
     <button id="flyOverview">whole-world overview</button>
     <dl>
@@ -215,7 +216,7 @@ window.addEventListener("error", (event) => {
 
 <script type="module">
 import { WorldView, densestCluster } from "/static/world3d.js";
-import { Director } from "/static/director.js";
+import { Director, busiestPlace } from "/static/director.js";
 
 // Half-extent in world units to hold in frame when flying to a settlement.
 const TILE_SPAN = 18;
@@ -414,6 +415,21 @@ document.getElementById("flyDensest").addEventListener("click", () => {
   const cluster = densestCluster(lastSnapshot, 12);
   if (!cluster) return;
   flyToSim(cluster.centre[0], cluster.centre[1], `densest settlement · ${cluster.count} huts`, TILE_SPAN);
+});
+
+// Drop into the busiest street rather than the densest roofs: the point of this shot is to
+// be among people, and the thickest cluster of huts is often deserted.
+document.getElementById("flyStreet").addEventListener("click", () => {
+  if (!lastSnapshot || !worldView.active) return;
+  const busy = busiestPlace(lastSnapshot) ?? densestCluster(lastSnapshot, 12);
+  if (!busy) return;
+  const [x, y] = busy.centre ?? [busy.x, busy.y];
+  director.disable();
+  autoResumeAt = performance.now() + RESUME_AFTER_MS;
+  worldView.streetLevel(x, y);
+  setLabel(busy.count !== undefined && busy.centre === undefined
+    ? `street level · ${busy.count} nearby`
+    : "street level");
 });
 
 document.getElementById("flyOverview").addEventListener("click", () => {

@@ -37,8 +37,25 @@ snapshot, works out what is worth looking at, and composes a shot around it. thi
 - **scores are the editorial policy**: violence > construction > an empty field. pinned by a
   test, because if it inverts the camera dutifully films nothing while a war happens.
 - **shot kinds**: orbit (slow circle), push (dolly in), follow (track a mover from low),
-  survey (crane across), establish (wide, slow drift). chosen with a *seeded* rng, so the
-  same world produces the same film and behaviour changes show up as a diff.
+  survey (crane across), establish (wide, slow drift), and **vista** — low and among the
+  huts, the one that reads as being *in* the settlement rather than above it. chosen with a
+  *seeded* rng, so the same world produces the same film and behaviour changes show up as a
+  diff.
+- **a vista is specified by camera height, not by a span.** at that angle the distance is
+  height/cos(phi), so a taller camera is also a *further* one: asking for 6.8 units up put
+  the lens 48 units out, outside the village looking across an empty field. 3.2 up lands it
+  around 23 out, among the huts.
+- **the lens never sits below head height.** an agent's head is ~1.24 above ground and the
+  look-at point ~0.75, so a camera less than `minEyeHeight` above the target can end up
+  level with — or inside — a skull. the floor adjusts *distance* rather than angle, because
+  raising the angle would quietly undo the low shots, and it applies to manual zoom and drag
+  as well as to directed shots: you can still zoom right in on someone, you just cannot end
+  up in them.
+- **the sky gradient is flat near the horizon** (`t**1.6`, not `sqrt(t)`). sqrt is steepest
+  at t=0, which is exactly where it must be flattest: the ground silhouette sits a couple of
+  degrees *below* horizontal, so the dome pixels immediately above it were already 19% toward
+  the zenith — measured as a 108-value rgb step against the fogged ground, i.e. a hard line
+  across the sky.
 - **nothing sets the camera directly any more.** everything sets a goal and the frame loop
   eases toward it, frame-rate independently, with distance eased in log space — from a
   whole-world overview to street level is two orders of magnitude, and easing that linearly
@@ -144,7 +161,7 @@ this is scenery, not simulation: the sim still has no elevation, and nothing in 
 
 ## verifying it
 
-`scripts/verify_world3d.mjs` drives real chrome against a running server — 34 checks on
+`scripts/verify_world3d.mjs` drives real chrome against a running server — 39 checks on
 `renderer.info` and on the view's own state: leaks across 60 synthetic ticks *and* across ~12
 seconds of real ones (agents actually moving and clans changing size is what rebuilds the
 instanced batches, so it is the path most likely to leak), draw calls, mount/unmount

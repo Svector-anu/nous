@@ -340,6 +340,10 @@ const HUT = (() => {
 const HORIZON = 0x9fb2c4;
 const ZENITH = 0x2d4a72;
 
+// How low a street-level shot sits. Just shy of the pole clamp, so the horizon is in frame
+// and the huts recede rather than being seen from above.
+const STREET_PHI = Math.PI * 0.455;
+
 // --- the view ---------------------------------------------------------------
 
 export class WorldView {
@@ -467,7 +471,11 @@ export class WorldView {
     const colours = new Float32Array(position.count * 3);
     for (let i = 0; i < position.count; i++) {
       const t = Math.max(0, Math.min(1, position.getY(i) / radius));
-      colour.copy(horizon).lerp(zenith, Math.sqrt(t));
+      // Flat near the horizon, rising further up. sqrt(t) does the opposite — it is steepest
+      // at t=0 — and the ground silhouette sits a couple of degrees *below* horizontal, so
+      // the dome pixels immediately above it were already 19% toward the zenith. Measured as
+      // a 108-value rgb step against the fogged ground, i.e. a hard line across the sky.
+      colour.copy(horizon).lerp(zenith, Math.pow(t, 1.6));
       colours[i * 3] = colour.r;
       colours[i * 3 + 1] = colour.g;
       colours[i * 3 + 2] = colour.b;
@@ -631,8 +639,13 @@ export class WorldView {
         // the lookAt up-vector flips and the scene spins on its own axis.
         this.orbit.theta -= dx * 0.006;
         this.orbit.phi = Math.max(0.12, Math.min(Math.PI / 2 - 0.04, this.orbit.phi - dy * 0.006));
+        // Lowering the angle lowers the lens, so the eye-height floor has to be re-applied
+        // here as well as on zoom — otherwise dragging toward the horizon walks the camera
+        // down into the crowd.
+        this.orbit.distance = this._clampDistance(this.orbit.distance, this.orbit.phi);
         this.goal.theta = this.orbit.theta;
         this.goal.phi = this.orbit.phi;
+        this.goal.distance = this.orbit.distance;
       } else {
         const scale = this.orbit.distance * 0.0016;
         const forward = new THREE.Vector3(Math.sin(this.orbit.theta), 0, Math.cos(this.orbit.theta));
@@ -659,7 +672,9 @@ export class WorldView {
       event.preventDefault();
       seized();
       const next = this.orbit.distance * (1 + event.deltaY * 0.0012);
-      this.orbit.distance = Math.max(this.minDistance, Math.min(this.maxDistance, next));
+      // Same eye-height floor as the director gets. You can still zoom right in to look at
+      // somebody; you cannot end up inside them.
+      this.orbit.distance = this._clampDistance(next, this.orbit.phi);
       this.goal.distance = this.orbit.distance;
     };
     const menu = (event) => event.preventDefault();
@@ -685,6 +700,22 @@ export class WorldView {
 
   get minDistance() {
     return TILE * 1.2;
+  }
+
+  // The lens has to stay above head height. An agent's head sits ~1.24 above ground and the
+  // look-at point ~0.75, so a camera less than this far above the target can end up level
+  // with — or inside — somebody's skull, which is what put a giant head across the frame.
+  get minEyeHeight() {
+    return TILE * 1.15;
+  }
+
+  // Distance is what gets adjusted rather than the angle: raising the angle to gain height
+  // would quietly undo the low vista shots, which are low on purpose.
+  _clampDistance(distance, phi) {
+    const clamped = Math.max(this.minDistance, Math.min(this.maxDistance, distance));
+    const rise = Math.cos(phi);
+    if (rise <= 0.01) return clamped;
+    return Math.max(clamped, Math.min(this.maxDistance, this.minEyeHeight / rise));
   }
 
   get maxDistance() {
@@ -745,7 +776,7 @@ export class WorldView {
       goal.phi = Math.max(0.12, Math.min(Math.PI / 2 - 0.04, phi));
     }
     if (distance !== undefined) {
-      goal.distance = Math.max(this.minDistance, Math.min(this.maxDistance, distance));
+      goal.distance = this._clampDistance(distance, goal.phi);
     }
     if (ease !== undefined) goal.ease = ease;
     this._clampGoal();
@@ -807,9 +838,26 @@ export class WorldView {
   // to hold in frame, so a clan of three huts and a cluster of ninety both fill the view.
   flyTo(simX, simY, span = TILE * 9, options = {}) {
     if (!this.active) return;
-    const { theta = Math.PI * 0.22, phi = Math.PI * 0.36, ease = 1.6 } = options;
+    const { theta = Math.PI * 0.22, phi = Math.PI * 0.36, ease = 1.6, height } = options;
     const [x, z] = this.local({ x: simX, y: simY });
-    this._setGoal({ x, z, theta, phi, distance: this._fitDistance(span, span, theta, phi), ease });
+    // `height` overrides span: a low shot across a settlement is naturally described by how
+    // tall the camera stands, not by how much ground it should fit. Deriving it from a span
+    // instead pulls the camera up until the shot is an aerial again.
+    const distance = height !== undefined
+      ? height / Math.max(0.05, Math.cos(phi))
+      : this._fitDistance(span, span, theta, phi);
+    this._setGoal({ x, z, theta, phi, distance, ease });
+  }
+
+  // Eye level, looking across. This is the shot that reads as being *in* the settlement
+  // rather than above it: a low angle with the camera standing a few metres up, so huts
+  // recede toward the horizon instead of being laid out flat below.
+  // Height is deliberately low — just above roof height. At this angle distance is forced to
+  // height/cos(phi), so a taller camera is also a *further* one: 6.8 up put the lens 48 out,
+  // outside the village looking in across an empty field. 3.2 up lands it around 23 out,
+  // among the huts, which is the shot that reads as being there.
+  streetLevel(simX, simY, { theta = Math.PI * 0.22, ease = 1.1 } = {}) {
+    this.flyTo(simX, simY, undefined, { theta, phi: STREET_PHI, height: TILE * 1.6, ease });
   }
 
   // Simulation (x, y) to world (x, z), with the world centred on the origin. Sim y maps

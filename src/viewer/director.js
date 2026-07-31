@@ -15,7 +15,7 @@ const TILE = 2;
 
 // How long a shot holds before the director looks for something new. An event worth more
 // than the current subject can cut early; see `_shouldCut`.
-const SHOT_SECONDS = { establish: 11, orbit: 9, push: 8, follow: 10, survey: 13 };
+const SHOT_SECONDS = { establish: 11, orbit: 9, push: 8, follow: 10, survey: 13, vista: 14 };
 
 // Weights for why a subject is worth watching. Tuned so a fight beats a building site and
 // a building site beats an empty field, which is the whole editorial policy.
@@ -178,9 +178,12 @@ export class Director {
     this.pendingEvents = [];
     this.elapsed = 0;
 
+    // vista is in both lists and twice in the wide one: a low shot across a settlement is
+    // the most watchable thing this can do, and every other wide shot looks down from 20-30
+    // units up, which reads as a map rather than a place.
     const kinds = subject.agent !== undefined
-      ? ["follow", "orbit", "push"]
-      : ["orbit", "push", "establish", "survey"];
+      ? ["follow", "orbit", "vista", "push"]
+      : ["vista", "vista", "orbit", "push", "establish", "survey"];
     const kind = subject.forceKind ?? kinds[Math.floor(this.rng() * kinds.length)];
 
     this.shot = {
@@ -287,6 +290,20 @@ export class Director {
           theta: shot.theta0 + shot.spin * t * 0.03,
           phi: Math.PI * 0.42,
           ease: 1.5,
+        });
+        break;
+      }
+      case "vista": {
+        // Standing in the settlement looking across it, drifting slowly sideways. Height is
+        // specified directly rather than via a span, because fitting a span at this angle
+        // pulls the camera back up into an aerial.
+        this.view.flyTo(at.x, at.y, undefined, {
+          theta: shot.theta0 + shot.spin * t * 0.02,
+          phi: Math.PI * 0.455,
+          // Low, because at this angle distance is height/cos(phi): a taller camera is also
+          // a further one, and standing tall put the lens outside the village.
+          height: TILE * (1.6 + Math.sin(t * 0.12) * 0.35),
+          ease: 1.0,
         });
         break;
       }

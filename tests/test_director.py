@@ -248,3 +248,61 @@ def test_it_stays_on_a_shot_long_enough_to_read(tmp_path):
     # five seconds of identical snapshots must not trigger a cut
     assert out["cutsWhileFedSameEvents"] == 0
     assert out["duration"] >= 5
+
+
+def test_vista_is_in_the_shot_rotation(tmp_path):
+    """The low wide shot is the one that reads as being *in* the settlement. Every other
+    wide shot looks down from 20-30 units up, which reads as a map rather than a place."""
+    snapshot = _snapshot(agents=[_agent(i, x=20 + i, y=20) for i in range(1, 6)])
+    out = _run(
+        f"""
+        const kinds = new Set();
+        const view = {{ active: true, flyTo() {{}} }};
+        const director = new Director(view, {{ seed: 3 }});
+        director.enable();
+        for (let tick = 0; tick < 40; tick++) {{
+          director.observe({json.dumps(snapshot)});
+          for (let f = 0; f < 60 * 15; f++) director.advance(1 / 60);
+          kinds.add(director.shot.kind);
+        }}
+        console.log(JSON.stringify({{ kinds: [...kinds] }}));
+        """,
+        tmp_path,
+    )
+    assert "vista" in out["kinds"], f"vista never chosen; got {out['kinds']}"
+
+
+def test_a_vista_shot_asks_for_a_height_not_a_span(tmp_path):
+    """At this angle distance is height/cos(phi), so a taller camera is also a further one.
+    Deriving the distance from a span pulls the lens back out into an aerial — which is
+    exactly what put it 48 units away, outside the village looking in."""
+    snapshot = _snapshot(agents=[_agent(i, x=20 + i, y=20) for i in range(1, 6)])
+    out = _run(
+        f"""
+        const calls = [];
+        const view = {{ active: true, flyTo(x, y, span, options) {{ calls.push({{ span, options }}); }} }};
+        const director = new Director(view, {{ seed: 3 }});
+        director.enable();
+        director.observe({json.dumps(snapshot)});
+        // drive shots until a vista turns up
+        let seen = null;
+        for (let tick = 0; tick < 40 && !seen; tick++) {{
+          director.observe({json.dumps(snapshot)});
+          for (let f = 0; f < 60 * 15; f++) director.advance(1 / 60);
+          if (director.shot.kind === "vista") {{
+            calls.length = 0;
+            for (let f = 0; f < 60; f++) director.advance(1 / 60);
+            seen = calls[calls.length - 1];
+          }}
+        }}
+        console.log(JSON.stringify({{ seen }}));
+        """,
+        tmp_path,
+    )
+    shot = out["seen"]
+    assert shot is not None, "no vista shot was produced"
+    # JSON.stringify drops undefined keys, so an absent span is the passing shape.
+    assert shot.get("span") is None, "vista must not drive distance from a span"
+    assert shot["options"].get("height") is not None, "vista is specified by camera height"
+    assert shot["options"]["height"] < 6, "a tall camera is also a distant one at this angle"
+    assert shot["options"]["phi"] > 1.3, "a vista is a low angle, near the horizon"

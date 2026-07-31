@@ -47,7 +47,7 @@ structured messaging, resource transfer, clans, clan goals with soft influence,
 user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
 the phase 3 spatial index got pulled forward because it was the only thing genuinely
 blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 312 tests on local `main`, no remote.
+self-directing camera. 314 tests on local `main`, no remote.
 
 still deliberately absent: hard territory ownership, births, economy.
 
@@ -87,9 +87,13 @@ orbit / shift-drag pan / wheel zoom throughout.
 **the camera runs itself.** it opens cinematic: a director watches each tick, works out what
 is worth looking at — a raid beats a building site beats an empty field — and composes a shot
 around it. orbits, dolly-ins, tracking shots on somebody fleeing, slow cranes over a
-settlement. the hud names what you are watching ("push · Branwyn-016 won a raid"). you do not
-have to drive it, and if you grab the camera it hands over instantly and picks up again once
-you stop. `camera: cinematic` in the sidebar toggles it, and toggling it off keeps it off.
+settlement, and low vistas from among the huts. the hud names what you are watching
+("push · Branwyn-016 won a raid"). you do not have to drive it, and if you grab the camera it
+hands over instantly and picks up again once you stop. `camera: cinematic` in the sidebar
+toggles it, and toggling it off keeps it off; `street level` drops you in among them.
+
+the lens is floored above head height, so no shot — and no amount of manual zooming — ends
+up inside somebody's skull.
 
 this used to be a 25-tile focus overlay, because when each hut was seven separate meshes 93
 huts cost 651 draw calls. instancing removed the reason for the constraint: the **entire**
@@ -120,7 +124,7 @@ instance matrix, and agents are batched per clan, so the whole world costs ~50 d
 and the per-tick path allocates nothing: huts rebuild only when something is built, and
 agents just get new matrices.
 
-`scripts/verify_world3d.mjs` is the adversarial check — 34 assertions in real chrome covering
+`scripts/verify_world3d.mjs` is the adversarial check — 39 assertions in real chrome covering
 leaks across both synthetic and live ticks, mount/unmount symmetry, webgl context
 exhaustion, camera framing per clan, input clamps through the real event handlers, picking
 accuracy, and minimap/camera agreement. it needs `npm i playwright` in a scratch dir;
@@ -138,7 +142,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 312 tests, ~155s
+.venv/bin/python -m pytest tests/ -q      # 314 tests, ~160s
 ```
 
 ## layout

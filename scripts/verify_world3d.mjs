@@ -475,6 +475,85 @@ check(
   `${JSON.stringify(leak0)} -> ${JSON.stringify(leak1)}`
 );
 
+// --- 10. the lens never ends up inside somebody --------------------------
+// An agent's head sits ~1.24 above ground and the look-at point ~0.75, so a camera less
+// than minEyeHeight above the target can sit level with — or inside — a skull, which put a
+// giant head across the frame. The floor applies to manual input too: you can still zoom
+// right in to look at someone, you just cannot end up in them.
+const clearance = await page.evaluate(async () => {
+  const view = window["__world"];
+  window["__director"].disable();
+  const snapshot = await (await fetch("/state")).json();
+  const busy = snapshot.agents[0];
+  view.flyTo(busy.x, busy.y, 18);
+  view.settle();
+
+  const canvas = view.renderer.domElement;
+  const eye = () => view.orbit.distance * Math.cos(view.orbit.phi);
+
+  // zoom in as hard as the wheel allows
+  for (let i = 0; i < 600; i++) {
+    canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: -400, cancelable: true }));
+  }
+  const zoomed = eye();
+
+  // then drag the angle toward the horizon, which lowers the lens for a fixed distance
+  for (let i = 0; i < 40; i++) {
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 3, clientX: 0, clientY: 0, bubbles: true }));
+    canvas.dispatchEvent(new PointerEvent("pointermove", { pointerId: 3, clientX: 0, clientY: 400, bubbles: true }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { pointerId: 3, clientX: 0, clientY: 400, bubbles: true }));
+  }
+  const dragged = eye();
+
+  // and every shot the director composes, across many cuts
+  window["__director"].enable();
+  let worst = Infinity;
+  for (let i = 0; i < 900; i++) {
+    window["__director"].advance(1 / 60);
+    worst = Math.min(worst, eye());
+  }
+  return { zoomed, dragged, worst, floor: view.minEyeHeight };
+});
+check(
+  "zooming in cannot put the lens below head height",
+  clearance.zoomed >= clearance.floor - 0.01,
+  `${clearance.zoomed.toFixed(2)} vs floor ${clearance.floor.toFixed(2)}`
+);
+check(
+  "dragging toward the horizon cannot either",
+  clearance.dragged >= clearance.floor - 0.01,
+  `${clearance.dragged.toFixed(2)} vs floor ${clearance.floor.toFixed(2)}`
+);
+check(
+  "no directed shot drops the lens below head height",
+  clearance.worst >= clearance.floor - 0.01,
+  `worst over 900 frames ${clearance.worst.toFixed(2)} vs floor ${clearance.floor.toFixed(2)}`
+);
+
+// --- 11. street level is low and among the huts, not an aerial -------------
+await page.evaluate(() => window["__director"].disable());
+await page.click("#flyStreet");
+await page.waitForTimeout(2500);
+const street = await page.evaluate(() => {
+  const view = window["__world"];
+  return {
+    phi: view.orbit.phi,
+    distance: view.orbit.distance,
+    eye: view.orbit.distance * Math.cos(view.orbit.phi),
+  };
+});
+check(
+  "street level is a low angle",
+  street.phi > Math.PI * 0.4,
+  `phi ${(street.phi * 180 / Math.PI).toFixed(0)} deg`
+);
+check(
+  "street level stands among the huts rather than outside them",
+  street.distance < 35,
+  `${street.distance.toFixed(0)} units out, eye ${street.eye.toFixed(1)} up ` +
+    "(distance is height/cos(phi) at this angle, so a tall camera is also a distant one)"
+);
+
 check("no console errors from our code", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
 await browser.close();
