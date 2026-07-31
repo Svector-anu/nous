@@ -104,7 +104,7 @@ There is **no linter, formatter, typechecker or CI** in this repo — none insta
 against", but also nothing catches style or types.
 
 ```bash
-.venv/bin/python -m pytest -q          # 343 tests, ~180s. the gate.
+.venv/bin/python -m pytest -q          # 352 tests, ~195s. the gate.
 ```
 
 GPU behaviour is invisible to pytest, so:
@@ -124,7 +124,14 @@ Live model path (costs credits, needs `.env`):
 
 ```bash
 .venv/bin/python -m scripts.verify_llm --provider dgrid --model anthropic/claude-opus-5
+.venv/bin/python -m scripts.compare_advisor --dry-run      # free: collects states only
+.venv/bin/python -m scripts.compare_advisor --samples 24   # ~$0.60, ~100s
 ```
+
+**Do not measure the advisor by population.** Seed-to-seed variance is sd 8.7, spread 92-117
+at tick 8000, while the advisor is capped at 200 calls against ~3333 goal reviews — 6% of
+decisions. A 6% intervention cannot move a metric with a ±25 noise floor, so an unpaired A/B
+produces a number nobody can interpret. Measure judgement instead, or pair on identical seeds.
 
 ## How to work here
 

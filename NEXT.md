@@ -19,15 +19,16 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **350 passed in 113s** (`pytest -q`, actual output) |
+| Tests | **352 passed in 195s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 33, `main`, pushed to `origin` (private) |
+| Commits | 35, `main`, pushed to `origin` (private) |
 | Working tree | clean |
 | Lint / typecheck / CI | **none exist** |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
 clans, goals, influence, user-deployed agents, raiding, grudges, truces); chunked spatial
-index; multi-provider LLM advisor, off by default, **verified live once** through DGrid;
+index; multi-provider LLM advisor, off by default, verified live and **measured against the
+rules** (79% divergence, coherent reasoning — see `scripts/compare_advisor.py`);
 procedural 3D as the main view with a self-directing cinematic camera; humanoid agents;
 prediction markets.
 
@@ -63,8 +64,10 @@ say so and pick different work rather than building LOD because it was on a list
 
 - **Lint / formatter / typechecker.** None installed. Deliberate minimalism, or an accident to
   fix? Changes GATES either way. *(unanswered)*
-- **LLM A/B.** The advisor has only ever been asked once, and it agreed with the rules. Proving
-  it is *better* needs one seed run both ways. Costs credits. *(unauthorised)*
+- **Paired survival test.** *Deliberately parked, not forgotten.* `compare_advisor.py` proved
+  the model diverges coherently (79%, $0.60). Whether it survives *better* needs 10 seed
+  pairs with the advisor uncapped, ~$10-30. Do it when a decision depends on the number —
+  a launch, an investor question — not because the experiment exists.
 - **Repo visibility.** Private. Public is a one-way door — `.env` is gitignored and history is
   key-free (scanned), but that is the owner's call.
 
