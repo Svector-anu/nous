@@ -280,3 +280,69 @@ def test_a_person_stays_cheap(tmp_path):
         tmp_path,
     )
     assert out["tris"] < 400, f"a humanoid costs {out['tris']} triangles; budget is 400"
+
+
+def test_every_limb_is_tagged_for_the_walk_shader(tmp_path):
+    """Merging the parts costs independent limb transforms on the cpu; tagging each vertex
+    with its limb hands them back in the vertex shader. Untagged vertices never swing, so a
+    missing tag is a limb that stops moving with no other symptom."""
+    out = _run(
+        """
+        import { LIMB } from "./world3d.mjs";
+        const h = buildHumanoid();
+        const tally = (g) => {
+          const a = g.getAttribute("limb");
+          const counts = {};
+          for (let i = 0; i < a.count; i++) counts[a.array[i]] = (counts[a.array[i]] || 0) + 1;
+          return counts;
+        };
+        console.log(JSON.stringify({ LIMB, body: tally(h.body), skin: tally(h.skin) }));
+        """,
+        tmp_path,
+    )
+    limb = out["LIMB"]
+    body = out["body"]
+    # torso static, both legs and both arms tagged and non-empty
+    for name in ("LEG_L", "LEG_R", "ARM_L", "ARM_R"):
+        assert body.get(str(limb[name]), 0) > 0, f"{name} carries no tagged vertices"
+    assert body.get(str(limb["NONE"]), 0) > 0, "the torso must not swing"
+    # hands ride with their arm, or they are left hanging in mid-air
+    skin = out["skin"]
+    assert skin.get(str(limb["ARM_L"]), 0) > 0 and skin.get(str(limb["ARM_R"]), 0) > 0
+    assert skin.get(str(limb["NONE"]), 0) > 0, "the head must not swing"
+
+
+def test_the_walk_shader_is_injected_and_cacheable(tmp_path):
+    out = _run(
+        """
+        import { applyWalkShader } from "./world3d.mjs";
+        import * as THREE from "./vendor/three.module.min.js";
+        const m = applyWalkShader(new THREE.MeshStandardMaterial());
+        const shader = { vertexShader: `#include <common>
+#include <beginnormal_vertex>
+#include <begin_vertex>` };
+        m.onBeforeCompile(shader);
+        console.log(JSON.stringify({
+          hasLimb: shader.vertexShader.includes("attribute float limb"),
+          hasPhase: shader.vertexShader.includes("attribute float phase"),
+          swings: shader.vertexShader.includes("swingLimb"),
+          usesWalkPos: shader.vertexShader.includes("vec3 transformed = walkPos"),
+          cacheKey: m.customProgramCacheKey(),
+        }));
+        """,
+        tmp_path,
+    )
+    assert out["hasLimb"] and out["hasPhase"], "the shader needs both attributes"
+    assert out["swings"], "the swing function was not injected"
+    assert out["usesWalkPos"], "begin_vertex still uses the unswung position"
+    assert out["cacheKey"], "identical programs must share a cache entry"
+
+
+def test_standing_is_signalled_by_a_negative_phase(tmp_path):
+    """Not by a large one. The phase grows without bound (clock * rate), so a 'greater than
+    N' sentinel starts matching real walkers within a minute of the page loading — which it
+    did, and every agent silently stopped swinging."""
+    source = (VIEWER_DIR / "world3d.js").read_text()
+    assert "phase < 0.0" in source, "the shader must test for a negative phase"
+    assert "phase > 90" not in source, "a magnitude sentinel on an unbounded value is a bug"
+    assert "let phase = -1;" in source

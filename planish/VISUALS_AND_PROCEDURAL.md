@@ -126,10 +126,24 @@ skin geometry, which is exactly the two batches per clan the capsule-and-sphere 
 used. measured: **40 -> 38 draw calls and 147k -> 134k triangles**. blocky boxes are cheaper
 than the smooth capsule they replaced, so readable people cost less than the placeholder.
 
-the trade-off is real and worth naming: an instance carries one matrix for the whole body,
-so **limbs cannot swing**. walk is a bob and a lean instead, which reads at the distance
-these are viewed from. per-limb animation needs a batch per limb; that is a job for after
-LOD, when only nearby agents would pay for it.
+**limbs swing in the vertex shader.** merging costs independent limb transforms on the cpu,
+so each vertex is tagged with the limb it belongs to and each *instance* carries a walk
+phase. the shader rotates legs about the hip and arms about the shoulder, counter-swinging,
+which buys real locomotion while keeping two batches per clan. the alternative — a batch per
+limb so each could carry its own matrix — is four to six per clan, 60-90 draw calls for the
+agents alone.
+
+the first attempt was a bob and a lean with no limb motion, and it was **worse than nothing**:
+`abs(sin)` on body height makes a figure *hop* rather than walk. legs have to articulate for
+the eye to read steps. the bob that survives is small and runs at twice the stride frequency,
+because a walk lifts you twice per cycle.
+
+two bugs on the way in, both worth remembering. the standing sentinel was `phase > 90`, but
+phase grows without bound (`clock * rate`), so within a minute of page load every real walker
+matched the sentinel and silently stopped swinging — a magnitude test on an unbounded value
+is never a sentinel. and the `InstancedBufferAttribute` was set on the *shared* humanoid
+geometry, so every clan wrote its phases into one buffer and the last batch mounted won; each
+batch needs its own geometry clone.
 
 every gap in the figure is load-bearing. flush against the torso the arms read as shoulders
 and the head reads as fused — the first pass looked like a bollard, and it only showed at

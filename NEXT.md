@@ -19,9 +19,9 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **347 passed in 129s** (`pytest -q`, actual output) |
+| Tests | **350 passed in 113s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 32, `main`, pushed to `origin` (private) |
+| Commits | 33, `main`, pushed to `origin` (private) |
 | Working tree | clean |
 | Lint / typecheck / CI | **none exist** |
 
@@ -31,8 +31,8 @@ index; multi-provider LLM advisor, off by default, **verified live once** throug
 procedural 3D as the main view with a self-directing cinematic camera; humanoid agents;
 prediction markets.
 
-**Not built:** LOD (none anywhere, and not yet justified — see below), per-limb walk
-animation, births, economy, hard territory ownership, on-chain identity.
+**Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
+hard territory ownership, on-chain identity.
 
 ## Next task — LOD
 
@@ -45,11 +45,14 @@ Humanoids landed (`buildHumanoid` in `world3d.js`). Measured, whole world, 120 a
 | p50 frame | 16.6 ms | 16.7 ms (vsync) |
 
 Blocky boxes are cheaper than the smooth capsule they replaced, so the humanoid cost nothing.
+Limbs swing for real, in the vertex shader, still at two batches per clan — so per-limb
+animation did **not** cost the draw calls that a batch-per-limb approach would have.
+
 That means **LOD is still not justified by measurement** — the GPU idles waiting for vsync.
 
 Do not build LOD until something makes it necessary. The honest triggers are:
 - agent counts well past 120 (the sim supports 500; the viewer has never been asked to)
-- per-limb walk animation, which needs a batch per limb and *would* blow the draw-call budget
+- ~~per-limb walk animation~~ — done in the vertex shader instead, at no draw-call cost
 - a lower-end GPU than this machine
 
 **Measure first, then decide.** `scripts/verify_world3d.mjs` reports calls and triangles;

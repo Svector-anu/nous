@@ -357,6 +357,14 @@ const STREET_PHI = Math.PI * 0.455;
 // the distance these are actually viewed from. Per-limb animation would need a batch per
 // limb; that is a job for after LOD, when only nearby agents pay for it.
 
+// Which limb a vertex belongs to, so the vertex shader can swing it. Merging costs
+// independent limb transforms on the cpu; tagging hands them back on the gpu.
+export const LIMB = { NONE: 0, LEG_L: 1, LEG_R: 2, ARM_L: 3, ARM_R: 4 };
+
+// Pivots, in the humanoid's own local space. Legs hang from the hip, arms from the shoulder.
+export const HIP_Y = TILE * 0.30;
+export const SHOULDER_Y = TILE * 0.58;
+
 function mergeParts(parts) {
   // three's mergeGeometries lives in examples/jsm, which is not vendored — only the core
   // module is. Non-indexing first sidesteps having to rebase index buffers by hand.
@@ -369,22 +377,79 @@ function mergeParts(parts) {
   const position = new Float32Array(total * 3);
   const normal = new Float32Array(total * 3);
   const uv = new Float32Array(total * 2);
+  const limb = new Float32Array(total);
 
   let vertex = 0;
-  for (const piece of pieces) {
+  parts.forEach((part, index) => {
+    const piece = pieces[index];
+    const count = piece.attributes.position.count;
     position.set(piece.attributes.position.array, vertex * 3);
     normal.set(piece.attributes.normal.array, vertex * 3);
     if (piece.attributes.uv) uv.set(piece.attributes.uv.array, vertex * 2);
-    vertex += piece.attributes.position.count;
+    limb.fill(part.limb ?? LIMB.NONE, vertex, vertex + count);
+    vertex += count;
     piece.dispose();
-  }
+  });
 
   const merged = new THREE.BufferGeometry();
   merged.setAttribute("position", new THREE.BufferAttribute(position, 3));
   merged.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
   merged.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  merged.setAttribute("limb", new THREE.BufferAttribute(limb, 1));
   merged.computeBoundingSphere();
   return merged;
+}
+
+// Rotates tagged vertices about their pivot, by a phase carried per instance.
+//
+// This is what buys real locomotion without giving up the two-batches-per-clan budget. The
+// alternative — a separate InstancedMesh per limb so each could carry its own matrix — is
+// four to six batches per clan, which is 60-90 draw calls for the agents alone.
+//
+// A bob alone was the first attempt and it was worse than nothing: `abs(sin)` on the body
+// height makes a figure *hop* rather than walk. Legs have to swing for the eye to read steps.
+export function applyWalkShader(material) {
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+        attribute float limb;
+        attribute float phase;
+        const float HIP_Y = ${HIP_Y.toFixed(4)};
+        const float SHOULDER_Y = ${SHOULDER_Y.toFixed(4)};
+
+        void swingLimb(inout vec3 p, inout vec3 n) {
+          if (limb < 0.5 || phase < 0.0) return;   // negative phase marks a standing agent
+          // Legs lead, arms counter-swing on the opposite side, as in a real gait.
+          float isLeg  = step(limb, 2.5);
+          float isLeft = mod(limb, 2.0);            // LEG_L=1, ARM_L=3 are odd
+          float side   = isLeft > 0.5 ? 1.0 : -1.0;
+          float amount = isLeg > 0.5 ? 0.62 : 0.38;
+          float pivot  = isLeg > 0.5 ? HIP_Y : SHOULDER_Y;
+          // Arms swing against the legs on the same side.
+          float angle  = sin(phase) * side * amount * (isLeg > 0.5 ? 1.0 : -1.0);
+
+          float c = cos(angle), s = sin(angle);
+          float y = p.y - pivot;
+          p.y = pivot + y * c - p.z * s;
+          p.z = y * s + p.z * c;
+          float ny = n.y;
+          n.y = ny * c - n.z * s;
+          n.z = ny * s + n.z * c;
+        }`
+      )
+      .replace(
+        "#include <beginnormal_vertex>",
+        `#include <beginnormal_vertex>
+        vec3 walkPos = position;
+        swingLimb(walkPos, objectNormal);`
+      )
+      .replace("#include <begin_vertex>", "vec3 transformed = walkPos;");
+  };
+  // Every agent material injects the identical program, so they can share a cache entry.
+  material.customProgramCacheKey = () => "walk";
+  return material;
 }
 
 export function buildHumanoid() {
@@ -403,12 +468,12 @@ export function buildHumanoid() {
   const legR = legL.clone();
 
   const body = mergeParts([
-    { geometry: torso, matrix: at(0, TILE * 0.45, 0) },
+    { geometry: torso, matrix: at(0, TILE * 0.45, 0), limb: LIMB.NONE },
     // Arm inner edge clears the torso by ~0.012 TILE, which is a visible line of shadow.
-    { geometry: armL, matrix: at(-TILE * 0.115, TILE * 0.445, 0) },
-    { geometry: armR, matrix: at(TILE * 0.115, TILE * 0.445, 0) },
-    { geometry: legL, matrix: at(-TILE * 0.058, TILE * 0.15, 0) },
-    { geometry: legR, matrix: at(TILE * 0.058, TILE * 0.15, 0) },
+    { geometry: armL, matrix: at(-TILE * 0.115, TILE * 0.445, 0), limb: LIMB.ARM_L },
+    { geometry: armR, matrix: at(TILE * 0.115, TILE * 0.445, 0), limb: LIMB.ARM_R },
+    { geometry: legL, matrix: at(-TILE * 0.058, TILE * 0.15, 0), limb: LIMB.LEG_L },
+    { geometry: legR, matrix: at(TILE * 0.058, TILE * 0.15, 0), limb: LIMB.LEG_R },
   ]);
 
   // Head and hands share the skin batch, so a clan colour never lands on skin. The head sits
@@ -416,10 +481,12 @@ export function buildHumanoid() {
   const head = new THREE.SphereGeometry(TILE * 0.082, 10, 8);
   const handL = limb(TILE * 0.05, TILE * 0.045, TILE * 0.06);
   const handR = handL.clone();
+  // Hands carry the same limb tag as the arm they hang from, so they swing with it rather
+  // than being left behind in mid-air.
   const skin = mergeParts([
-    { geometry: head, matrix: at(0, TILE * 0.688, 0) },
-    { geometry: handL, matrix: at(-TILE * 0.115, TILE * 0.30, 0) },
-    { geometry: handR, matrix: at(TILE * 0.115, TILE * 0.30, 0) },
+    { geometry: head, matrix: at(0, TILE * 0.688, 0), limb: LIMB.NONE },
+    { geometry: handL, matrix: at(-TILE * 0.115, TILE * 0.30, 0), limb: LIMB.ARM_L },
+    { geometry: handR, matrix: at(TILE * 0.115, TILE * 0.30, 0), limb: LIMB.ARM_R },
   ]);
 
   for (const part of [torso, armL, armR, legL, legR, head, handL, handR]) part.dispose();
@@ -517,7 +584,7 @@ export class WorldView {
       food: new THREE.MeshStandardMaterial({ color: 0x3f8f42, roughness: 0.75 }),
       canopy: new THREE.MeshStandardMaterial({ color: 0x2c6b32, roughness: 0.9, flatShading: true }),
       ring: new THREE.MeshStandardMaterial({ color: 0xf0f6fc, roughness: 0.35, emissive: 0x1d3050 }),
-      head: new THREE.MeshStandardMaterial({ color: 0xd9c1a3, roughness: 0.7 }),
+      head: applyWalkShader(new THREE.MeshStandardMaterial({ color: 0xd9c1a3, roughness: 0.7 })),
     };
     this._own(...Object.values(this.sharedMaterials));
 
@@ -1070,10 +1137,10 @@ export class WorldView {
     const key = clanId === null || clanId === undefined ? -1 : clanId;
     let material = this.clanMaterials.get(key);
     if (!material) {
-      material = new THREE.MeshStandardMaterial({
+      material = applyWalkShader(new THREE.MeshStandardMaterial({
         color: new THREE.Color(key === -1 ? 0x8b949e : clanHue(key)),
         roughness: 0.55,
-      });
+      }));
       this.clanMaterials.set(key, material);
       this._own(material);
     }
@@ -1103,8 +1170,18 @@ export class WorldView {
       // Membership shifts far less often than position does.
       if (!entry || entry.count !== list.length) {
         if (entry) this._disposeAgentGroup(key);
-        const body = new THREE.InstancedMesh(this.geometries.body, this._clanMaterial(key), list.length);
-        const head = new THREE.InstancedMesh(this.geometries.head, this.sharedMaterials.head, list.length);
+        // Each batch needs its *own* geometry: an InstancedBufferAttribute lives on the
+        // geometry, so setting it on the shared humanoid meant every clan wrote its phases
+        // into the same buffer and the last one mounted won. The clone is ~200 triangles.
+        const bodyGeometry = this.geometries.body.clone();
+        const headGeometry = this.geometries.head.clone();
+        // One walk phase per agent, shared by the body and skin batches so an arm and the
+        // hand on the end of it swing together.
+        const phase = new THREE.InstancedBufferAttribute(new Float32Array(list.length).fill(-1), 1);
+        bodyGeometry.setAttribute("phase", phase);
+        headGeometry.setAttribute("phase", phase);
+        const body = new THREE.InstancedMesh(bodyGeometry, this._clanMaterial(key), list.length);
+        const head = new THREE.InstancedMesh(headGeometry, this.sharedMaterials.head, list.length);
         for (const mesh of [body, head]) {
           mesh.castShadow = true;
           // Culling is computed from the source geometry, not the instances, so an
@@ -1112,7 +1189,7 @@ export class WorldView {
           mesh.frustumCulled = false;
           this.scene.add(mesh);
         }
-        entry = { body, head, count: list.length, ids: new Array(list.length), pose: new Array(list.length) };
+        entry = { body, head, phase, count: list.length, ids: new Array(list.length), pose: new Array(list.length) };
         this.agentMeshes.set(key, entry);
         // Both batches share one id list: a raycast can land on either a body or a head
         // and must resolve to the same person.
@@ -1162,14 +1239,22 @@ export class WorldView {
         const pose = entry.pose[i];
         if (!pose) continue;
 
+        // The gait itself lives in the vertex shader; this only supplies its phase.
+        // Standing is signalled by a negative phase, not by a large one: the phase grows
+        // without bound (clock * rate), so any "greater than N" sentinel starts matching
+        // real walkers within a minute of the page loading. It did.
         let bob = 0;
-        let lean = 0;
+        let phase = -1;
         if (pose.walking) {
-          const phase = this.clock * 7 + pose.id * 1.7;
-          bob = Math.abs(Math.sin(phase)) * TILE * 0.025;
-          lean = Math.sin(phase) * 0.07;
+          phase = this.clock * 6.5 + pose.id * 1.7;
+          // Two rises per stride, at the mid-swing of each leg — a walk lifts you twice per
+          // cycle, not once. Small: the legs carry the motion, this only stops it looking
+          // like a figure sliding along a rail.
+          bob = (Math.cos(phase * 2) * 0.5 + 0.5) * TILE * 0.012;
         }
-        euler.set(lean, pose.facing, 0);
+        entry.phase.array[i] = phase;
+
+        euler.set(0, pose.facing, 0);
         quaternion.setFromEuler(euler);
         // Both merged geometries are modelled with the feet at local y = 0, so body and
         // skin share one placement rather than the two hand-tuned heights the capsule and
@@ -1181,6 +1266,7 @@ export class WorldView {
       }
       entry.body.instanceMatrix.needsUpdate = true;
       entry.head.instanceMatrix.needsUpdate = true;
+      entry.phase.needsUpdate = true;
     }
   }
 
@@ -1217,6 +1303,8 @@ export class WorldView {
     for (const mesh of [entry.body, entry.head]) {
       this.scene.remove(mesh);
       mesh.dispose();
+      // The geometry is this batch's own clone, not the shared humanoid.
+      mesh.geometry.dispose();
       // Must be dropped here too, or the pick index keeps a strong reference to every
       // batch ever built and the raycast targets grow without bound.
       this.agentIndex.delete(mesh);
