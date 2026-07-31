@@ -10,3 +10,8 @@ data/*.db-journal
 # dev-only: playwright for scripts/verify_focus3d.mjs, never a project dependency
 node_modules/
 package-lock.json
+
+# secrets: real keys live here, .env.example is the tracked template
+.env
+.env.*
+!.env.example

@@ -7,6 +7,15 @@ form clans, trade, and raid each other when the food runs out — streamed live 
 clan leaders can be given a brain, and only behind `llm_enabled`. off by default, because
 the world has to run 24/7 for $0.
 
+when you do turn it on, credentials come from `.env` (gitignored; copy `.env.example`).
+providers: `anthropic`, `xai`, `openai`, and `dgrid` — a gateway fronting many providers
+behind one openai-compatible endpoint, where models are addressed `provider/model`.
+
+> dgrid issues two kinds of key and only one can infer. a **management** key (`mk-`) may
+> list models but returns 401 from chat/completions; a **model** key (`sk-`) is the one you
+> want. that asymmetry makes a wrong key look like a broken request, so both the advisor
+> and `scripts/verify_llm.py` check the prefix up front and say which is which.
+
 design docs live in [`planish/`](planish/). nothing here invents behaviour those docs
 don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md) is the
 handover doc — status, what's next, and the traps already fallen into.
@@ -16,7 +25,7 @@ structured messaging, resource transfer, clans, clan goals with soft influence,
 user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
 the phase 3 spatial index got pulled forward because it was the only thing genuinely
 blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 294 tests on local `main`, no remote.
+self-directing camera. 309 tests on local `main`, no remote.
 
 still deliberately absent: hard territory ownership, births, economy.
 
@@ -107,7 +116,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 294 tests, ~145s
+.venv/bin/python -m pytest tests/ -q      # 309 tests, ~150s
 ```
 
 ## layout

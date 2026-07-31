@@ -24,6 +24,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from src.env import load_env
 from src.llm.advisor import PROVIDERS, AdvisorBudget, ScriptedAdvisor, build_advisor
 from src.persistence.sqlite_store import SqliteWorldStore
 from src.world.components import Clan, DecisionLog
@@ -55,6 +56,32 @@ def main() -> int:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    load_env()
+
+    # Fail here, not 400 ticks in. A wrong-kind key is the single most likely reason a
+    # live run does nothing, and the rules fallback hides it perfectly.
+    if not args.scripted:
+        import os
+
+        key_env = args.api_key_env or {
+            "dgrid": "DGRID_API_KEY",
+            "anthropic": "ANTHROPIC_API_KEY",
+            "xai": "XAI_API_KEY",
+            "openai": "OPENAI_API_KEY",
+        }.get(args.provider, "")
+        key = os.environ.get(key_env, "") if key_env else ""
+        if key_env and not key:
+            print(f"{key_env} is not set. put it in .env (see .env.example) or pass it inline.")
+            return 1
+        if key:
+            print(f"credential : {key_env} present, starts {key[:3]!r}, {len(key)} chars")
+        if args.provider == "dgrid" and key.startswith("mk-"):
+            print(
+                "\nthat is a MANAGEMENT key. it can list models but cannot call inference,\n"
+                "which is why /v1/models works and /v1/chat/completions returns 401.\n"
+                "create a model key (sk-...) in the dgrid console under Model API Keys."
+            )
+            return 1
 
     config = WorldConfig(
         seed=args.seed, llm_enabled=True, llm_model=args.model, llm_provider=args.provider
