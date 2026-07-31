@@ -114,7 +114,7 @@ silently dropped in-flight requests; both are fixed and locked down by
 **never verified against the real api** — no credentials existed on the build machine.
 `scripts/verify_llm.py` runs the whole single-clan comparison once a key is present.
 
-### viewer — inspectable, still 2d
+### viewer — 3d main view (this section is stale below; see planish/VISUALS_AND_PROCEDURAL.md)
 
 click-to-inspect landed before any 3d work: the simulation had grown a social layer that
 was completely invisible. the panel reads entirely from the existing per-tick snapshot,
@@ -134,7 +134,12 @@ thing genuinely blocking phase 3 counts, so it was pulled forward.
 ## non-goals still held
 
 no llm brains for ordinary agents (permanently) · no top/empire tier · no hard territory exclusion · no births or reproduction ·
-no on-chain economy · no react or three.js viewer · no full 3d everywhere
+no on-chain economy · **no react, no build step, no npm at runtime** (still held) · no llm brains for ordinary agents
+
+> ~~no three.js viewer~~ and ~~no full 3d everywhere~~ were **reversed** on 2026-07-30.
+> they were performance constraints from when a hut was seven separate meshes (651 draw
+> calls for 93 huts). after instancing the whole world measured 51 calls at a vsync-locked
+> 60fps, so the reason was gone. three.js is the main view now. do not resurrect these.
 
 personality is stored on user-deployed agents but **nothing reads it** — the middle tier
 decides clan goals, not individual behaviour, so the seam is still unused.
