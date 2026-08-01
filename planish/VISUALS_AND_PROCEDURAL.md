@@ -168,6 +168,29 @@ so that is where the effort goes:
 - **per-agent skin tone** via `setColorAt`, with hair carried as a dark *vertex* tint in the
   same batch — a third batch per clan would be 50% more draw calls for a few hundred pixels.
 
+**gaps are the whole game, and they are counter-intuitive.** at street level one world unit
+is ~47 px. the first tapered pass left a **0.9 px** arm-to-torso gap, so the arms were welded
+to the body and every *standing* agent read as a post — only walking ones looked human,
+because the stride pulled the legs apart. the limbs are now narrower and pushed further out
+than looks right in isolation: arm gap 0.9 → 4.7 px, leg gap 4.1 → 8.8 px. what the eye
+resolves at distance is the negative space between parts, not the parts.
+
+**the torso is tapered, wide at the shoulders and narrow at the waist.** a box has no
+shoulders and shoulders are most of what separates a person from a post. costs nothing — the
+vertices already exist, they just move.
+
+**stationary agents needed their own poses.** two thirds of the world is resting or idle at
+any moment, and with only a few degrees of lean between the states the world read as a crowd
+doing nothing while it was actually building 360 huts. `crouch` distinguishes them: resting
+sits, gathering stoops hardest, building stoops less. kept *subtle* — a large y-squash at
+constant width reads as a figure melting rather than sitting, because a real crouch narrows
+the silhouette as it lowers and a uniform squash does not.
+
+**terrain is sampled at the interpolated position, never lerped between endpoints.** ground
+between two tiles is not linear, so lerping the two endpoint heights cut agents through a
+rise — measured at 5 of 112 below their own ground, worst 0.32 units under. that was the
+"some are entering the ground" report.
+
 **agents are scattered within their tile, and this is not cosmetic polish.** nothing in the
 simulation stops two agents sharing a tile: 78 of 112 do, and some tiles hold agents of
 *different clans*. drawn at the tile centre they render at the identical point and interleave

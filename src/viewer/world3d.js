@@ -496,6 +496,11 @@ export function agentAnimation(state, isWalking) {
   let speed = 1.0;
   let lean = 0.0;
   let breath = 0.0;
+  // Crouch is what makes a *standing still* agent legible. Two thirds of the world is
+  // resting or idle at any moment, and with only a few degrees of lean between them every
+  // stationary agent looked identical — the world read as a crowd doing nothing while it
+  // was actually building 360 huts.
+  let crouch = 0.0;
 
   if (isWalking) {
     switch (state) {
@@ -522,16 +527,22 @@ export function agentAnimation(state, isWalking) {
   } else {
     switch (state) {
       case "REST":
+        // Sitting: the clearest possible read at a distance, and resting is the single
+        // most common thing an agent does.
         breath = 0.6;
-        lean = -0.06;
+        lean = 0.14;
+        crouch = 0.85;
         break;
       case "GATHER":
+        // Doubled right over, reaching for something on the ground.
         breath = 0.5;
-        lean = 0.18;
+        lean = 0.62;
+        crouch = 0.45;
         break;
       case "BUILD":
         breath = 0.55;
-        lean = 0.15;
+        lean = 0.44;
+        crouch = 0.2;
         break;
       case "IDLE":
       default:
@@ -540,7 +551,7 @@ export function agentAnimation(state, isWalking) {
     }
   }
 
-  return { speed, lean, breath };
+  return { speed, lean, breath, crouch };
 }
 
 export function lerpAngle(a, b, t) {
@@ -559,14 +570,41 @@ export function buildHumanoid() {
   // spent on a nose are polygons nobody can see.
   const limb = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 
+  // Gaps are the whole game. At street level one world unit is ~47 px, so the first pass's
+  // 0.9 px arm-to-torso gap welded the arms to the body and every standing agent read as a
+  // post — only walking ones looked human, because the stride pulled the legs apart. The
+  // limbs below are *narrower* and pushed *further out* than looks right in isolation,
+  // because what the eye resolves at distance is the negative space between them.
+  //
+  // A box has no shoulders, and shoulders are most of what separates "person" from "post".
+  // Tapering the torso — wide at the chest, narrow at the waist — costs nothing extra: the
+  // vertices already exist, they just move. Same trick gives limbs a slight taper so they
+  // are not perfect prisms.
+  const tapered = (wTop, wBottom, h, dTop, dBottom) => {
+    const geometry = new THREE.BoxGeometry(1, h, 1);
+    const position = geometry.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+      // 0 at the bottom of the part, 1 at the top
+      const up = position.getY(i) / h + 0.5;
+      position.setX(i, position.getX(i) * (wBottom + (wTop - wBottom) * up));
+      position.setZ(i, position.getZ(i) * (dBottom + (dTop - dBottom) * up));
+    }
+    position.needsUpdate = true;
+    geometry.computeVertexNormals();
+    return geometry;
+  };
+
   // Every gap here is load-bearing. Flush against the torso the arms read as shoulders and
   // the head reads as fused — at magnification the first pass looked like a bollard. The
   // silhouette needs air between limb and body, and a neck, to say "person" at distance.
-  const torso = limb(TILE * 0.155, TILE * 0.30, TILE * 0.105);
-  const neck = limb(TILE * 0.055, TILE * 0.05, TILE * 0.055);
-  const armL = limb(TILE * 0.05, TILE * 0.27, TILE * 0.06);
+  // Wide at the shoulders, narrow at the waist. This one change does more for the
+  // silhouette than any amount of added geometry.
+  const torso = tapered(TILE * 0.155, TILE * 0.105, TILE * 0.30, TILE * 0.10, TILE * 0.08);
+  const neck = limb(TILE * 0.05, TILE * 0.05, TILE * 0.05);
+  // Arms thin toward the wrist, legs toward the ankle, so limbs read as limbs.
+  const armL = tapered(TILE * 0.046, TILE * 0.034, TILE * 0.27, TILE * 0.056, TILE * 0.042);
   const armR = armL.clone();
-  const legL = limb(TILE * 0.062, TILE * 0.27, TILE * 0.075);
+  const legL = tapered(TILE * 0.058, TILE * 0.044, TILE * 0.27, TILE * 0.072, TILE * 0.056);
   const legR = legL.clone();
   // Feet break the "figure standing on two poles" read more than their cost suggests: they
   // give the silhouette a base and stop the legs looking like they end mid-air.
@@ -577,28 +615,28 @@ export function buildHumanoid() {
     { geometry: torso, matrix: at(0, TILE * 0.475, 0), limb: LIMB.NONE },
     { geometry: neck, matrix: at(0, TILE * 0.65, 0), limb: LIMB.NONE },
     // Arm inner edge clears the torso by ~0.012 TILE, which is a visible line of shadow.
-    { geometry: armL, matrix: at(-TILE * 0.115, TILE * 0.47, 0), limb: LIMB.ARM_L },
-    { geometry: armR, matrix: at(TILE * 0.115, TILE * 0.47, 0), limb: LIMB.ARM_R },
-    { geometry: legL, matrix: at(-TILE * 0.058, TILE * 0.19, 0), limb: LIMB.LEG_L },
-    { geometry: legR, matrix: at(TILE * 0.058, TILE * 0.19, 0), limb: LIMB.LEG_R },
-    { geometry: footL, matrix: at(-TILE * 0.058, TILE * 0.0375, TILE * 0.018), limb: LIMB.LEG_L },
-    { geometry: footR, matrix: at(TILE * 0.058, TILE * 0.0375, TILE * 0.018), limb: LIMB.LEG_R },
+    { geometry: armL, matrix: at(-TILE * 0.150, TILE * 0.47, 0), limb: LIMB.ARM_L },
+    { geometry: armR, matrix: at(TILE * 0.150, TILE * 0.47, 0), limb: LIMB.ARM_R },
+    { geometry: legL, matrix: at(-TILE * 0.076, TILE * 0.19, 0), limb: LIMB.LEG_L },
+    { geometry: legR, matrix: at(TILE * 0.076, TILE * 0.19, 0), limb: LIMB.LEG_R },
+    { geometry: footL, matrix: at(-TILE * 0.076, TILE * 0.0375, TILE * 0.018), limb: LIMB.LEG_L },
+    { geometry: footR, matrix: at(TILE * 0.076, TILE * 0.0375, TILE * 0.018), limb: LIMB.LEG_R },
   ]);
 
   // Head, hair and hands share the skin batch, so a clan colour never lands on skin. Hair
   // rides here too, darkened by a vertex tint rather than given its own batch — a third
   // batch per clan would be 50% more draw calls for a few hundred pixels of hair.
-  const head = new THREE.SphereGeometry(TILE * 0.082, 10, 8);
-  const hair = new THREE.SphereGeometry(TILE * 0.087, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
+  const head = new THREE.SphereGeometry(TILE * 0.073, 10, 8);
+  const hair = new THREE.SphereGeometry(TILE * 0.078, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
   const handL = limb(TILE * 0.05, TILE * 0.045, TILE * 0.06);
   const handR = handL.clone();
   // Hands carry the same limb tag as the arm they hang from, so they swing with it rather
   // than being left behind in mid-air.
   const skin = mergeParts([
-    { geometry: head, matrix: at(0, TILE * 0.755, 0), limb: LIMB.NONE },
-    { geometry: hair, matrix: at(0, TILE * 0.755, 0), limb: LIMB.NONE, tint: [0.22, 0.16, 0.13] },
-    { geometry: handL, matrix: at(-TILE * 0.115, TILE * 0.325, 0), limb: LIMB.ARM_L },
-    { geometry: handR, matrix: at(TILE * 0.115, TILE * 0.325, 0), limb: LIMB.ARM_R },
+    { geometry: head, matrix: at(0, TILE * 0.742, 0), limb: LIMB.NONE },
+    { geometry: hair, matrix: at(0, TILE * 0.742, 0), limb: LIMB.NONE, tint: [0.22, 0.16, 0.13] },
+    { geometry: handL, matrix: at(-TILE * 0.150, TILE * 0.325, 0), limb: LIMB.ARM_L },
+    { geometry: handR, matrix: at(TILE * 0.150, TILE * 0.325, 0), limb: LIMB.ARM_R },
   ]);
 
   for (const part of [torso, neck, armL, armR, legL, legR, footL, footR, head, hair, handL, handR]) {
@@ -1351,8 +1389,8 @@ export class WorldView {
         // room to stand several apart. Deterministic off the id, so an agent keeps its spot
         // across frames and reloads. Viewer-only: the simulation still sees one tile.
         const [tileX, tileZ] = this.local(agent);
-        const x = tileX + (hash2(agent.id, agent.id * 11, 3) - 0.5) * TILE * 0.62;
-        const z = tileZ + (hash2(agent.id * 13, agent.id, 5) - 0.5) * TILE * 0.62;
+        const x = tileX + (hash2(agent.id, agent.id * 11, 3) - 0.5) * TILE * 0.85;
+        const z = tileZ + (hash2(agent.id * 13, agent.id, 5) - 0.5) * TILE * 0.85;
         const ground = terrainHeight(x, z);
 
         let facing = entry.pose[i] ? entry.pose[i].facing : 0;
@@ -1422,13 +1460,18 @@ export class WorldView {
         // The simulation only moves one tile per tick, but the viewer can render at 60 Hz.
         const ix = prev.x + (pose.x - prev.x) * t;
         const iz = prev.z + (pose.z - prev.z) * t;
-        const iground = prev.ground + (pose.ground - prev.ground) * t;
+        // Sample the terrain at the interpolated position rather than lerping the two
+        // endpoint heights. Ground between two tiles is not linear, so lerping cut agents
+        // through a rise — measured at 5 of 112 below their own ground, worst 0.32 units
+        // under, which is the "some are entering the ground" report.
+        const iground = terrainHeight(ix, iz);
         const facing = lerpAngle(prev.facing, pose.facing, t);
 
         // Gait speed and posture are interpolated too, so a state change does not pop.
         const ispeed = prev.speed + (pose.speed - prev.speed) * t;
         const ilean = prev.lean + (pose.lean - prev.lean) * t;
         const ibreath = prev.breath + (pose.breath - prev.breath) * t;
+        const icrouch = (prev.crouch ?? 0) + ((pose.crouch ?? 0) - (prev.crouch ?? 0)) * t;
         // A breath phase keeps advancing when idle; standing is signalled to the shader by a
         // negative walk phase, so a non-walking agent still gets idle motion.
         const breathPhase = ibreath > 0 ? this.clock * 1.5 + pose.id * 2.3 : 0;
@@ -1456,10 +1499,18 @@ export class WorldView {
         // Per-agent build. A crowd of identical figures reads as clones however good the
         // mesh is, and this is the cheapest possible fix — the instance matrix already
         // exists, so varying its scale costs nothing at all.
-        scale.set(pose.wide, pose.tall, pose.wide);
+        // Crouching squashes the figure and drops it toward the ground, which is what a
+        // sitting or stooping person looks like from any distance.
+        // Subtle on purpose. A large y-squash at constant width reads as a figure melting
+        // rather than sitting, because a real crouch narrows the silhouette as it lowers
+        // while a uniform squash does not. Enough to tell resting from standing, no more.
+        scale.set(pose.wide, pose.tall * (1 - icrouch * 0.16), pose.wide);
         // Both merged geometries are modelled with the feet at local y = 0, so body and
         // skin share one placement rather than the two hand-tuned heights the capsule and
         // sphere each needed.
+        // No vertical offset for the crouch. The geometry origin is at the feet, so the
+        // y-scale squash above already lowers the head while keeping the feet on the
+        // ground — dropping the whole figure as well pushed them under it.
         position.set(ix, iground + bob, iz);
         matrix.compose(position, quaternion, scale);
         entry.body.setMatrixAt(i, matrix);

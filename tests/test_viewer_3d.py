@@ -390,11 +390,22 @@ def test_agent_animation_maps_states_to_gait_and_posture(tmp_path):
         tmp_path,
     )
     assert out["idle"]["breath"] > 0 and out["idle"]["lean"] == 0
-    assert out["rest"]["lean"] < 0
-    assert out["gather"]["lean"] > 0
-    assert out["build"]["lean"] > 0
     assert out["flee"]["speed"] > out["seek"]["speed"]
     assert out["flee"]["lean"] > out["seek"]["lean"]
+
+    # The real requirement is that a *standing still* agent is distinguishable, because two
+    # thirds of the world is resting or idle at any moment and with only a few degrees of
+    # lean between them the whole crowd read as doing nothing. Crouch is what carries that.
+    assert out["rest"]["crouch"] > out["idle"]["crouch"], "resting must not look like idling"
+    assert out["gather"]["lean"] > out["build"]["lean"] > out["idle"]["lean"], (
+        "gathering stoops hardest, then building, then standing"
+    )
+    stationary = [out["idle"], out["rest"], out["gather"], out["build"]]
+    poses = {(round(p["lean"], 3), round(p["crouch"], 3)) for p in stationary}
+    assert len(poses) == len(stationary), f"two stationary states look identical: {poses}"
+
+    # A large squash at constant width reads as melting rather than sitting.
+    assert out["rest"]["crouch"] < 1.0
 
 
 def test_standing_is_signalled_by_a_negative_phase(tmp_path):
