@@ -269,6 +269,15 @@
     font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
   }
   #onboarding .pill.clan { color: #a371f7; border-color: rgba(163,113,247,0.35); }
+  #onboarding .avatar {
+    width: 64px; height: 64px; margin: 0 auto 14px;
+    border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 28px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, rgba(88,166,255,0.25), rgba(163,113,247,0.25));
+    border: 2px solid var(--line);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 4px 14px rgba(0,0,0,0.35);
+    text-transform: uppercase; letter-spacing: .04em;
+  }
 
   /* Compact sidebar for first-time users after onboarding. */
   #dashboardToggle { display: none; }
@@ -387,6 +396,7 @@
     </div>
     <div id="onboarding-summary" class="screen">
       <div class="panel">
+        <div class="avatar" id="summary-avatar"></div>
         <div class="hero" id="summary-name">Your agent arrives</div>
         <div class="pill-row">
           <span class="pill" id="summary-state"></span>
@@ -912,6 +922,7 @@ const nameInput = document.getElementById("onboarding-name-input");
 const onboardingStatus = document.getElementById("onboarding-status");
 const waitingText = document.getElementById("onboarding-waiting-text");
 const summaryName = document.getElementById("summary-name");
+const summaryAvatar = document.getElementById("summary-avatar");
 const summaryDetail = document.getElementById("summary-detail");
 const summaryState = document.getElementById("summary-state");
 const summaryClan = document.getElementById("summary-clan");
@@ -1044,6 +1055,12 @@ async function waitForAgent(name) {
 function onAgentFound(agent) {
   pendingAgentId = agent.id;
   summaryName.textContent = `${agent.name} arrives`;
+  const initial = agent.name.charAt(0).toUpperCase();
+  const colour = clanColour(agent.clan);
+  summaryAvatar.textContent = initial;
+  summaryAvatar.style.borderColor = colour;
+  summaryAvatar.style.background = `linear-gradient(135deg, ${colour}33, ${colour}18)`;
+  summaryAvatar.style.boxShadow = `0 0 0 1px rgba(255,255,255,0.04), 0 4px 14px rgba(0,0,0,0.35), 0 0 18px ${colour}40`;
   const stateLabels = {
     IDLE: "idle", SEEK_NEED: "looking for something", GATHER: "gathering",
     BUILD: "building", REST: "resting", FLEE: "fleeing", FOLLOW: "following", MEET: "meeting",
