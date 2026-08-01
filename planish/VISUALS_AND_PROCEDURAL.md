@@ -168,6 +168,25 @@ so that is where the effort goes:
 - **per-agent skin tone** via `setColorAt`, with hair carried as a dark *vertex* tint in the
   same batch — a third batch per clan would be 50% more draw calls for a few hundred pixels.
 
+**an agent faces the way it travelled, not the way its target lies.** those differ whenever
+the simulation steps someone sideways or around something, and using the target made agents
+slide backwards and sideways while looking where they wanted to go. facing now comes from the
+position delta since the last snapshot, with the target only as a first-frame fallback.
+measured after: 0 of 19 moving agents face more than 90 degrees off travel, worst 27 (turn
+lag). the delta must clear a threshold first, or the within-tile scatter jitter would make a
+standing agent spin.
+
+**stride rate varies per agent, not just the phase offset.** offset alone does not stop
+lockstep — two people walking at an identical rate stay synchronised forever however far
+apart they start, and clanmates *do* share destinations, so they are genuinely side by side.
+the old `id * 1.7` offset also clustered: ids 225 and 228 landed 1.18 rad apart, and
+clanmates tend to have consecutive ids. measured after: 0 pairs in lockstep-with-same-facing
+across 18 walkers.
+
+note that two clanmates walking the same way at the same time is the *simulation being
+right* — measured live, 4 agents of one clan heading to a single rally point. only the
+identical gait was a rendering fault.
+
 **gaps are the whole game, and they are counter-intuitive.** at street level one world unit
 is ~47 px. the first tapered pass left a **0.9 px** arm-to-torso gap, so the arms were welded
 to the body and every *standing* agent read as a post — only walking ones looked human,

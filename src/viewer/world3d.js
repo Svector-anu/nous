@@ -1393,9 +1393,24 @@ export class WorldView {
         const z = tileZ + (hash2(agent.id * 13, agent.id, 5) - 0.5) * TILE * 0.85;
         const ground = terrainHeight(x, z);
 
-        let facing = entry.pose[i] ? entry.pose[i].facing : 0;
+        // Face the way you are actually travelling, which is the direction moved *since the
+        // last snapshot* — not the direction of the distant target. The two differ whenever
+        // the simulation steps an agent sideways or around something, and using the target
+        // made agents slide backwards and sideways while facing where they wanted to go.
+        // Falls back to the target only on the first frame, before there is a delta.
+        const was = entry.pose[i];
+        let facing = was ? was.facing : 0;
         let walking = false;
-        if (agent.target) {
+        if (was) {
+          const dx = x - was.x;
+          const dz = z - was.z;
+          // A tile is TILE wide; anything smaller is the within-tile scatter jitter rather
+          // than travel, and turning to face that would make a standing agent spin.
+          if (dx * dx + dz * dz > (TILE * 0.25) ** 2) {
+            facing = Math.atan2(dx, dz);
+            walking = true;
+          }
+        } else if (agent.target) {
           const [tx, tz] = this.local({ x: agent.target[0], y: agent.target[1] });
           if (tx !== x || tz !== z) {
             facing = Math.atan2(tx - x, tz - z);
@@ -1425,6 +1440,10 @@ export class WorldView {
           x, z, ground, facing, walking, prev, id: agent.id, ...animation,
           tall: 0.88 + hash2(agent.id, agent.id * 7, 31) * 0.26,
           wide: 0.90 + hash2(agent.id * 3, agent.id, 17) * 0.22,
+          // Walk rate and starting phase, both deterministic off the id so an agent keeps
+          // its own gait across frames and reloads.
+          gait: hash2(agent.id * 5, agent.id, 41),
+          stride: hash2(agent.id, agent.id * 9, 53) * Math.PI * 2,
         };
       }
     }
@@ -1483,7 +1502,12 @@ export class WorldView {
         let bob = 0;
         let phase = -1;
         if (pose.walking) {
-          phase = this.clock * 6.5 + pose.id * 1.7;
+          // Both the *rate* and the offset vary per agent. Offset alone is not enough:
+          // two people walking at an identical rate stay locked forever however far apart
+          // they start, and clanmates share destinations so they are often side by side.
+          // Consecutive ids also clustered under the old `id * 1.7` — 225 and 228 landed
+          // 1.18 rad apart — and clanmates tend to have consecutive ids.
+          phase = this.clock * (5.6 + pose.gait * 1.9) + pose.stride;
           // Two rises per stride, at the mid-swing of each leg — a walk lifts you twice per
           // cycle, not once. Small: the legs carry the motion, this only stops it looking
           // like a figure sliding along a rail.

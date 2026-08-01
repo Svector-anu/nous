@@ -452,3 +452,26 @@ def test_the_humanoid_has_a_readable_silhouette(tmp_path):
     assert abs(out["bodyBottom"]) < 0.05, "feet must sit on the ground"
     assert out["skinTop"] > out["bodyTop"], "the head must clear the shoulders"
     assert out["hairVerts"] > 0, "hair carries a dark vertex tint; without it the head is bald"
+
+
+def test_facing_follows_travel_not_the_target():
+    """An agent must face the way it is actually moving. Facing the *target* looks right
+    until the simulation steps someone sideways or around something — then they slide
+    backwards while looking where they wanted to go. Measured after the fix: 0 of 19 moving
+    agents face more than 90 degrees off their travel, worst 27 degrees (turn lag)."""
+    source = (VIEWER_DIR / "world3d.js").read_text()
+    assert "const dx = x - was.x;" in source, "facing must come from the movement delta"
+    assert "facing = Math.atan2(dx, dz);" in source
+    # the target is only a first-frame fallback, before any delta exists
+    assert "} else if (agent.target) {" in source, "target must be the fallback, not the source"
+
+
+def test_each_agent_has_its_own_stride_rate():
+    """Offsetting the phase alone does not stop lockstep: two people walking at an identical
+    rate stay synchronised forever however far apart they start, and clanmates share
+    destinations so they are often side by side. The old `id * 1.7` also clustered — ids 225
+    and 228 landed 1.18 rad apart, and clanmates tend to have consecutive ids."""
+    source = (VIEWER_DIR / "world3d.js").read_text()
+    assert "pose.gait" in source, "the walk rate must vary per agent, not just the offset"
+    assert "pose.stride" in source, "the starting phase must vary too"
+    assert "pose.id * 1.7" not in source, "the clustering id-multiple offset is gone"
