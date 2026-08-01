@@ -157,6 +157,27 @@ RESOLVERS = {
 # --- opening markets ---------------------------------------------------------
 
 
+def open_agent_survives(world: World, agent: int, name: str) -> dict | None:
+    """Open a market on whether a specific agent is still alive at the horizon.
+
+    Called by spawning when a user-deployed agent enters the world, so the
+    onboarding flow always has a real market to point at.  If markets are
+    disabled or there is no book, returns None.
+    """
+    if not getattr(world.config, "markets_enabled", False):
+        return None
+    m = book(world)
+    if m is None:
+        return None
+    horizon = world.config.market_horizon_ticks
+    entry = _new_market(
+        world, "agent_survives", {"agent": agent, "name": name},
+        f"will {name} still be alive at tick {world.tick + horizon}?", "agent_spawned",
+    )
+    m.markets.append(entry)
+    return entry
+
+
 def _new_market(world: World, kind: str, subject: dict, question: str, trigger: str) -> dict:
     config = world.config
     market = book(world)

@@ -27,6 +27,7 @@ from ..components import (
 )
 from ..ecs import Entity, World
 from ..rng import TickRng
+from . import markets
 
 
 def queue(world: World) -> SpawnQueue | None:
@@ -85,5 +86,8 @@ def run(world: World, rng: TickRng) -> None:
         return
 
     for request in pending.pending:
-        _spawn(world, request, rng)
+        entity = _spawn(world, request, rng)
+        agent = world.get(entity, Agent)
+        if agent.user_deployed:
+            markets.open_agent_survives(world, entity, agent.name)
     pending.pending.clear()

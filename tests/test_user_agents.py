@@ -209,6 +209,44 @@ def test_deployed_agents_can_join_clans():
     assert joined, "no deployed agent ever joined a clan"
 
 
+# --- market integration -----------------------------------------------------
+
+
+def test_deployed_agent_gets_a_survival_market():
+    from src.world.systems import markets, spawning
+
+    simulation = _sim()
+    simulation.run(20)
+    spawning.enqueue(simulation.world, "Trader", "")
+    simulation.step()
+
+    deployed = _user_agents(simulation.world)
+    assert len(deployed) == 1
+    entity = deployed[0]
+
+    book = markets.book(simulation.world)
+    agent_markets = [
+        m for m in book.markets
+        if m["kind"] == "agent_survives" and m["subject"].get("agent") == entity
+    ]
+    assert len(agent_markets) == 1
+    m = agent_markets[0]
+    assert m["subject"]["name"] == "Trader"
+    assert m["trigger"] == "agent_spawned"
+    assert m["state"] == markets.OPEN
+
+
+def test_non_user_agents_do_not_get_a_spawn_market():
+    from src.world.systems import markets
+
+    simulation = _sim()
+    simulation.run(20)
+
+    book = markets.book(simulation.world)
+    spawn_markets = [m for m in book.markets if m["trigger"] == "agent_spawned"]
+    assert spawn_markets == []
+
+
 # --- api --------------------------------------------------------------------
 
 
