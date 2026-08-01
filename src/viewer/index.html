@@ -733,7 +733,7 @@ function renderInspector(snapshot) {
     if (grudges.length) {
       html += `<h3>grudges</h3>`;
       for (const [other, [times, lastTick]] of grudges) {
-        html += `<span class="tag foe">clan ${other} ×${times} <span style="opacity:.7">t${lastTick}</span></span>`;
+        html += `<span class="tag foe">clan ${other} ×${times} <span style="opacity:.7">day ${dayNumber(lastTick)}</span></span>`;
       }
     }
     if ((clan.allies || []).length) {
@@ -799,7 +799,7 @@ function renderMarkets(book) {
     node.innerHTML =
       `<div class="q">${escapeHtml(entry.question)}</div>` +
       `<div class="meta">${entry.state} · pool ${entry.pool.yes} yes / ${entry.pool.no} no` +
-      ` · settles t${entry.resolves_tick}</div>` +
+      ` · settles day ${dayNumber(entry.resolves_tick)}</div>` +
       (open
         ? `<div class="sides">
              <button class="yes" data-id="${entry.id}" data-side="yes">yes · 25</button>
@@ -817,7 +817,7 @@ function renderMarkets(book) {
     node.className = "market settled";
     node.innerHTML =
       `<div class="q">${escapeHtml(entry.question)} <span class="out ${outcome}">${outcome || "—"}</span></div>` +
-      `<div class="meta">settled t${entry.resolved_tick} · pool ${entry.pool.yes}/${entry.pool.no}</div>` +
+      `<div class="meta">settled day ${dayNumber(entry.resolved_tick)} · pool ${entry.pool.yes}/${entry.pool.no}</div>` +
       (held ? `<div class="held">you had ${held.yes} yes / ${held.no} no</div>` : "");
     marketsEl.appendChild(node);
   }
@@ -893,7 +893,7 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
     const body = await response.json();
     if (response.ok) {
       deployStatus.className = "good";
-      deployStatus.textContent = `${name} arrives at tick ${body.arrives_at_tick}`;
+      deployStatus.textContent = `${name} arrives next tick`;
       document.getElementById("agentName").value = "";
       document.getElementById("agentPersonality").value = "";
     } else {
@@ -1017,7 +1017,7 @@ document.getElementById("onboarding-form").addEventListener("submit", async (eve
     pendingAgentName = name;
     whoami.value = name;
     localStorage.setItem("neociv.user", name);
-    waitingText.textContent = `${name} will arrive at tick ${body.arrives_at_tick}.`;
+    waitingText.textContent = `${name} is spawning now...`;
     showScreen("onboarding-waiting");
     waitForAgent(name);
   } catch {
@@ -1070,7 +1070,7 @@ function onAgentFound(agent) {
   summaryDetail.textContent = "You are watching them from street level.";
   const market = findAgentMarket(agent.id);
   if (market) {
-    summaryQuestion.textContent = `Will ${agent.name} still be alive at tick ${market.settles_at_tick || "?"}?`;
+    summaryQuestion.textContent = `Will ${agent.name} still be alive by day ${dayNumber(market.settles_at_tick)}?`;
     summaryHint.textContent = "Placing a bet costs 25 credits.";
     summarySides.style.display = "";
   } else {
@@ -1150,6 +1150,11 @@ modeButton.addEventListener("click", () => {
 
 function setText(id, value) {
   document.getElementById(id).textContent = value;
+}
+
+function dayNumber(tick) {
+  // The simulation counts 200 ticks per day; the sidebar already shows "day".
+  return Math.floor(tick / 200);
 }
 
 // The minimap is now an overview, not the main view: at 4 px a tile there is no room for
