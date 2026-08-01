@@ -378,6 +378,9 @@ function mergeParts(parts) {
   const normal = new Float32Array(total * 3);
   const uv = new Float32Array(total * 2);
   const limb = new Float32Array(total);
+  // Vertex colour multiplies the instance colour, so hair can be dark on any skin tone
+  // without needing its own batch. A third batch per clan would be 50% more draw calls.
+  const colour = new Float32Array(total * 3).fill(1);
 
   let vertex = 0;
   parts.forEach((part, index) => {
@@ -387,6 +390,13 @@ function mergeParts(parts) {
     normal.set(piece.attributes.normal.array, vertex * 3);
     if (piece.attributes.uv) uv.set(piece.attributes.uv.array, vertex * 2);
     limb.fill(part.limb ?? LIMB.NONE, vertex, vertex + count);
+    if (part.tint) {
+      for (let i = 0; i < count; i++) {
+        colour[(vertex + i) * 3] = part.tint[0];
+        colour[(vertex + i) * 3 + 1] = part.tint[1];
+        colour[(vertex + i) * 3 + 2] = part.tint[2];
+      }
+    }
     vertex += count;
     piece.dispose();
   });
@@ -396,6 +406,7 @@ function mergeParts(parts) {
   merged.setAttribute("normal", new THREE.BufferAttribute(normal, 3));
   merged.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   merged.setAttribute("limb", new THREE.BufferAttribute(limb, 1));
+  merged.setAttribute("color", new THREE.BufferAttribute(colour, 3));
   merged.computeBoundingSphere();
 
   return merged;
@@ -542,42 +553,57 @@ export function lerpAngle(a, b, t) {
 
 export function buildHumanoid() {
   const at = (x, y, z) => new THREE.Matrix4().makeTranslation(x, y, z);
-  // Proportions are deliberately blocky and slightly stylised: a realistic figure at this
-  // scale reads as a smudge, while a clear head-shoulders-legs silhouette reads at distance.
+  // Blocky and stylised on purpose. Measured: an agent is 10 px tall at the overview, 32 at
+  // a settlement and 73 at street level, so a face is between 1 and 9 pixels almost always.
+  // What reads at that size is silhouette and proportion, never facial detail — polygons
+  // spent on a nose are polygons nobody can see.
   const limb = (w, h, d) => new THREE.BoxGeometry(w, h, d);
 
   // Every gap here is load-bearing. Flush against the torso the arms read as shoulders and
   // the head reads as fused — at magnification the first pass looked like a bollard. The
   // silhouette needs air between limb and body, and a neck, to say "person" at distance.
   const torso = limb(TILE * 0.155, TILE * 0.30, TILE * 0.105);
+  const neck = limb(TILE * 0.055, TILE * 0.05, TILE * 0.055);
   const armL = limb(TILE * 0.05, TILE * 0.27, TILE * 0.06);
   const armR = armL.clone();
-  const legL = limb(TILE * 0.062, TILE * 0.30, TILE * 0.075);
+  const legL = limb(TILE * 0.062, TILE * 0.27, TILE * 0.075);
   const legR = legL.clone();
+  // Feet break the "figure standing on two poles" read more than their cost suggests: they
+  // give the silhouette a base and stop the legs looking like they end mid-air.
+  const footL = limb(TILE * 0.07, TILE * 0.035, TILE * 0.11);
+  const footR = footL.clone();
 
   const body = mergeParts([
-    { geometry: torso, matrix: at(0, TILE * 0.45, 0), limb: LIMB.NONE },
+    { geometry: torso, matrix: at(0, TILE * 0.475, 0), limb: LIMB.NONE },
+    { geometry: neck, matrix: at(0, TILE * 0.65, 0), limb: LIMB.NONE },
     // Arm inner edge clears the torso by ~0.012 TILE, which is a visible line of shadow.
-    { geometry: armL, matrix: at(-TILE * 0.115, TILE * 0.445, 0), limb: LIMB.ARM_L },
-    { geometry: armR, matrix: at(TILE * 0.115, TILE * 0.445, 0), limb: LIMB.ARM_R },
-    { geometry: legL, matrix: at(-TILE * 0.058, TILE * 0.15, 0), limb: LIMB.LEG_L },
-    { geometry: legR, matrix: at(TILE * 0.058, TILE * 0.15, 0), limb: LIMB.LEG_R },
+    { geometry: armL, matrix: at(-TILE * 0.115, TILE * 0.47, 0), limb: LIMB.ARM_L },
+    { geometry: armR, matrix: at(TILE * 0.115, TILE * 0.47, 0), limb: LIMB.ARM_R },
+    { geometry: legL, matrix: at(-TILE * 0.058, TILE * 0.19, 0), limb: LIMB.LEG_L },
+    { geometry: legR, matrix: at(TILE * 0.058, TILE * 0.19, 0), limb: LIMB.LEG_R },
+    { geometry: footL, matrix: at(-TILE * 0.058, TILE * 0.0375, TILE * 0.018), limb: LIMB.LEG_L },
+    { geometry: footR, matrix: at(TILE * 0.058, TILE * 0.0375, TILE * 0.018), limb: LIMB.LEG_R },
   ]);
 
-  // Head and hands share the skin batch, so a clan colour never lands on skin. The head sits
-  // just clear of the torso top (0.60) rather than sinking into it.
+  // Head, hair and hands share the skin batch, so a clan colour never lands on skin. Hair
+  // rides here too, darkened by a vertex tint rather than given its own batch — a third
+  // batch per clan would be 50% more draw calls for a few hundred pixels of hair.
   const head = new THREE.SphereGeometry(TILE * 0.082, 10, 8);
+  const hair = new THREE.SphereGeometry(TILE * 0.087, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
   const handL = limb(TILE * 0.05, TILE * 0.045, TILE * 0.06);
   const handR = handL.clone();
   // Hands carry the same limb tag as the arm they hang from, so they swing with it rather
   // than being left behind in mid-air.
   const skin = mergeParts([
-    { geometry: head, matrix: at(0, TILE * 0.688, 0), limb: LIMB.NONE },
-    { geometry: handL, matrix: at(-TILE * 0.115, TILE * 0.30, 0), limb: LIMB.ARM_L },
-    { geometry: handR, matrix: at(TILE * 0.115, TILE * 0.30, 0), limb: LIMB.ARM_R },
+    { geometry: head, matrix: at(0, TILE * 0.755, 0), limb: LIMB.NONE },
+    { geometry: hair, matrix: at(0, TILE * 0.755, 0), limb: LIMB.NONE, tint: [0.22, 0.16, 0.13] },
+    { geometry: handL, matrix: at(-TILE * 0.115, TILE * 0.325, 0), limb: LIMB.ARM_L },
+    { geometry: handR, matrix: at(TILE * 0.115, TILE * 0.325, 0), limb: LIMB.ARM_R },
   ]);
 
-  for (const part of [torso, armL, armR, legL, legR, head, handL, handR]) part.dispose();
+  for (const part of [torso, neck, armL, armR, legL, legR, footL, footR, head, hair, handL, handR]) {
+    part.dispose();
+  }
   return { body, skin };
 }
 
@@ -673,7 +699,9 @@ export class WorldView {
       food: new THREE.MeshStandardMaterial({ color: 0x3f8f42, roughness: 0.75 }),
       canopy: new THREE.MeshStandardMaterial({ color: 0x2c6b32, roughness: 0.9, flatShading: true }),
       ring: new THREE.MeshStandardMaterial({ color: 0xf0f6fc, roughness: 0.35, emissive: 0x1d3050 }),
-      head: applyWalkShader(new THREE.MeshStandardMaterial({ color: 0xd9c1a3, roughness: 0.7 })),
+      head: applyWalkShader(new THREE.MeshStandardMaterial({
+        color: 0xffffff, roughness: 0.7, vertexColors: true,
+      })),
     };
     this._own(...Object.values(this.sharedMaterials));
 
@@ -1232,6 +1260,7 @@ export class WorldView {
       material = applyWalkShader(new THREE.MeshStandardMaterial({
         color: new THREE.Color(key === -1 ? 0x8b949e : clanHue(key)),
         roughness: 0.55,
+        vertexColors: true,
       }));
       this.clanMaterials.set(key, material);
       this._own(material);
@@ -1290,6 +1319,21 @@ export class WorldView {
           this.scene.add(mesh);
         }
         entry = { body, head, phase, speed, lean, breath, count: list.length, ids: new Array(list.length), pose: new Array(list.length) };
+
+        // Skin tone, deterministic per agent. Set once at batch creation rather than per
+        // frame — it never changes. The hair vertex tint multiplies this, so hair stays
+        // dark on every tone without needing a third batch.
+        const tone = new THREE.Color();
+        for (let i = 0; i < list.length; i++) {
+          const shade = hash2(list[i].id * 5, list[i].id, 91);
+          tone.setRGB(
+            0.72 + shade * 0.28,
+            0.56 + shade * 0.30,
+            0.44 + shade * 0.30
+          );
+          head.setColorAt(i, tone);
+        }
+        head.instanceColor.needsUpdate = true;
         this.agentMeshes.set(key, entry);
         // Both batches share one id list: a raycast can land on either a body or a head
         // and must resolve to the same person.
@@ -1300,7 +1344,15 @@ export class WorldView {
       for (let i = 0; i < list.length; i++) {
         const agent = list[i];
         entry.ids[i] = agent.id;
-        const [x, z] = this.local(agent);
+        // Scatter within the tile. Nothing in the simulation stops two agents occupying the
+        // same tile — 78 of 112 do, and 5 tiles hold agents of different clans — and drawn
+        // at the tile centre they render at the identical point and interleave into one
+        // chimera. A tile is TILE wide and a person about a quarter of that, so there is
+        // room to stand several apart. Deterministic off the id, so an agent keeps its spot
+        // across frames and reloads. Viewer-only: the simulation still sees one tile.
+        const [tileX, tileZ] = this.local(agent);
+        const x = tileX + (hash2(agent.id, agent.id * 11, 3) - 0.5) * TILE * 0.62;
+        const z = tileZ + (hash2(agent.id * 13, agent.id, 5) - 0.5) * TILE * 0.62;
         const ground = terrainHeight(x, z);
 
         let facing = entry.pose[i] ? entry.pose[i].facing : 0;
@@ -1328,7 +1380,14 @@ export class WorldView {
             }
           : null;
         const animation = agentAnimation(agent.state, walking);
-        entry.pose[i] = { x, z, ground, facing, walking, prev, id: agent.id, ...animation };
+        // Per-agent build. A crowd of identical figures reads as clones however good the
+        // mesh is; height and build vary deterministically off the agent id, so the same
+        // agent is the same size every frame and across a reload.
+        entry.pose[i] = {
+          x, z, ground, facing, walking, prev, id: agent.id, ...animation,
+          tall: 0.88 + hash2(agent.id, agent.id * 7, 31) * 0.26,
+          wide: 0.90 + hash2(agent.id * 3, agent.id, 17) * 0.22,
+        };
       }
     }
 
@@ -1394,6 +1453,10 @@ export class WorldView {
 
         euler.set(0, facing, 0);
         quaternion.setFromEuler(euler);
+        // Per-agent build. A crowd of identical figures reads as clones however good the
+        // mesh is, and this is the cheapest possible fix — the instance matrix already
+        // exists, so varying its scale costs nothing at all.
+        scale.set(pose.wide, pose.tall, pose.wide);
         // Both merged geometries are modelled with the feet at local y = 0, so body and
         // skin share one placement rather than the two hand-tuned heights the capsule and
         // sphere each needed.

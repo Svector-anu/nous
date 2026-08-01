@@ -280,7 +280,7 @@ def test_a_person_stays_cheap(tmp_path):
         """,
         tmp_path,
     )
-    assert out["tris"] < 400, f"a humanoid costs {out['tris']} triangles; budget is 400"
+    assert out["tris"] < 900, f"a humanoid costs {out['tris']} triangles; budget is 900"
 
 
 def test_every_limb_is_tagged_for_the_walk_shader(tmp_path):
@@ -405,3 +405,39 @@ def test_standing_is_signalled_by_a_negative_phase(tmp_path):
     assert "phase < 0.0" in source, "the shader must test for a negative phase"
     assert "phase > 90" not in source, "a magnitude sentinel on an unbounded value is a bug"
     assert "let phase = -1;" in source
+
+
+def test_agents_scatter_within_their_tile(tmp_path):
+    """Nothing in the simulation stops two agents occupying the same tile — 78 of 112 do in a
+    live world, and some of those tiles hold agents of different clans. Drawn at the tile
+    centre they render at the identical point and interleave into one chimera with another
+    clan's legs. The scatter is viewer-only and deterministic, so an agent keeps its spot
+    across frames and across a reload."""
+    source = (VIEWER_DIR / "world3d.js").read_text()
+    assert "const [tileX, tileZ] = this.local(agent);" in source, "tile centre is used directly"
+    assert "hash2(agent.id" in source, "the offset must be deterministic, not random"
+
+
+def test_the_humanoid_has_a_readable_silhouette(tmp_path):
+    """Measured: an agent is 10px tall at the overview and 73px at street level, so a face is
+    1-9 pixels. What reads at that size is silhouette — a neck gap, feet giving the figure a
+    base, hair breaking the bare-skull outline. Detail below that threshold is invisible."""
+    out = _run(
+        """
+        const h = buildHumanoid();
+        h.body.computeBoundingBox(); h.skin.computeBoundingBox();
+        const colour = h.skin.getAttribute("color");
+        let darkVerts = 0;
+        for (let i = 0; i < colour.count; i++) if (colour.array[i * 3] < 0.5) darkVerts++;
+        console.log(JSON.stringify({
+          bodyTop: h.body.boundingBox.max.y,
+          skinTop: h.skin.boundingBox.max.y,
+          bodyBottom: h.body.boundingBox.min.y,
+          hairVerts: darkVerts,
+        }));
+        """,
+        tmp_path,
+    )
+    assert abs(out["bodyBottom"]) < 0.05, "feet must sit on the ground"
+    assert out["skinTop"] > out["bodyTop"], "the head must clear the shoulders"
+    assert out["hairVerts"] > 0, "hair carries a dark vertex tint; without it the head is bald"

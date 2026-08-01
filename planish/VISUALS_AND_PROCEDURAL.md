@@ -154,6 +154,33 @@ the walk runs from the render clock in `_poseAgents`, called per frame rather th
 snapshot — animated on tick arrival it would step at 1 Hz. it is cosmetic and touches no
 simulation state.
 
+**the fidelity ceiling is set by on-screen size, not by ambition.** measured: an agent is
+10 px tall at the overview, 32 at a settlement, 73 at street level. a face is 1-9 pixels for
+almost all viewing. metahuman-grade detail would be invisible — polygons spent on a nose are
+polygons nobody can see. what reads at that size is **silhouette, proportion and variation**,
+so that is where the effort goes:
+
+- neck gap, feet, and hair, because each changes the outline. flush limbs read as shoulders
+  and a bald sphere reads as a bollard — both were the first pass, and both were invisible in
+  a full-frame screenshot and obvious at 4x.
+- **per-agent height and build**, varied deterministically off the agent id via the instance
+  matrix scale. free, and it is the single biggest cure for a crowd reading as clones.
+- **per-agent skin tone** via `setColorAt`, with hair carried as a dark *vertex* tint in the
+  same batch — a third batch per clan would be 50% more draw calls for a few hundred pixels.
+
+**agents are scattered within their tile, and this is not cosmetic polish.** nothing in the
+simulation stops two agents sharing a tile: 78 of 112 do, and some tiles hold agents of
+*different clans*. drawn at the tile centre they render at the identical point and interleave
+into one figure wearing another clan's legs. the scatter is deterministic off the id, so an
+agent keeps its spot across frames and reloads. viewer-only — the simulation still sees one
+tile, and no rule changed.
+
+**what is not achievable here**: metahuman is unreal-only, and a browser equivalent caps out
+around 5-20 characters rather than 500. the real blocker is not triangles but instancing —
+rigged skeletal characters cannot share one instanced draw call without baking animation into
+a texture. the place for hero-detail characters is an intro or deploy screen, where one
+character at 600 px earns the budget that 500 at 32 px never will.
+
 **picking is a raycast against the agent batches**, resolving `instanceId` back to an agent
 id through a per-batch id array. bodies and heads share one array so a hit on either
 resolves to the same person. when testing this, project from the *instance matrix*, not from
