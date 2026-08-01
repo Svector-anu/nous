@@ -19,7 +19,7 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **352 passed in 195s** (`pytest -q`, actual output) |
+| Tests | **358 passed in 195s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
 | Commits | 35, `main`, pushed to `origin` (private) |
 | Working tree | clean |

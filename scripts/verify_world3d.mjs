@@ -14,7 +14,8 @@
 
 import { chromium } from "playwright";
 
-const URL = process.env.NEOCIV_URL ?? "http://127.0.0.1:8000/";
+const BASE_URL = process.env.NEOCIV_URL ?? "http://127.0.0.1:8000/";
+const URL = BASE_URL + (BASE_URL.includes("?") ? "&" : "?") + "skipIntro=1";
 const failures = [];
 const results = [];
 

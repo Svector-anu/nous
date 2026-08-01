@@ -104,7 +104,7 @@ There is **no linter, formatter, typechecker or CI** in this repo — none insta
 against", but also nothing catches style or types.
 
 ```bash
-.venv/bin/python -m pytest -q          # 352 tests, ~195s. the gate.
+.venv/bin/python -m pytest -q          # 358 tests, ~195s. the gate.
 ```
 
 GPU behaviour is invisible to pytest, so:

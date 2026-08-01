@@ -156,6 +156,137 @@
   #leaderboard .credits { font-variant-numeric: tabular-nums; }
   #legend li.clickable { cursor: pointer; }
   #legend li.clickable:hover { color: #fff; }
+
+  /* Onboarding overlays — full-bleed over the live world, never cutting away from it. */
+  #onboarding {
+    position: fixed; inset: 0; z-index: 100;
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(circle at 50% 45%, rgba(13,17,23,0.62) 0%, rgba(13,17,23,0.88) 70%, rgba(13,17,23,0.96) 100%);
+    transition: opacity 0.45s ease;
+  }
+  #onboarding.hidden { opacity: 0; pointer-events: none; }
+  #onboarding .screen {
+    display: none;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.35s ease, transform 0.35s ease;
+  }
+  #onboarding .screen.active {
+    display: flex; align-items: center; justify-content: center;
+    width: 100%; height: 100%;
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #onboarding .panel {
+    position: relative;
+    background: rgba(13, 17, 23, 0.96);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 34px 36px 36px;
+    max-width: 440px;
+    width: 90%;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
+    overflow: hidden;
+  }
+  #onboarding .panel::before {
+    content: "";
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, #58a6ff, #a371f7, #58a6ff);
+    opacity: 0.85;
+  }
+  #onboarding .brand {
+    width: 48px; height: 48px; margin: 0 auto 18px;
+    border: 2px solid var(--line); border-radius: 50%;
+    position: relative;
+    box-shadow: 0 0 0 1px rgba(88,166,255,0.15), 0 0 18px rgba(88,166,255,0.25);
+  }
+  #onboarding .brand::before {
+    content: "";
+    position: absolute; inset: 8px;
+    border: 1px solid var(--line); border-radius: 50%;
+  }
+  #onboarding .brand::after {
+    content: "";
+    position: absolute; inset: 15px;
+    background: #58a6ff; border-radius: 50%;
+    opacity: 0.85;
+    box-shadow: 0 0 12px #58a6ff;
+  }
+  #onboarding h1 { font-size: 22px; margin: 0 0 10px; letter-spacing: .02em; text-transform: none; text-align: center; }
+  #onboarding .hero {
+    font-size: 26px; font-weight: 600; margin: 0 0 10px; letter-spacing: .02em;
+    text-transform: none; text-align: center; color: #fff;
+    text-shadow: 0 0 18px rgba(88,166,255,0.35);
+  }
+  #onboarding .subtitle { color: var(--muted); margin: 0 0 24px; text-align: center; line-height: 1.55; }
+  #onboarding .question { color: var(--text); margin: 0 0 14px; text-align: center; font-size: 14px; }
+  #onboarding button { margin-bottom: 10px; }
+  #onboarding button.primary {
+    background: linear-gradient(180deg, rgba(88,166,255,0.18), rgba(88,166,255,0.06));
+    border-color: rgba(88,166,255,0.45);
+    color: #fff;
+    box-shadow: 0 0 14px rgba(88,166,255,0.12);
+  }
+  #onboarding button.primary:hover {
+    border-color: rgba(88,166,255,0.75);
+    box-shadow: 0 0 18px rgba(88,166,255,0.22);
+  }
+  #onboarding button.secondary {
+    background: transparent; border-color: transparent; color: var(--muted);
+  }
+  #onboarding button.secondary:hover { color: var(--text); }
+  #onboarding button.secondary.text {
+    width: auto; margin: 0 auto; display: block;
+    font-size: 11px; text-decoration: underline;
+  }
+  #onboarding .hint { color: var(--muted); font-size: 11px; margin: 0; text-align: center; }
+  #onboarding .sides { display: flex; gap: 8px; margin-bottom: 10px; }
+  #onboarding .sides button { margin: 0; }
+  #onboarding .sides button.yes { border-color: rgba(63,185,80,0.45); }
+  #onboarding .sides button.yes:hover { border-color: #3fb950; color: #3fb950; }
+  #onboarding .sides button.no { border-color: rgba(248,81,73,0.45); }
+  #onboarding .sides button.no:hover { border-color: #f85149; color: #f85149; }
+  #onboarding .name-field { display: flex; gap: 6px; margin-bottom: 10px; }
+  #onboarding .name-field input { flex: 1; margin-bottom: 0; }
+  #onboarding .name-field button {
+    width: auto; margin-bottom: 0; padding: 5px 10px; white-space: nowrap;
+    font-size: 11px; color: var(--muted);
+  }
+  #onboarding #onboarding-status { min-height: 1.5em; margin: 8px 0 0; font-size: 11px; color: var(--muted); text-align: center; }
+  #onboarding #onboarding-status.good { color: #3fb950; }
+  #onboarding #onboarding-status.bad { color: #f85149; }
+  #onboarding .spinner {
+    width: 28px; height: 28px; margin: 0 auto 18px;
+    border: 2px solid var(--line); border-top-color: #58a6ff; border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #onboarding .pill-row { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
+  #onboarding .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--line);
+    font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+  }
+  #onboarding .pill.clan { color: #a371f7; border-color: rgba(163,113,247,0.35); }
+
+  /* Compact sidebar for first-time users after onboarding. */
+  #dashboardToggle { display: none; }
+  aside.compact h2,
+  aside.compact ul,
+  aside.compact #markets,
+  aside.compact #inspector,
+  aside.compact #legend,
+  aside.compact #deploy,
+  aside.compact #deployed,
+  aside.compact #leaderboard,
+  aside.compact #mode,
+  aside.compact #whoami,
+  aside.compact #legend-title {
+    display: none;
+  }
+  aside.compact #dashboardToggle { display: block; }
+
 </style>
 </head>
 <body>
@@ -177,6 +308,7 @@
     <button id="flyStreet">street level · walk among them</button>
     <button id="flyDensest">fly to densest settlement</button>
     <button id="flyOverview">whole-world overview</button>
+    <button id="dashboardToggle" class="secondary">show more</button>
     <dl>
       <dt>status</dt><dd id="status">connecting</dd>
       <dt>tick</dt><dd id="tick">—</dd>
@@ -220,6 +352,57 @@
       <li><span class="swatch" style="background:#1a7f37;opacity:.18"></span>dormant (regrowing)</li>
     </ul>
   </aside>
+
+  <div id="onboarding">
+    <div id="onboarding-attract" class="screen active">
+      <div class="panel">
+        <div class="brand"></div>
+        <h1>Neo-Civilization</h1>
+        <p class="subtitle" id="attract-subtitle">A live world is running. Nobody controls it.</p>
+        <button id="btn-enter" class="primary">Enter the world</button>
+        <button id="btn-watch" class="secondary">Just watch</button>
+      </div>
+    </div>
+    <div id="onboarding-name" class="screen">
+      <div class="panel">
+        <h1>Enter the world</h1>
+        <p class="subtitle">Name your agent. They spawn next tick and live by the same rules as everyone else.</p>
+        <form id="onboarding-form">
+          <div class="name-field">
+            <input id="onboarding-name-input" maxlength="24" autocomplete="off" placeholder="name">
+            <button type="button" id="onboarding-random" class="secondary" title="random name">↻ random</button>
+          </div>
+          <button type="submit" class="primary">Deploy agent</button>
+        </form>
+        <p id="onboarding-status"></p>
+        <button id="onboarding-back" class="secondary text">Back</button>
+      </div>
+    </div>
+    <div id="onboarding-waiting" class="screen">
+      <div class="panel">
+        <h1>Deploying...</h1>
+        <div class="spinner"></div>
+        <p class="subtitle" id="onboarding-waiting-text">Finding a place in the world.</p>
+      </div>
+    </div>
+    <div id="onboarding-summary" class="screen">
+      <div class="panel">
+        <div class="hero" id="summary-name">Your agent arrives</div>
+        <div class="pill-row">
+          <span class="pill" id="summary-state"></span>
+          <span class="pill clan" id="summary-clan"></span>
+        </div>
+        <p class="subtitle" id="summary-detail"></p>
+        <p class="question" id="summary-question">Will they survive?</p>
+        <div class="sides">
+          <button id="summary-yes" class="yes">Yes — 25 credits</button>
+          <button id="summary-no" class="no">No — 25 credits</button>
+        </div>
+        <p id="summary-market-hint" class="hint"></p>
+        <button id="summary-skip" class="secondary text">Skip for now</button>
+      </div>
+    </div>
+  </div>
 
 <script>
 // Classic, so it runs before the deferred module below. A module that throws while
@@ -713,6 +896,229 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
   }
 });
 
+
+// --- onboarding flow --------------------------------------------------------
+//
+// First-time visitors see a sequence of overlays on the live world. Returning
+// visitors skip straight to the dashboard. The simulation itself is untouched.
+
+const onboardingEl = document.getElementById("onboarding");
+const attractScreen = document.getElementById("onboarding-attract");
+const nameScreen = document.getElementById("onboarding-name");
+const waitingScreen = document.getElementById("onboarding-waiting");
+const summaryScreen = document.getElementById("onboarding-summary");
+const attractSubtitle = document.getElementById("attract-subtitle");
+const nameInput = document.getElementById("onboarding-name-input");
+const onboardingStatus = document.getElementById("onboarding-status");
+const waitingText = document.getElementById("onboarding-waiting-text");
+const summaryName = document.getElementById("summary-name");
+const summaryDetail = document.getElementById("summary-detail");
+const summaryState = document.getElementById("summary-state");
+const summaryClan = document.getElementById("summary-clan");
+const summaryQuestion = document.getElementById("summary-question");
+const summaryHint = document.getElementById("summary-market-hint");
+const dashboardToggle = document.getElementById("dashboardToggle");
+const asideEl = document.querySelector("aside");
+
+const NAME_SUGGESTIONS = [
+  "Ash", "Bracken", "Cinder", "Dust", "Ember", "Frost", "Glen", "Hollow", "Iron",
+  "Juniper", "Kettle", "Lichen", "Moss", "Nettle", "Oak", "Pebble", "Quill", "Reed",
+  "Silt", "Thorn", "Vale", "Wren",
+];
+
+let introDone =
+  localStorage.getItem("neociv.intro") === "done" ||
+  new URLSearchParams(location.search).has("skipIntro");
+let onboardingState = introDone ? "done" : "attract";
+let pendingAgentName = null;
+let pendingAgentId = null;
+
+function pickName() {
+  const root = NAME_SUGGESTIONS[Math.floor(Math.random() * NAME_SUGGESTIONS.length)];
+  return `${root}-${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+function showScreen(id) {
+  for (const el of [attractScreen, nameScreen, waitingScreen, summaryScreen]) {
+    el.classList.remove("active");
+  }
+  document.getElementById(id).classList.add("active");
+  onboardingState = id.replace("onboarding-", "");
+}
+
+function markIntroDone() {
+  introDone = true;
+  localStorage.setItem("neociv.intro", "done");
+  onboardingEl.classList.add("hidden");
+  asideEl.classList.add("compact");
+  dashboardToggle.textContent = "show more";
+}
+
+function showAttract() {
+  showScreen("onboarding-attract");
+}
+
+function showName() {
+  nameInput.value = pickName();
+  onboardingStatus.textContent = "";
+  onboardingStatus.className = "";
+  showScreen("onboarding-name");
+  nameInput.focus();
+}
+
+function updateAttractCount(snapshot) {
+  if (introDone) return;
+  attractSubtitle.textContent =
+    `${snapshot.stats.agents} people are alive in here. Nobody controls them.`;
+}
+
+document.getElementById("btn-enter").addEventListener("click", showName);
+document.getElementById("btn-watch").addEventListener("click", markIntroDone);
+document.getElementById("onboarding-back").addEventListener("click", showAttract);
+document.getElementById("onboarding-random").addEventListener("click", () => {
+  nameInput.value = pickName();
+  nameInput.focus();
+});
+
+document.getElementById("onboarding-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = nameInput.value.trim();
+  if (!name) {
+    onboardingStatus.className = "bad";
+    onboardingStatus.textContent = "enter a name";
+    return;
+  }
+  onboardingStatus.className = "";
+  onboardingStatus.textContent = "deploying...";
+  try {
+    const response = await fetch("/agents", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, personality: "" }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      onboardingStatus.className = "bad";
+      onboardingStatus.textContent = body.detail || "deploy failed";
+      return;
+    }
+    pendingAgentName = name;
+    whoami.value = name;
+    localStorage.setItem("neociv.user", name);
+    waitingText.textContent = `${name} will arrive at tick ${body.arrives_at_tick}.`;
+    showScreen("onboarding-waiting");
+    waitForAgent(name);
+  } catch {
+    onboardingStatus.className = "bad";
+    onboardingStatus.textContent = "deploy failed";
+  }
+});
+
+async function waitForAgent(name) {
+  for (let i = 0; i < 40; i++) {
+    try {
+      const res = await fetch("/agents");
+      if (!res.ok) {
+        await new Promise((r) => setTimeout(r, 500));
+        continue;
+      }
+      const data = await res.json();
+      const found = data.agents.find((a) => a.name === name);
+      if (found) {
+        onAgentFound(found);
+        return;
+      }
+      const stillPending = (data.pending || []).some((p) => p.name === name);
+      if (!stillPending && i > 6) break;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  waitingText.textContent = "Could not confirm arrival. Check the sidebar for your agent.";
+  setTimeout(markIntroDone, 1500);
+}
+
+function onAgentFound(agent) {
+  pendingAgentId = agent.id;
+  summaryName.textContent = `${agent.name} arrives`;
+  const stateLabels = {
+    IDLE: "idle", SEEK_NEED: "looking for something", GATHER: "gathering",
+    BUILD: "building", REST: "resting", FLEE: "fleeing", FOLLOW: "following", MEET: "meeting",
+  };
+  summaryState.textContent = stateLabels[agent.state] || agent.state.toLowerCase();
+  summaryClan.textContent = agent.clan != null ? `clan ${agent.clan}` : "clanless";
+  summaryDetail.textContent = "You are watching them from street level.";
+  const market = findAgentMarket(agent.id);
+  if (market) {
+    summaryQuestion.textContent = `Will ${agent.name} still be alive at tick ${market.settles_at_tick || "?"}?`;
+    summaryHint.textContent = "Placing a bet costs 25 credits.";
+  } else {
+    summaryQuestion.textContent = "A prediction market for them will open soon in the sidebar.";
+    summaryHint.textContent = "Come back then to bet on their survival.";
+  }
+  showScreen("onboarding-summary");
+  dropIn(agent);
+}
+
+function findAgentMarket(agentId) {
+  if (!lastBook) return null;
+  return lastBook.open.find((m) => m.subject && m.subject.agent === agentId);
+}
+
+function dropIn(agent) {
+  director.disable();
+  autoResumeAt = performance.now() + 20000;
+  worldView.streetLevel(agent.x, agent.y);
+  setLabel(agent.name);
+  selectedId = agent.id;
+  if (lastSnapshot) {
+    renderInspector(lastSnapshot);
+    drawMinimap(lastSnapshot);
+  }
+}
+
+async function placeOnboardingBet(side) {
+  const market = findAgentMarket(pendingAgentId);
+  if (!market) {
+    summaryHint.textContent = "No open market for them yet.";
+    setTimeout(markIntroDone, 600);
+    return;
+  }
+  summaryHint.textContent = side === "yes" ? "betting yes..." : "betting no...";
+  try {
+    const response = await fetch(`/markets/${market.id}/positions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: whoami.value.trim(), side, stake: 25 }),
+    });
+    if (response.ok) {
+      summaryHint.textContent = "Bet placed. Good luck.";
+    } else {
+      const body = await response.json().catch(() => ({}));
+      summaryHint.textContent = body.detail || "bet refused";
+    }
+  } catch {
+    summaryHint.textContent = "no connection";
+  }
+  setTimeout(markIntroDone, 900);
+}
+
+document.getElementById("summary-yes").addEventListener("click", () => placeOnboardingBet("yes"));
+document.getElementById("summary-no").addEventListener("click", () => placeOnboardingBet("no"));
+document.getElementById("summary-skip").addEventListener("click", markIntroDone);
+
+dashboardToggle.addEventListener("click", () => {
+  asideEl.classList.toggle("compact");
+  dashboardToggle.textContent = asideEl.classList.contains("compact") ? "show more" : "show less";
+});
+
+if (introDone) {
+  onboardingEl.classList.add("hidden");
+  asideEl.classList.remove("compact");
+} else {
+  asideEl.classList.add("compact");
+}
+
+
 modeButton.addEventListener("click", () => {
   colourBy = colourBy === "clan" ? "state" : "clan";
   modeButton.textContent = `colour: ${colourBy}`;
@@ -819,6 +1225,7 @@ function drawMinimap(snapshot) {
 function render(snapshot) {
   lastSnapshot = snapshot;
   ensureMounted(snapshot);
+  updateAttractCount(snapshot);
 
   setText("tick", snapshot.tick);
   setText("day", snapshot.day);

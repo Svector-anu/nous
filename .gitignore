@@ -11,6 +11,9 @@ data/*.db-journal
 node_modules/
 package-lock.json
 
+# research media — raw video files, not project assets
+*.mp4
+
 # secrets: real keys live here, .env.example is the tracked template
 .env
 .env.*
