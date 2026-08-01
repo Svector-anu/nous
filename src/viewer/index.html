@@ -916,6 +916,7 @@ const summaryDetail = document.getElementById("summary-detail");
 const summaryState = document.getElementById("summary-state");
 const summaryClan = document.getElementById("summary-clan");
 const summaryQuestion = document.getElementById("summary-question");
+const summarySides = document.querySelector("#onboarding-summary .sides");
 const summaryHint = document.getElementById("summary-market-hint");
 const dashboardToggle = document.getElementById("dashboardToggle");
 const asideEl = document.querySelector("aside");
@@ -1051,9 +1052,11 @@ function onAgentFound(agent) {
   if (market) {
     summaryQuestion.textContent = `Will ${agent.name} still be alive at tick ${market.settles_at_tick || "?"}?`;
     summaryHint.textContent = "Placing a bet costs 25 credits.";
+    summarySides.style.display = "";
   } else {
-    summaryQuestion.textContent = "A prediction market for them will open soon in the sidebar.";
-    summaryHint.textContent = "Come back then to bet on their survival.";
+    summaryQuestion.textContent = `A market on ${agent.name} opens shortly. We'll show it in the sidebar.`;
+    summaryHint.textContent = "";
+    summarySides.style.display = "none";
   }
   showScreen("onboarding-summary");
   dropIn(agent);
