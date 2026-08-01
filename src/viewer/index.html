@@ -1026,6 +1026,9 @@ async function waitForAgent(name) {
       const data = await res.json();
       const found = data.agents.find((a) => a.name === name);
       if (found) {
+        // The agent exists, but its spawn-market may not be in lastBook yet.
+        // Refresh markets before showing the summary so the bet buttons are real.
+        await refreshMarkets();
         onAgentFound(found);
         return;
       }
