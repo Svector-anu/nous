@@ -255,6 +255,42 @@ def test_the_humanoid_stands_on_its_feet(tmp_path):
     assert 1.2 < total_height < 1.9, f"a person should be about 1.5 units tall, got {total_height}"
 
 
+def test_pivot_points_match_the_merged_geometry(tmp_path):
+    """The shader's leg and arm swing pivots must sit at the joints. A hip pivot too low makes
+    the figure look like it is sinking as the leg swing drags the hip; a shoulder pivot too
+    low makes the arms swing from the elbow."""
+    out = _run(
+        """
+        import { HIP_Y, SHOULDER_Y, LIMB } from "./world3d.mjs";
+        const h = buildHumanoid();
+        const limb = h.body.getAttribute('limb');
+        const pos = h.body.getAttribute('position');
+        let legTop = -Infinity, torsoBottom = Infinity;
+        for (let i = 0; i < pos.count; i++) {
+          const y = pos.getY(i);
+          const l = limb.array[i];
+          if (l === LIMB.LEG_L || l === LIMB.LEG_R) legTop = Math.max(legTop, y);
+          if (l === LIMB.NONE) torsoBottom = Math.min(torsoBottom, y);
+        }
+        h.body.computeBoundingBox(); h.skin.computeBoundingBox();
+        console.log(JSON.stringify({
+          hip: HIP_Y, shoulder: SHOULDER_Y,
+          legTop, torsoBottom, bodyMax: h.body.boundingBox.max.y,
+          skinMin: h.skin.boundingBox.min.y, skinMax: h.skin.boundingBox.max.y,
+        }));
+        """,
+        tmp_path,
+    )
+    # Hip pivot must sit at the leg-torso junction where the legs stop and the torso begins.
+    assert abs(out["hip"] - out["legTop"]) < 0.05, f"hip pivot {out['hip']} should be at leg top {out['legTop']}"
+    # The torso should start right at the hip.
+    assert abs(out["hip"] - out["torsoBottom"]) < 0.05, f"torso bottom {out['torsoBottom']} should meet hip {out['hip']}"
+    # Shoulder pivot must be high enough that the arms hang from the shoulders, not the elbow.
+    assert out["shoulder"] > out["legTop"] + 0.4, f"shoulder pivot {out['shoulder']} is too low"
+    # Head must be above the shoulder pivot.
+    assert out["skinMax"] > out["shoulder"], f"head {out['skinMax']} should be above shoulder {out['shoulder']}"
+
+
 def test_the_head_clears_the_torso(tmp_path):
     """A head sunk into the shoulders reads as a bollard, not a person. This was the first
     pass, and it only showed at magnification."""

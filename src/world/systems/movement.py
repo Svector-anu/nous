@@ -2,6 +2,11 @@
 
 Seeking agents move toward resources; following agents move toward their clan's rally
 point. Gathering, building and resting hold position.
+
+A building tile is not an obstacle at this layer: the simulation only guarantees one grid
+position per tick, and huts are one tile wide. If agents could not step onto a hut tile they
+would starve around dense settlements, which breaks the economy. Any "passing through walls"
+read is handled in the viewer, not by changing movement rules.
 """
 
 from __future__ import annotations

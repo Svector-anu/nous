@@ -361,9 +361,12 @@ const STREET_PHI = Math.PI * 0.455;
 // independent limb transforms on the cpu; tagging hands them back on the gpu.
 export const LIMB = { NONE: 0, LEG_L: 1, LEG_R: 2, ARM_L: 3, ARM_R: 4 };
 
-// Pivots, in the humanoid's own local space. Legs hang from the hip, arms from the shoulder.
-export const HIP_Y = TILE * 0.30;
-export const SHOULDER_Y = TILE * 0.58;
+// Pivots, in the humanoid's own local space. These must match the merged geometry: the hip
+// is the top of the legs / bottom of the torso, and the shoulder is where the arms attach to
+// the torso. Wrong pivots make the legs swing from the wrong point and the torso detach from
+// the hips when the figure leans, which reads as sinking or floating.
+export const HIP_Y = TILE * 0.325;
+export const SHOULDER_Y = TILE * 0.625;
 
 function mergeParts(parts) {
   // three's mergeGeometries lives in examples/jsm, which is not vendored — only the core
@@ -441,7 +444,12 @@ export function applyWalkShader(material) {
           if (breath > 0.0 && phase < 0.0) {
             p.y += sin(breath) * 0.015;
           }
-          if (lean != 0.0) {
+          // Legs are exempt. They sit *below* the hip pivot, so rotating them tipped the
+          // whole figure over like a plank — a gathering agent's feet swung from z=+0.036
+          // to z=-0.308 and lifted 0.09 off the ground. A real stoop keeps the legs
+          // planted and bends only the torso, head and arms.
+          bool isLeg = limb > 0.5 && limb < 2.5;
+          if (lean != 0.0 && !isLeg) {
             float pivot = HIP_Y;
             float y = p.y - pivot;
             float c = cos(lean);
@@ -1237,6 +1245,10 @@ export class WorldView {
       this.staticKey = key;
       this._buildStatic(buildings, resources);
     }
+    // A set of tiles occupied by huts. Agents on those tiles are drawn at the door so they
+    // do not appear to walk through the walls. The simulation still sees one tile; this is
+    // a viewer-only cosmetic correction.
+    this.hutTiles = new Set(buildings.map((b) => `${b.x},${b.y}`));
     // Record when this snapshot arrived so _poseAgents can interpolate between it and the
     // next one. The simulation clock is 1 second per tick, but render frames arrive far faster.
     this.lastSnapshotAt = this.clock;
@@ -1429,8 +1441,17 @@ export class WorldView {
         // room to stand several apart. Deterministic off the id, so an agent keeps its spot
         // across frames and reloads. Viewer-only: the simulation still sees one tile.
         const [tileX, tileZ] = this.local(agent);
-        const x = tileX + (hash2(agent.id, agent.id * 11, 3) - 0.5) * TILE * 0.85;
-        const z = tileZ + (hash2(agent.id * 13, agent.id, 5) - 0.5) * TILE * 0.85;
+        let x = tileX + (hash2(agent.id, agent.id * 11, 3) - 0.5) * TILE * 0.85;
+        let z = tileZ + (hash2(agent.id * 13, agent.id, 5) - 0.5) * TILE * 0.85;
+        // A hut is a solid one-tile building. The simulation allows agents to share the tile,
+        // so they would otherwise walk through the walls. Pull agents on a hut tile out to
+        // the door opening — the one legitimate place a person can be on a hut tile.
+        if (this.hutTiles && this.hutTiles.has(`${agent.x},${agent.y}`)) {
+          const doorWidth = TILE * 0.34;
+          const doorCentre = TILE * 0.41;
+          x = tileX + (hash2(agent.id * 17, agent.id, 7) - 0.5) * doorWidth;
+          z = tileZ + doorCentre;
+        }
         const ground = terrainHeight(x, z);
 
         // Face the way you are actually travelling, which is the direction moved *since the

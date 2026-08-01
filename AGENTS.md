@@ -114,7 +114,10 @@ GPU behaviour is invisible to pytest, so:
 node scripts/verify_world3d.mjs        # 39 checks in real chrome, ~90s
 ```
 
-Needs `npm i playwright` in a scratch directory — **not** in the repo.
+Needs `npm i playwright` in a scratch directory — **not** in the repo. Then symlink it for
+the run: `ln -sfn /path/to/scratch/node_modules node_modules`, and `rm -f node_modules`
+after. "Playwright is not installed in the repo" is the *correct* state and is never a
+reason to skip this gate.
 
 ```bash
 .venv/bin/python -m scripts.verify_llm --scripted   # offline, no key, ~30s
