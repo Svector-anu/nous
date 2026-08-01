@@ -187,6 +187,16 @@ note that two clanmates walking the same way at the same time is the *simulation
 right* — measured live, 4 agents of one clan heading to a single rally point. only the
 identical gait was a rendering fault.
 
+**the head has a face.** eyes, brows, a nose and a mouth, riding in the existing skin batch
+as vertex tints rather than taking a batch of their own — a third batch per clan would be 50%
+more draw calls. measured: **still 50 draw calls**, skin batch 538 triangles.
+
+it was a bare sphere before, and that was defensible at street level, where the whole head is
+14 px and an eye would be 1.8. it is not defensible when the camera closes in and the head is
+124 px with nothing on it. this is the *baseline* — every agent always has a face. hero-detail
+heads for genuine close-ups are a separate, later job, and belong on an intro or deploy screen
+where one head at 600 px earns the budget that 500 at 14 px never will.
+
 **gaps are the whole game, and they are counter-intuitive.** at street level one world unit
 is ~47 px. the first tapered pass left a **0.9 px** arm-to-torso gap, so the arms were welded
 to the body and every *standing* agent read as a post — only walking ones looked human,

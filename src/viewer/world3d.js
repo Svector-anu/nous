@@ -626,20 +626,60 @@ export function buildHumanoid() {
   // Head, hair and hands share the skin batch, so a clan colour never lands on skin. Hair
   // rides here too, darkened by a vertex tint rather than given its own batch — a third
   // batch per clan would be 50% more draw calls for a few hundred pixels of hair.
-  const head = new THREE.SphereGeometry(TILE * 0.073, 10, 8);
-  const hair = new THREE.SphereGeometry(TILE * 0.078, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.62);
+  const head = new THREE.SphereGeometry(TILE * 0.073, 12, 10);
+  const hair = new THREE.SphereGeometry(TILE * 0.078, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.62);
   const handL = limb(TILE * 0.05, TILE * 0.045, TILE * 0.06);
   const handR = handL.clone();
+
+  // A face. The head was a bare sphere, which is fine at street level — the whole head is
+  // 14 px there and an eye would be 1.8 — but the camera can get to 2.4 units away, where
+  // the head is 124 px and a blank sphere plainly looks broken.
+  //
+  // Every part rides in the existing skin batch with a vertex tint rather than taking a
+  // batch of its own: a third batch per clan would be 50% more draw calls for a few hundred
+  // pixels. Placed slightly proud of the sphere so they are never z-fighting with it.
+  const R = TILE * 0.073;
+  const eye = () => new THREE.SphereGeometry(R * 0.20, 6, 5);
+  const eyeL = eye();
+  const eyeR = eye();
+  const brow = () => new THREE.BoxGeometry(R * 0.42, R * 0.10, R * 0.14);
+  const browL = brow();
+  const browR = brow();
+  const nose = new THREE.ConeGeometry(R * 0.16, R * 0.34, 5);
+  const mouth = new THREE.BoxGeometry(R * 0.46, R * 0.09, R * 0.12);
+
+  const EYE_X = R * 0.36;
+  const EYE_Y = R * 0.12;
+  const FACE_Z = R * 0.86;   // the sphere surface at eye height, near enough
+  const DARK = [0.16, 0.13, 0.12];
+  const BROW = [0.24, 0.17, 0.13];
   // Hands carry the same limb tag as the arm they hang from, so they swing with it rather
   // than being left behind in mid-air.
+  // The head sits at this height; every facial part is placed relative to it. +Z is the
+  // direction the figure faces, which is what atan2(dx, dz) produces in the pose loop.
+  const H = TILE * 0.742;
   const skin = mergeParts([
-    { geometry: head, matrix: at(0, TILE * 0.742, 0), limb: LIMB.NONE },
-    { geometry: hair, matrix: at(0, TILE * 0.742, 0), limb: LIMB.NONE, tint: [0.22, 0.16, 0.13] },
+    { geometry: head, matrix: at(0, H, 0), limb: LIMB.NONE },
+    { geometry: hair, matrix: at(0, H, 0), limb: LIMB.NONE, tint: [0.22, 0.16, 0.13] },
+    { geometry: eyeL, matrix: at(-EYE_X, H + EYE_Y, FACE_Z), limb: LIMB.NONE, tint: DARK },
+    { geometry: eyeR, matrix: at(EYE_X, H + EYE_Y, FACE_Z), limb: LIMB.NONE, tint: DARK },
+    { geometry: browL, matrix: at(-EYE_X, H + R * 0.36, FACE_Z * 0.92), limb: LIMB.NONE, tint: BROW },
+    { geometry: browR, matrix: at(EYE_X, H + R * 0.36, FACE_Z * 0.92), limb: LIMB.NONE, tint: BROW },
+    // Rotated to point forward: a cone's axis is +Y by default.
+    {
+      geometry: nose,
+      matrix: new THREE.Matrix4()
+        .makeRotationX(Math.PI / 2)
+        .premultiply(new THREE.Matrix4().makeTranslation(0, H - R * 0.06, FACE_Z * 1.02)),
+      limb: LIMB.NONE,
+    },
+    { geometry: mouth, matrix: at(0, H - R * 0.42, FACE_Z * 0.94), limb: LIMB.NONE, tint: DARK },
     { geometry: handL, matrix: at(-TILE * 0.150, TILE * 0.325, 0), limb: LIMB.ARM_L },
     { geometry: handR, matrix: at(TILE * 0.150, TILE * 0.325, 0), limb: LIMB.ARM_R },
   ]);
 
-  for (const part of [torso, neck, armL, armR, legL, legR, footL, footR, head, hair, handL, handR]) {
+  for (const part of [torso, neck, armL, armR, legL, legR, footL, footR, head, hair,
+                      eyeL, eyeR, browL, browR, nose, mouth, handL, handR]) {
     part.dispose();
   }
   return { body, skin };

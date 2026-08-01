@@ -475,3 +475,39 @@ def test_each_agent_has_its_own_stride_rate():
     assert "pose.gait" in source, "the walk rate must vary per agent, not just the offset"
     assert "pose.stride" in source, "the starting phase must vary too"
     assert "pose.id * 1.7" not in source, "the clustering id-multiple offset is gone"
+
+
+def test_the_head_has_a_face(tmp_path):
+    """The head was a bare sphere. That is fine at street level — the whole head is 14 px
+    there and an eye would be 1.8 — but the camera can get much closer, and a blank sphere
+    plainly looks broken at 124 px. Eyes, brows, nose and mouth ride in the existing skin
+    batch as vertex tints, so the face costs no extra draw call."""
+    out = _run(
+        """
+        const h = buildHumanoid();
+        const pos = h.skin.getAttribute("position");
+        const col = h.skin.getAttribute("color");
+        const groups = {};
+        for (let i = 0; i < pos.count; i++) {
+          const key = [col.array[i*3], col.array[i*3+1], col.array[i*3+2]]
+            .map(v => v.toFixed(2)).join(",");
+          const g = groups[key] || (groups[key] = { n: 0, minZ: 1e9, maxZ: -1e9, minY: 1e9, maxY: -1e9 });
+          g.n++;
+          g.minZ = Math.min(g.minZ, pos.getZ(i)); g.maxZ = Math.max(g.maxZ, pos.getZ(i));
+          g.minY = Math.min(g.minY, pos.getY(i)); g.maxY = Math.max(g.maxY, pos.getY(i));
+        }
+        console.log(JSON.stringify({ groups, tris: pos.count / 3 }));
+        """,
+        tmp_path,
+    )
+    groups = out["groups"]
+    # more than skin + hair: the face parts carry their own tints
+    assert len(groups) >= 3, f"expected face tints beyond skin and hair, got {list(groups)}"
+
+    dark = [g for key, g in groups.items() if float(key.split(",")[0]) < 0.20]
+    assert dark, "no dark features (eyes, mouth) found"
+    for g in dark:
+        assert g["minZ"] > 0, "a facial feature must sit on the front of the head, +z"
+        assert g["maxY"] > 1.3, "facial features must be at head height, not on the body"
+
+    assert out["tris"] < 700, f"the skin batch costs {out['tris']} triangles; budget is 700"
