@@ -35,6 +35,7 @@ from ..ecs import Entity, World
 from ..rng import TickRng
 from .blackboard import board
 from .messaging import make_message, send
+from .message_composer import compose_content
 from .needs import kill_if_exhausted
 from .social import clan_goal_key
 from .trade import transfer
@@ -190,7 +191,17 @@ def _raise_alarm(world: World, victim: Entity) -> None:
             victim,
             BROADCAST_CLAN,
             MessageType.ALERT,
-            {"resource": ResourceKind.FOOD.value, "reason": "raid", "at": [position.x, position.y]},
+            compose_content(
+                world,
+                victim,
+                MessageType.ALERT,
+                {
+                    "resource": ResourceKind.FOOD.value,
+                    "reason": "raid",
+                    "at": [position.x, position.y],
+                },
+                world.tick,
+            ),
         ),
     )
 

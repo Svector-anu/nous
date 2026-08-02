@@ -1401,9 +1401,11 @@ const MESSAGE_ICONS = {
 
 function messageText(message) {
   const content = message.content || {};
+  if (content.text) return content.text;
   switch (message.type) {
     case "info":
       if (content.rally) return `Rally at ${content.rally[0]},${content.rally[1]}`;
+      if (content.goal) return `New goal: ${content.goal}`;
       return "News from the clan";
     case "request":
       return `Need ${content.resource || "supplies"}`;

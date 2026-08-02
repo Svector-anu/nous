@@ -31,6 +31,7 @@ from ..rng import TickRng
 from . import leadership
 from .blackboard import board
 from .messaging import make_message, send
+from .message_composer import compose_content
 
 _LOCATION_KEYS = {
     ResourceKind.FOOD: KEY_FOOD_LOCATIONS,
@@ -240,6 +241,23 @@ def _set_goals(world: World) -> None:
                         "raw_response": "",
                     },
                 )
+                if clan.leader is not None and world.is_alive(clan.leader):
+                    send(
+                        world,
+                        clan.leader,
+                        make_message(
+                            clan.leader,
+                            BROADCAST_CLAN,
+                            MessageType.INFO,
+                            compose_content(
+                                world,
+                                clan.leader,
+                                MessageType.INFO,
+                                {"goal": clan.goal},
+                                world.tick,
+                            ),
+                        ),
+                    )
 
         current.write(
             clan_goal_key(clan.clan_id),
@@ -390,7 +408,14 @@ def _leader_duties(world: World) -> None:
             send(
                 world,
                 leader,
-                make_message(leader, BROADCAST_CLAN, MessageType.INFO, {"rally": rally}),
+                make_message(
+                    leader,
+                    BROADCAST_CLAN,
+                    MessageType.INFO,
+                    compose_content(
+                        world, leader, MessageType.INFO, {"rally": rally}, world.tick
+                    ),
+                ),
             )
 
 

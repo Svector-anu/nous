@@ -25,11 +25,14 @@ from ..components import (
     ClanGoal,
     DecisionLog,
     Inventory,
+    MessageType,
     Needs,
     Position,
 )
 from ..ecs import Entity, World
 from ..rng import TickRng
+from .messaging import BROADCAST_CLAN, make_message, send
+from .message_composer import compose_content
 
 logger = logging.getLogger("neociv.leadership")
 
@@ -184,10 +187,29 @@ def _apply(world: World, decision) -> None:
     if clan is None or not clan.members:
         return
 
+    previous_goal = clan.goal
     clan.goal = decision.goal
     clan.goal_set_tick = world.tick
     clan.goal_source = decision.source
     clan.goal_reason = decision.reason
+    leader = clan.leader
+    if leader is not None and world.is_alive(leader) and previous_goal != decision.goal:
+        send(
+            world,
+            leader,
+            make_message(
+                leader,
+                BROADCAST_CLAN,
+                MessageType.INFO,
+                compose_content(
+                    world,
+                    leader,
+                    MessageType.INFO,
+                    {"goal": clan.goal},
+                    world.tick,
+                ),
+            ),
+        )
     record(
         world,
         {

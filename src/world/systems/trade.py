@@ -33,6 +33,7 @@ from ..config import WorldConfig
 from ..ecs import Entity, World
 from ..rng import TickRng
 from .messaging import make_message, send
+from .message_composer import compose_content
 from .needs import is_starving
 
 
@@ -129,7 +130,13 @@ def _handle_request(
             entity,
             asker,
             MessageType.OFFER,
-            {"resource": ResourceKind.FOOD.value, "at": [position.x, position.y]},
+            compose_content(
+                world,
+                entity,
+                MessageType.OFFER,
+                {"resource": ResourceKind.FOOD.value, "at": [position.x, position.y]},
+                world.tick,
+            ),
         ),
     )
     return True
@@ -202,7 +209,16 @@ def _ask_for_help(world: World, entity: Entity) -> None:
         world,
         entity,
         make_message(
-            entity, BROADCAST_CLAN, message_type, {"resource": ResourceKind.FOOD.value}
+            entity,
+            BROADCAST_CLAN,
+            message_type,
+            compose_content(
+                world,
+                entity,
+                message_type,
+                {"resource": ResourceKind.FOOD.value},
+                world.tick,
+            ),
         ),
     )
 

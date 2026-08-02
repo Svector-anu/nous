@@ -19,10 +19,10 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **366 passed in 154s** (`pytest -q`, actual output) |
+| Tests | **378 passed in 118s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 35, `main`, pushed to `origin` (private) |
-| Working tree | dirty (speech-bubble + social-feed + visibility/aliveness pass, uncommitted) |
+| Commits | 36, `main`, pushed to `origin` (private) |
+| Working tree | dirty (Phase 1: natural clan-leader messages influenced by personality) |
 | Lint / typecheck / CI | **none exist** |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
@@ -33,7 +33,8 @@ procedural 3D as the main view with a self-directing cinematic camera; humanoid 
 prediction markets; comic-style real-time speech bubbles and a social feed so spectators
 can see the social layer; visibility / aliveness pass (event flashes for builds and raids,
 right-card WORLD log, shorter director shots, `longestJourney` follows) so purposeful
-movement and world activity read clearly.
+movement and world activity read clearly; Phase 1 natural-language clan-leader messages
+influenced by personality (no LLM, deterministic, bounded text length).
 
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.
