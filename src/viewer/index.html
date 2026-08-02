@@ -7,37 +7,39 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230d1117'/><circle cx='8' cy='8' r='4' fill='%2358a6ff'/></svg>">
 <style>
   :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --line: #21262d;
-    --text: #c9d1d9;
-    --muted: #8b949e;
+    --bg: #0a0e14;
+    --panel: rgba(16, 22, 32, 0.92);
+    --line: rgba(48, 56, 72, 0.6);
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --accent: #3fb950;
+    --accent-dim: rgba(63,185,80,0.15);
+    --shadow: 0 12px 40px rgba(0,0,0,0.45);
+    --radius: 12px;
+    --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --font-bubble: ui-rounded, "Comic Sans MS", "Chalkboard SE", "Chalkboard", "Marker Felt", sans-serif;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-    display: flex;
+    font: 13px/1.5 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     min-height: 100vh;
+    overflow: hidden;
   }
   #stage { flex: 1; position: relative; min-width: 0; }
   #world { position: absolute; inset: 0; }
   #world canvas { display: block; width: 100%; height: 100%; border: 0; border-radius: 0; }
-  aside {
-    width: 300px;
-    overflow-y: auto;
-    max-height: 100vh;
-    flex-shrink: 0;
-    background: var(--panel);
-    border-left: 1px solid var(--line);
-    padding: 16px;
-  }
+  /* Legacy sidebar — hidden in the new floating-panel layout. */
+  aside { display: none; }
   h1 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 16px; }
   dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin: 0 0 20px; }
   dt { color: var(--muted); }
-  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   h2 { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
   ul { list-style: none; padding: 0; margin: 0 0 20px; }
   li { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
@@ -77,15 +79,17 @@
   canvas { cursor: crosshair; }
   #inspector {
     border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 10px;
+    border-radius: var(--radius);
+    padding: 14px;
     margin-bottom: 20px;
-    background: var(--bg);
+    background: var(--panel);
+    backdrop-filter: blur(10px) saturate(1.1);
+    box-shadow: var(--shadow);
   }
   #inspector .hint { color: var(--muted); margin: 0; }
   #inspector .who { display: flex; align-items: baseline; gap: 6px; margin-bottom: 8px; }
   #inspector .who .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-  #inspector .who .name { color: var(--text); }
+  #inspector .who .name { color: var(--text); font-weight: 700; }
   #inspector .who .id { color: var(--muted); font-size: 11px; margin-left: auto; }
   #inspector dl { margin: 0 0 10px; }
   #inspector .note {
@@ -109,198 +113,892 @@
   /* Overlaid on the 3d view rather than in the sidebar: it names what you are looking
      at, so it belongs next to the thing it describes. */
   #hud {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    position: absolute; top: 48px; left: 0; right: 0; z-index: 10;
     display: flex; align-items: center; gap: 12px;
     padding: 10px 14px; pointer-events: none;
-    background: linear-gradient(#0d1117cc, #0d111700);
+    background: linear-gradient(#0a0e14cc, #0a0e1400);
   }
-  #hud .title { color: #fff; text-shadow: 0 1px 3px #000; }
+  #hud .title { color: #fff; text-shadow: 0 1px 3px #000; font-weight: 700; }
   #hud .meta { color: #c9d1d9; font-size: 11px; text-shadow: 0 1px 3px #000; }
   #hud .spacer { flex: 1; }
 
   /* The 2d map, demoted to a minimap. Fixed square so the world is never distorted. */
   #minimap {
-    position: absolute; right: 12px; bottom: 12px; z-index: 10;
-    width: 200px; height: 200px;
-    border: 1px solid var(--line); border-radius: 4px;
-    background: #010409cc; overflow: hidden;
+    position: fixed; right: 14px; bottom: 76px; z-index: 40;
+    width: 220px; height: 220px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: rgba(1, 4, 9, 0.85); overflow: hidden;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(4px);
   }
   #minimap canvas {
     display: block; width: 100%; height: 100%;
     image-rendering: pixelated; cursor: crosshair; border: 0; border-radius: 0;
   }
   #minimapHint {
-    position: absolute; right: 12px; bottom: 216px; z-index: 10;
+    position: fixed; right: 14px; bottom: 302px; z-index: 40;
     color: var(--muted); font-size: 10px; text-align: right;
     text-shadow: 0 1px 3px #000; pointer-events: none;
   }
   #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
   #markets .market {
-    border: 1px solid var(--line); border-radius: 4px;
-    padding: 8px; margin-bottom: 8px; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; margin-bottom: 10px; background: rgba(10, 14, 20, 0.5);
   }
-  #markets .q { color: var(--text); margin-bottom: 6px; }
+  #markets .q { color: var(--text); font-weight: 600; }
   #markets .meta { color: var(--muted); font-size: 10px; margin-bottom: 6px; }
   #markets .sides { display: flex; gap: 6px; }
-  #markets .sides button { margin: 0; padding: 4px 6px; font-size: 11px; }
+  #markets .sides button { margin: 0; padding: 5px 10px; font-size: 11px; border-radius: 6px; }
   #markets .sides button.yes:hover { border-color: #3fb950; color: #3fb950; }
   #markets .sides button.no:hover  { border-color: #f85149; color: #f85149; }
   #markets .held { color: var(--muted); font-size: 10px; margin-top: 5px; }
   #markets .settled { opacity: .65; }
-  #markets .out { font-size: 10px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--line); }
+  #markets .out { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); font-weight: 600; font-family: var(--font-mono); }
   #markets .out.yes  { border-color: #3fb950; color: #3fb950; }
   #markets .out.no   { border-color: #f85149; color: #f85149; }
   #markets .out.void { border-color: var(--muted); color: var(--muted); }
   #whoami { margin-bottom: 8px; }
   #leaderboard li { justify-content: space-between; }
-  #leaderboard .credits { font-variant-numeric: tabular-nums; }
+  #leaderboard .credits { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   #legend li.clickable { cursor: pointer; }
   #legend li.clickable:hover { color: #fff; }
 
-  /* Onboarding overlays — full-bleed over the live world, never cutting away from it. */
+  /* Onboarding — overlays on the live world. The world is always visible. */
   #onboarding {
     position: fixed; inset: 0; z-index: 100;
-    display: flex; align-items: center; justify-content: center;
-    background:
-      radial-gradient(circle at 50% 45%, rgba(13,17,23,0.62) 0%, rgba(13,17,23,0.88) 70%, rgba(13,17,23,0.96) 100%);
-    transition: opacity 0.45s ease;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
   }
   #onboarding.hidden { opacity: 0; pointer-events: none; }
+  #onboarding.hidden .screen { display: none !important; }
   #onboarding .screen {
+    position: absolute; inset: 0;
     display: none;
     opacity: 0;
-    transform: translateY(6px);
-    transition: opacity 0.35s ease, transform 0.35s ease;
+    transition: opacity 0.4s ease;
+    pointer-events: auto;
+    background: rgba(6, 10, 16, 0.72);
+    backdrop-filter: blur(2px);
   }
   #onboarding .screen.active {
     display: flex; align-items: center; justify-content: center;
-    width: 100%; height: 100%;
     opacity: 1;
-    transform: translateY(0);
   }
+
+  /* Wide cinematic panels */
   #onboarding .panel {
+    background: rgba(10, 14, 20, 0.94);
+    border: 1px solid rgba(48, 56, 72, 0.5);
+    border-radius: 14px;
+    padding: 40px 48px;
+    max-width: 780px;
+    width: 85%;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.6);
     position: relative;
-    background: rgba(13, 17, 23, 0.96);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 34px 36px 36px;
-    max-width: 440px;
-    width: 90%;
-    box-shadow: 0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04);
-    overflow: hidden;
   }
-  #onboarding .panel::before {
-    content: "";
-    position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, #58a6ff, #a371f7, #58a6ff);
-    opacity: 0.85;
+
+  /* Splash */
+  .splash-panel {
+    max-width: 640px;
+    text-align: center;
+    padding: 56px 48px;
   }
+  .splash-panel .hero {
+    font-size: 42px; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: #fff; margin: 0 0 10px;
+    text-shadow: 0 0 24px rgba(88,166,255,0.3);
+  }
+  .splash-panel .subtitle { font-size: 16px; color: var(--muted); margin: 0 0 36px; }
+  .press-hint { font-size: 12px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; animation: pulse 2.5s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
+
+  /* Main menu */
+  .menu-panel {
+    max-width: 420px;
+    padding: 36px 40px;
+    align-self: flex-start;
+    margin-top: 14vh;
+    margin-left: 8vw;
+  }
+  .menu-panel h1 { font-size: 22px; font-weight: 700; margin: 0 0 6px; letter-spacing: 0.04em; text-transform: uppercase; }
+  .menu-panel .subtitle { font-size: 13px; color: var(--muted); margin: 0 0 32px; }
+  .menu-nav { display: flex; flex-direction: column; gap: 6px; }
+  .menu-nav button {
+    width: 100%; margin: 0; padding: 10px 14px; text-align: left;
+    font-size: 13px; border-radius: 8px;
+  }
+  .version { position: absolute; bottom: 16px; left: 40px; font-size: 10px; color: var(--muted); letter-spacing: 0.05em; }
+
+  /* Slide panels */
+  .slide-panel {
+    max-width: 720px;
+    padding: 36px 44px;
+  }
+  .slide-number {
+    font-size: 11px; color: var(--accent); letter-spacing: 0.12em;
+    text-transform: uppercase; margin: 0 0 14px; font-weight: 700;
+  }
+  .slide-panel h1 {
+    font-size: 28px; font-weight: 700; margin: 0 0 18px;
+    letter-spacing: 0.02em; text-transform: none; text-align: left;
+  }
+  .slide-panel .subtitle {
+    font-size: 15px; color: #9eaab5; margin: 0 0 28px;
+    text-align: left; line-height: 1.6; max-width: 480px;
+  }
+  .slide-features {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px 40px; margin: 0 0 32px;
+  }
+  .feature {
+    display: flex; align-items: center; gap: 12px;
+    font-size: 14px; color: #c9d1d9;
+  }
+  .feature-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .slide-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 8px;
+  }
+  .slide-nav button { margin: 0; width: auto; padding: 8px 18px; }
+
+  /* Controls slide */
+  .controls-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 12px 20px; margin: 0 0 32px; max-width: 520px;
+  }
+  .ctrl-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: #9eaab5;
+  }
+  .ctrl-item kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 28px; padding: 3px 6px;
+    background: rgba(22, 28, 38, 0.9); border: 1px solid var(--line);
+    border-radius: 5px; font-size: 11px; color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    box-shadow: 0 1px 0 rgba(0,0,0,0.3);
+  }
+  .ctrl-dash { color: var(--muted); font-size: 11px; margin: 0 2px; }
+
+  /* Begin button — the big green CTA */
+  .begin-btn {
+    background: linear-gradient(180deg, #2d7a3a, #1e5a2a) !important;
+    border-color: rgba(63,185,80,0.5) !important;
+    color: #fff !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    padding: 10px 28px !important;
+    letter-spacing: 0.04em !important;
+    box-shadow: 0 0 20px rgba(63,185,80,0.15) !important;
+  }
+  .begin-btn:hover {
+    border-color: #3fb950 !important;
+    box-shadow: 0 0 28px rgba(63,185,80,0.25) !important;
+  }
+
+  /* Brand mark */
   #onboarding .brand {
-    width: 48px; height: 48px; margin: 0 auto 18px;
+    width: 48px; height: 48px; margin: 0 auto 20px;
     border: 2px solid var(--line); border-radius: 50%;
     position: relative;
     box-shadow: 0 0 0 1px rgba(88,166,255,0.15), 0 0 18px rgba(88,166,255,0.25);
   }
   #onboarding .brand::before {
-    content: "";
-    position: absolute; inset: 8px;
+    content: ""; position: absolute; inset: 8px;
     border: 1px solid var(--line); border-radius: 50%;
   }
   #onboarding .brand::after {
-    content: "";
-    position: absolute; inset: 15px;
-    background: #58a6ff; border-radius: 50%;
-    opacity: 0.85;
+    content: ""; position: absolute; inset: 15px;
+    background: #58a6ff; border-radius: 50%; opacity: 0.85;
     box-shadow: 0 0 12px #58a6ff;
   }
-  #onboarding h1 { font-size: 22px; margin: 0 0 10px; letter-spacing: .02em; text-transform: none; text-align: center; }
-  #onboarding .hero {
-    font-size: 26px; font-weight: 600; margin: 0 0 10px; letter-spacing: .02em;
-    text-transform: none; text-align: center; color: #fff;
-    text-shadow: 0 0 18px rgba(88,166,255,0.35);
+
+  /* Pause overlay */
+  #pauseOverlay {
+    position: fixed; inset: 0; z-index: 90;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(6, 10, 16, 0.78);
+    backdrop-filter: blur(3px) saturate(0.9);
+    transition: opacity 0.35s ease;
+    pointer-events: auto;
   }
-  #onboarding .subtitle { color: var(--muted); margin: 0 0 24px; text-align: center; line-height: 1.55; }
-  #onboarding .question { color: var(--text); margin: 0 0 14px; text-align: center; font-size: 14px; }
-  #onboarding button { margin-bottom: 10px; }
-  #onboarding button.primary {
-    background: linear-gradient(180deg, rgba(88,166,255,0.18), rgba(88,166,255,0.06));
-    border-color: rgba(88,166,255,0.45);
-    color: #fff;
-    box-shadow: 0 0 14px rgba(88,166,255,0.12);
+  #pauseOverlay.show { display: flex; }
+  .pause-panel {
+    max-width: 420px; width: 85%;
+    padding: 40px 44px;
+    text-align: center;
   }
-  #onboarding button.primary:hover {
-    border-color: rgba(88,166,255,0.75);
-    box-shadow: 0 0 18px rgba(88,166,255,0.22);
+  .pause-panel h1 {
+    font-size: 26px; font-weight: 700; letter-spacing: 0.08em;
+    text-transform: uppercase; margin: 0 0 10px;
+    text-shadow: 0 0 18px rgba(88,166,255,0.3);
   }
-  #onboarding button.secondary {
-    background: transparent; border-color: transparent; color: var(--muted);
+  .pause-panel .subtitle {
+    font-size: 14px; color: var(--muted); margin: 0 0 28px;
   }
-  #onboarding button.secondary:hover { color: var(--text); }
-  #onboarding button.secondary.text {
-    width: auto; margin: 0 auto; display: block;
-    font-size: 11px; text-decoration: underline;
-  }
-  #onboarding .hint { color: var(--muted); font-size: 11px; margin: 0; text-align: center; }
-  #onboarding .sides { display: flex; gap: 8px; margin-bottom: 10px; }
-  #onboarding .sides button { margin: 0; }
-  #onboarding .sides button.yes { border-color: rgba(63,185,80,0.45); }
-  #onboarding .sides button.yes:hover { border-color: #3fb950; color: #3fb950; }
-  #onboarding .sides button.no { border-color: rgba(248,81,73,0.45); }
-  #onboarding .sides button.no:hover { border-color: #f85149; color: #f85149; }
-  #onboarding .name-field { display: flex; gap: 6px; margin-bottom: 10px; }
-  #onboarding .name-field input { flex: 1; margin-bottom: 0; }
-  #onboarding .name-field button {
-    width: auto; margin-bottom: 0; padding: 5px 10px; white-space: nowrap;
-    font-size: 11px; color: var(--muted);
-  }
-  #onboarding #onboarding-status { min-height: 1.5em; margin: 8px 0 0; font-size: 11px; color: var(--muted); text-align: center; }
-  #onboarding #onboarding-status.good { color: #3fb950; }
-  #onboarding #onboarding-status.bad { color: #f85149; }
-  #onboarding .spinner {
-    width: 28px; height: 28px; margin: 0 auto 18px;
-    border: 2px solid var(--line); border-top-color: #58a6ff; border-radius: 50%;
-    animation: spin 0.9s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #onboarding .pill-row { display: flex; gap: 6px; justify-content: center; margin-bottom: 14px; }
-  #onboarding .pill {
-    display: inline-block; padding: 2px 8px; border-radius: 999px;
-    background: var(--panel); border: 1px solid var(--line);
-    font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
-  }
-  #onboarding .pill.clan { color: #a371f7; border-color: rgba(163,113,247,0.35); }
-  #onboarding .avatar {
-    width: 64px; height: 64px; margin: 0 auto 14px;
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 28px; font-weight: 700; color: #fff;
-    background: linear-gradient(135deg, rgba(88,166,255,0.25), rgba(163,113,247,0.25));
-    border: 2px solid var(--line);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 4px 14px rgba(0,0,0,0.35);
-    text-transform: uppercase; letter-spacing: .04em;
+  #world canvas.blur,
+  #stage.blur canvas {
+    filter: blur(2px) brightness(0.6);
+    transition: filter 0.4s ease;
   }
 
-  /* Compact sidebar for first-time users after onboarding. */
-  #dashboardToggle { display: none; }
-  aside.compact h2,
-  aside.compact ul,
-  aside.compact #markets,
-  aside.compact #inspector,
-  aside.compact #legend,
-  aside.compact #deploy,
-  aside.compact #deployed,
-  aside.compact #leaderboard,
-  aside.compact #mode,
-  aside.compact #whoami,
-  aside.compact #legend-title {
-    display: none;
+  /* Gameplay hints */
+  #gameplayHints {
+    position: fixed; left: 50%; bottom: 100px;
+    transform: translateX(-50%); z-index: 55;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 10px; pointer-events: none;
   }
-  aside.compact #dashboardToggle { display: block; }
+  .gameplay-hint {
+    background: rgba(10, 14, 20, 0.95); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 22px;
+    font-size: 14px; color: var(--text);
+    box-shadow: var(--shadow);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+  }
+  .gameplay-hint.show { opacity: 1; transform: translateY(0); }
+
+  /* Gameplay hints */
+  #gameplayHints { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); z-index: 55; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
+  .gameplay-hint { background: rgba(13,17,23,0.95); border: 1px solid var(--line); border-radius: 8px; padding: 10px 18px; font-size: 13px; color: var(--text); box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.5s ease, transform 0.5s ease; }
+  .gameplay-hint.show { opacity: 1; transform: translateY(0); }
+
+  /* New floating panels */
+  #deployPanel { position: fixed; left: 14px; bottom: 76px; z-index: 40; width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); }
+  #deployPanel .card-body { padding: 12px 16px 14px; }
+  #legendPanel { position: fixed; left: 14px; bottom: 76px; z-index: 40; width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); max-height: 340px; overflow-y: auto; }
+  #legendPanel .card-body { padding: 12px 16px 14px; }
+  #settingsPanel { position: fixed; right: 12px; top: 48px; z-index: 40; width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); }
+  #settingsPanel .card-body { padding: 12px 16px 14px; }
+  #settingsPanel button { margin: 0; }
+
+  /* === NEW AAA LAYOUT — floating panels ================================ */
+
+  /* Top bar */
+  #topBar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+    display: flex; align-items: center; gap: 16px;
+    padding: 10px 18px;
+    background: linear-gradient(180deg, rgba(10,14,20,0.95) 0%, rgba(10,14,20,0.82) 100%);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(12px) saturate(1.2);
+  }
+  #topBar .logo {
+    font-size: 13px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: #fff;
+    text-shadow: 0 0 14px rgba(88,166,255,0.4);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  #topBar .topStats {
+    display: flex; align-items: center; gap: 10px;
+    margin-left: auto;
+  }
+  #topBar .stat {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 8px;
+    background: rgba(22, 28, 38, 0.7);
+    border: 1px solid var(--line);
+    font-size: 12px; color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  #topBar .stat-icon {
+    width: 14px; height: 14px;
+    display: inline-flex; align-items: center; justify-content: center;
+    opacity: 0.85;
+  }
+  #topBar .stat-icon svg { width: 100%; height: 100%; }
+  #topBar .stat-value { color: var(--accent); font-weight: 700; letter-spacing: 0.02em; font-family: var(--font-mono); }
+
+  /* Right floating cards container */
+  #rightCards {
+    position: fixed; top: 48px; right: 12px; bottom: 80px; z-index: 40;
+    display: flex; flex-direction: column; gap: 12px;
+    width: 260px;
+  }
+
+  .floating-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    max-height: 42vh;
+    backdrop-filter: blur(10px) saturate(1.1);
+  }
+  .floating-card .card-title {
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); margin: 0;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(22, 28, 38, 0.5);
+    font-weight: 600;
+  }
+  .floating-card .card-body {
+    padding: 12px 16px 14px;
+    overflow-y: auto;
+  }
+  .floating-card .card-subtitle {
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); margin: 14px 0 8px;
+    font-weight: 600;
+  }
+
+  /* Objectives card */
+  .objective-btn {
+    width: 100%; margin-bottom: 6px; padding: 9px 12px;
+    background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.2);
+    border-radius: 8px; color: var(--text); font: inherit; cursor: pointer;
+    text-align: left; font-size: 12px;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .objective-btn:hover {
+    border-color: rgba(88,166,255,0.5);
+    background: rgba(88,166,255,0.12);
+    transform: translateX(2px);
+  }
+  .objective-btn::before {
+    content: ""; width: 6px; height: 6px;
+    border-radius: 50%; border: 1.5px solid var(--muted);
+    flex-shrink: 0;
+  }
+
+  /* World Overview card */
+  #worldOverviewCard dl {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 5px 12px; margin: 0;
+    font-size: 12px;
+  }
+  #worldOverviewCard dt { color: var(--muted); font-weight: 500; }
+  #worldOverviewCard dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+  #worldOverviewCard #status { color: var(--muted); }
+  #worldOverviewCard #status.live { color: var(--accent); font-weight: 600; }
+
+  /* Markets card */
+  #marketsCard input {
+    width: 100%; margin-bottom: 10px; padding: 6px 10px;
+    background: rgba(10, 14, 20, 0.6); color: var(--text);
+    border: 1px solid var(--line); border-radius: 6px; font: inherit;
+    font-size: 12px;
+  }
+  #marketsCard input:focus {
+    outline: none;
+    border-color: rgba(88,166,255,0.5);
+    background: rgba(10, 14, 20, 0.8);
+  }
+
+  /* Speech bubble overlay — comic-style captions above agents */
+  #speechBubbles {
+    position: fixed; inset: 0; z-index: 35;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .speech-bubble {
+    position: absolute;
+    transform: translate(-50%, -100%) scale(1);
+    padding: 8px 14px 10px;
+    border-radius: 14px 14px 14px 4px;
+    background: #fff;
+    border: 2px solid #000;
+    color: #111;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+    max-width: 240px;
+    box-shadow: 4px 4px 0 #000;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+    animation: bubble-pop 0.25s ease-out;
+  }
+  @keyframes bubble-pop {
+    0% { transform: translate(-50%, -80%) scale(0.6); opacity: 0; }
+    70% { transform: translate(-50%, -105%) scale(1.05); opacity: 1; }
+    100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+  }
+  .speech-bubble::after {
+    content: "";
+    position: absolute;
+    bottom: -12px;
+    left: 18px;
+    width: 0;
+    height: 0;
+    border-left: 10px solid transparent;
+    border-right: 10px solid transparent;
+    border-top: 14px solid #000;
+  }
+  .speech-bubble::before {
+    content: "";
+    position: absolute;
+    bottom: -8px;
+    left: 20px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 11px solid #fff;
+    z-index: 1;
+  }
+  .speech-bubble .speaker {
+    font-weight: 800;
+    margin-bottom: 3px;
+    color: #111;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .speech-bubble .text {
+    color: #111;
+    font-family: var(--font-bubble);
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  .speech-bubble .speaker svg {
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    vertical-align: -2px;
+  }
+  .speech-bubble.type-info { border-color: #000; box-shadow: 4px 4px 0 #58a6ff; }
+  .speech-bubble.type-info::after { border-top-color: #000; }
+  .speech-bubble.type-info::before { border-top-color: #fff; }
+  .speech-bubble.type-request { border-color: #000; box-shadow: 4px 4px 0 #f0883e; }
+  .speech-bubble.type-request::after { border-top-color: #000; }
+  .speech-bubble.type-request::before { border-top-color: #fff; }
+  .speech-bubble.type-offer { border-color: #000; box-shadow: 4px 4px 0 #3fb950; }
+  .speech-bubble.type-offer::after { border-top-color: #000; }
+  .speech-bubble.type-offer::before { border-top-color: #fff; }
+  .speech-bubble.type-alert { border-color: #000; box-shadow: 4px 4px 0 #f85149; }
+  .speech-bubble.type-alert::after { border-top-color: #000; }
+  .speech-bubble.type-alert::before { border-top-color: #fff; }
+  .speech-bubble.fading { opacity: 0; transform: translate(-50%, -90%) scale(0.92); }
+
+  /* Social feed card */
+  #messagesCard {
+    max-height: 34vh;
+  }
+  #messagesCard .card-title {
+    font-size: 11px; letter-spacing: 0.14em;
+  }
+  #messagesCard .card-body {
+    padding: 0;
+  }
+  #messagesCard .feed-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #messagesCard .feed-item {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(48,56,72,0.35);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  #messagesCard .feed-item:last-child { border-bottom: none; }
+  #messagesCard .feed-meta {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+  #messagesCard .feed-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+  #messagesCard .feed-type {
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(255,255,255,0.08);
+    color: var(--muted);
+  }
+  #messagesCard .feed-type.info { color: #58a6ff; background: rgba(88,166,255,0.1); }
+  #messagesCard .feed-type.request { color: #f0883e; background: rgba(240,136,62,0.1); }
+  #messagesCard .feed-type.offer { color: #3fb950; background: rgba(63,185,80,0.1); }
+  #messagesCard .feed-type.alert { color: #f85149; background: rgba(248,81,73,0.1); }
+  #messagesCard .feed-text {
+    color: #c9d1d9;
+  }
+  #messagesCard .feed-empty {
+    color: var(--muted);
+    padding: 14px;
+  }
+
+  /* World activity log — recent events the camera might miss. */
+  #worldLogCard {
+    max-height: 34vh;
+  }
+  #worldLogCard .card-title {
+    font-size: 11px; letter-spacing: 0.14em;
+  }
+  #worldLogCard .card-body {
+    padding: 0;
+  }
+  #worldLogCard .feed-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #worldLogCard .feed-item {
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(48,56,72,0.35);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #c9d1d9;
+    line-height: 1.4;
+  }
+  #worldLogCard .feed-item:last-child { border-bottom: none; }
+  #worldLogCard .feed-icon {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+  }
+  #worldLogCard .feed-icon svg {
+    width: 100%; height: 100%; display: block;
+  }
+  #worldLogCard .feed-empty {
+    color: var(--muted);
+    padding: 14px;
+  }
+  #worldLogCard .feed-kind {
+    text-transform: uppercase;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    color: var(--muted);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  #worldLogCard .feed-kind.build { color: #d29922; }
+  #worldLogCard .feed-kind.raid { color: #f85149; }
+  #worldLogCard .feed-kind.death { color: #8b949e; }
+  #worldLogCard .feed-kind.goalChange { color: #a371f7; }
+  #worldLogCard .feed-kind.arrival { color: #3fb950; }
+  #worldLogCard .feed-kind.fleeing { color: #f85149; }
+
+  /* Agent card — match the reference: header, avatar, stats, bar */
+  #agentCards {
+    width: 300px;
+  }
+  #inspector {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 0;
+    background: rgba(13, 17, 23, 0.95);
+    backdrop-filter: blur(12px) saturate(1.1);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .agent-card-empty {
+    padding: 18px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+  .agent-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px;
+    background: rgba(22, 28, 38, 0.6);
+    border-bottom: 1px solid var(--line);
+  }
+  .agent-card-name {
+    font-size: 15px; font-weight: 800;
+    color: #fff; letter-spacing: 0.01em;
+  }
+  .agent-card-dots {
+    display: flex; gap: 5px;
+  }
+  .agent-card-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+  }
+  .agent-card-body {
+    padding: 14px 16px 16px;
+  }
+  .agent-card-state {
+    font-size: 13px; color: var(--text); margin-bottom: 2px;
+    font-weight: 600;
+  }
+  .agent-card-clan {
+    font-size: 12px; color: var(--muted); margin-bottom: 12px;
+  }
+  .agent-card-main {
+    display: flex; gap: 14px;
+    margin-bottom: 14px;
+  }
+  .agent-card-avatar {
+    width: 72px; height: 72px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    background: rgba(255,255,255,0.06);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .agent-card-avatar svg { width: 56px; height: 56px; }
+  .agent-card-stats {
+    display: flex; flex-direction: column; justify-content: center;
+    gap: 8px;
+    flex: 1;
+  }
+  .agent-card-stat {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text);
+  }
+  .agent-card-stat svg {
+    width: 16px; height: 16px; flex-shrink: 0;
+    color: var(--muted);
+  }
+  .agent-card-stat .value {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+  .agent-card-bar {
+    height: 6px; border-radius: 3px;
+    background: rgba(255,255,255,0.1);
+    overflow: hidden;
+  }
+  .agent-card-bar span {
+    display: block; height: 100%; border-radius: 3px;
+    transition: width 0.2s ease;
+  }
+  .agent-card-actions {
+    display: flex; gap: 8px;
+    margin-top: 14px;
+  }
+  .agent-card-actions button {
+    flex: 1; margin: 0;
+    padding: 8px 10px;
+    font-size: 11px; font-weight: 600;
+    background: rgba(88,166,255,0.08);
+    border: 1px solid rgba(88,166,255,0.25);
+    border-radius: 8px;
+    color: #58a6ff;
+  }
+  .agent-card-actions button:hover {
+    background: rgba(88,166,255,0.15);
+    border-color: rgba(88,166,255,0.45);
+  }
+
+  /* Market card — match the reference: icon, question, status line */
+  #marketsCard {
+    max-height: 42vh;
+  }
+  #marketsCard .card-title {
+    font-size: 11px; letter-spacing: 0.14em;
+  }
+  .market {
+    display: flex; gap: 12px;
+    padding: 12px;
+    margin-bottom: 10px;
+    border-radius: 10px;
+    background: rgba(10, 14, 20, 0.55);
+    border: 1px solid var(--line);
+  }
+  .market-icon {
+    width: 32px; height: 32px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.06);
+  }
+  .market-icon svg { width: 18px; height: 18px; }
+  .market-main { flex: 1; min-width: 0; }
+  .market-q {
+    font-size: 13px; font-weight: 600;
+    color: var(--text); line-height: 1.4;
+    margin-bottom: 6px;
+  }
+  .market-meta {
+    font-size: 11px; color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .market-meta strong { color: var(--text); font-weight: 600; }
+  .market-status {
+    font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .market-status.open { color: #3fb950; }
+  .market-status.closed { color: #d29922; }
+  .market-status.settled { color: var(--muted); }
+  .market-actions {
+    display: flex; gap: 6px; margin-top: 8px;
+  }
+  .market-actions button {
+    flex: 1; margin: 0;
+    padding: 6px 8px;
+    font-size: 11px; font-weight: 700;
+    border-radius: 6px;
+  }
+  .market-actions button.yes {
+    background: rgba(63,185,80,0.1);
+    border-color: rgba(63,185,80,0.35);
+    color: #3fb950;
+  }
+  .market-actions button.no {
+    background: rgba(248,81,73,0.1);
+    border-color: rgba(248,81,73,0.35);
+    color: #f85149;
+  }
+  .market-actions button.yes:hover {
+    background: rgba(63,185,80,0.18);
+    border-color: rgba(63,185,80,0.55);
+  }
+  .market-actions button.no:hover {
+    background: rgba(248,81,73,0.18);
+    border-color: rgba(248,81,73,0.55);
+  }
+  .market-held {
+    font-size: 10px; color: var(--muted); margin-top: 6px;
+  }
+  .market-settled { opacity: 0.75; }
+
+  /* Bottom dock */
+  #bottomDock {
+    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+    z-index: 50;
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 8px;
+    background: rgba(13, 17, 23, 0.92);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px) saturate(1.1);
+  }
+  .dock-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 14px; margin: 0; width: auto;
+    background: transparent; border: 1px solid transparent;
+    border-radius: 10px; color: var(--muted); font: inherit;
+    cursor: pointer; font-size: 10px;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .dock-btn:hover {
+    color: var(--text);
+    background: rgba(255,255,255,0.05);
+    border-color: var(--line);
+  }
+  .dock-btn.active {
+    color: var(--accent);
+    background: var(--accent-dim);
+    border-color: rgba(63,185,80,0.35);
+  }
+  .dock-icon {
+    width: 20px; height: 20px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .dock-icon svg { width: 100%; height: 100%; }
+  .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
+
+  /* Left controls */
+  #controlsPanel {
+    position: fixed; left: 14px; top: 50%; transform: translateY(-50%);
+    z-index: 40;
+    display: flex; flex-direction: column; gap: 9px;
+    padding: 14px;
+    background: rgba(13, 17, 23, 0.55);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    opacity: 0.5;
+    pointer-events: none;
+    backdrop-filter: blur(4px);
+  }
+  .control-row {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11px; color: var(--muted);
+  }
+  .control-row kbd {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 22px; padding: 2px 5px;
+    background: rgba(22, 28, 38, 0.8);
+    border: 1px solid var(--line); border-radius: 4px;
+    font-size: 10px; color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  }
+
+  /* Agent cards (bottom-left inspector) */
+  #agentCards {
+    position: fixed; left: 14px; bottom: 76px; z-index: 40;
+    width: 300px; max-height: 340px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #agentCards #inspector {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 14px;
+    margin: 0;
+    max-height: 300px;
+    overflow-y: auto;
+    backdrop-filter: blur(10px) saturate(1.1);
+  }
+
+  /* Hide UI mode */
+  body.ui-hidden #topBar,
+  body.ui-hidden #rightCards,
+  body.ui-hidden #bottomDock,
+  body.ui-hidden #controlsPanel,
+  body.ui-hidden #agentCards,
+  body.ui-hidden #hud,
+  body.ui-hidden #minimap,
+  body.ui-hidden #minimapHint {
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s ease;
+  }
+
+  /* Legacy hidden elements (still referenced by JS) */
+  #legacyHidden { display: none; }
+
+  /* === end new layout ================================================ */
 
 </style>
 </head>
 <body>
+  <!-- Top Bar -->
+  <div id="topBar">
+    <span class="logo">NEO-CIVILIZATION</span>
+    <div class="topStats">
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> Day <span class="stat-value" id="topDay">—</span></span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> <span class="stat-value" id="topAgents">—</span> Agents</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> <span class="stat-value" id="topHuts">—</span> Huts</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> <span class="stat-value" id="topClans">—</span> Clans</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 8.5l-9 9-5-5L2 17.5"/><path d="M15.5 2.5l6 6"/></svg></span> <span class="stat-value" id="topResources">—</span> Resources</span>
+    </div>
+  </div>
+
+  <!-- Pause Overlay -->
+  <div id="pauseOverlay">
+    <div class="panel pause-panel">
+      <div class="brand" style="margin:0 auto 16px;width:40px;height:40px;"></div>
+      <h1>PAUSED</h1>
+      <p class="subtitle">The world waits. Press Space to resume.</p>
+      <nav class="menu-nav" style="gap</h1>:8px;margin-top:4px;">
+        <button id="pause-resume" class="primary">Resume Simulation</button>
+        <button id="pause-settings" class="secondary">Settings</button>
+        <button id="pause-exit" class="secondary">Hide UI</button>
+      </nav>
+    </div>
+  </div>
+
+  <!-- 3D Stage -->
   <div id="stage">
     <div id="world"></div>
+    <div id="speechBubbles"></div>
     <div id="hud">
       <span class="title" id="hudTitle">world</span>
       <span class="meta" id="hudMeta"></span>
@@ -311,105 +1009,252 @@
     <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
 
-  <aside>
-    <h1>Neo-Civilization</h1>
-    <button id="autoCamera" data-on="1">camera: cinematic</button>
-    <button id="flyStreet">street level · walk among them</button>
-    <button id="flyDensest">fly to densest settlement</button>
-    <button id="flyOverview">whole-world overview</button>
-    <button id="dashboardToggle" class="secondary">show more</button>
-    <dl>
-      <dt>status</dt><dd id="status">connecting</dd>
-      <dt>tick</dt><dd id="tick">—</dd>
-      <dt>day</dt><dd id="day">—</dd>
-      <dt>agents</dt><dd id="agents">—</dd>
-      <dt>resources</dt><dd id="resources">—</dd>
-      <dt>dormant</dt><dd id="dormant">—</dd>
-      <dt>huts</dt><dd id="buildings">—</dd>
-      <dt>clans</dt><dd id="clans">—</dd>
-      <dt>in a clan</dt><dd id="clanned">—</dd>
-      <dt>yours</dt><dd id="userAgents">—</dd>
-    </dl>
-    <h2>prediction markets</h2>
-    <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
-    <div id="markets"></div>
-    <h2>leaderboard</h2>
-    <ul id="leaderboard"></ul>
+  <!-- Left Controls -->
+  <div id="controlsPanel">
+    <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
+    <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
+    <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
+    <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
+    <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
+    <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
+    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd>kbd><kbd>5<</kbd>/kbd> <span>View Pres</span>ets</span></div>
+    <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
+  </div>
 
-    <h2>inspector</h2>
+  <!-- Bottom Left Agent Cards -->
+  <div id="agentCards">
     <div id="inspector"><p class="hint">click an agent on the map</p></div>
+  </div>
 
+  <!-- Right Floating Cards -->
+  <div id="rightCards">
+    <div class="floating-card" id="objectivesCard">
+      <h3 class="card-title">ACTIVE OBJECTIVES</h3>
+      <div class="card-body">
+        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
+        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
+        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+      </div>
+    </div>
+
+    <div class="floating-card" id="worldOverviewCard">
+      <h3 class="card-title">WORLD OVERVIEW</h3>
+      <div class="card-body">
+        <dl>
+          <dt>status</dt><dd id="status">connecting</dd>
+          <dt>tick</dt><dd id="tick">—</dd>
+          <dt>day</dt><dd id="day">—</dd>
+          <dt>agents</dt><dd id="agents">—</dd>
+          <dt>resources</dt><dd id="resources">—</dd>
+          <dt>dormant</dt><dd id="dormant">—</dd>
+          <dt>huts</dt><dd id="buildings">—</dd>
+          <dt>clans</dt><dd id="clans">—</dd>
+          <dt>in a clan</dt><dd id="clanned">—</dd>
+          <dt>yours</dt><dd id="userAgents">—</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="floating-card" id="marketsCard">
+      <h3 class="card-title">PREDICTION MARKETS</h3>
+      <div class="card-body">
+        <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+        <div id="markets"></div>
+        <h3 class="card-subtitle">LEADERBOARD</h3>
+        <ul id="leaderboard"></ul>
+      </div>
+    </div>
+
+    <div class="floating-card" id="messagesCard">
+      <h3 class="card-title">CHATTER</h3>
+      <div class="card-body">
+        <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
+      </div>
+    </div>
+
+    <div class="floating-card" id="worldLogCard">
+      <h3 class="card-title">WORLD</h3>
+      <div class="card-body">
+        <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Deploy Panel (toggled by Build dock button) -->
+  <div id="deployPanel">
+    <h3 class="card-title">DEPLOY AGENT</h3>
+    <div class="card-body">
+      <p class="hint" style="margin:0 0 10px;">Your agent spawns next tick and lives by the same rules as everyone else.</p>
+      <form id="deploy" autocomplete="off">
+        <input id="agentName" maxlength="24" placeholder="name" required style="margin-bottom:8px;">
+        <input id="agentPersonality" maxlength="140" placeholder="short personality note (optional)" style="margin-bottom:8px;">
+        <button type="submit" style="margin-bottom:8px;">Deploy</button>
+      </form>
+      <p id="deployStatus" style="min-height:1.5em;font-size:11px;color:var(--muted);margin:0;"></p>
+      <div id="deployedWrap" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px;">
+        <h3 class="card-subtitle" style="margin:0 0 8px;">YOUR AGENTS</h3>
+        <ul id="deployed"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legend Panel (toggled by Clans dock button) -->
+  <div id="legendPanel">
+    <h3 class="card-title">CLANS</h3>
+    <div class="card-body">
+      <p style="font-size:11px;color:var(--muted);margin:0 0 10px;">Click a clan to fly to it.</p>
+      <h2 id="legend-title" style="margin:0 0 8px;">clans</h2>
+      <ul id="legend"></ul>
+      <h3 class="card-subtitle">RESOURCES</h3>
+      <ul>
+        <li><span class="swatch" style="background:#1a7f37"></span>food</li>
+        <li><span class="swatch" style="background:#6b5210"></span>wood</li>
+        <li><span class="swatch" style="background:#c9d1d9"></span>hut</li>
+        <li><span class="swatch" style="background:#1a7f37;opacity:.18"></span>dormant (regrowing)</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Settings Panel (toggled by Settings dock button) -->
+  <div id="settingsPanel">
+    <h3 class="card-title">SETTINGS</h3>
+    <div class="card-body">
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Camera</label>
+        <button id="autoCamera" data-on="1" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">camera: cinematic</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Colour Mode</label>
+        <button id="mode" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">colour: clan</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Onboarding</label>
+        <button id="settingsResetIntro" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">Reset Intro</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gameplay hints -->
+  <div id="gameplayHints"></div>
+
+  <!-- Bottom Dock -->
+  <div id="bottomDock">
+    <button class="dock-btn active" data-panel="agentCards"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
+    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Build</span></button>
+    <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
+    <button class="dock-btn active" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">Resources</span></button>
+    <button class="dock-btn active" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Markets</span></button>
+    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
+  </div>
+
+  <!-- Legacy elements still referenced by JS — kept in a hidden container so IDs remain valid. -->
+  <div id="legacyHidden">
+    <button id="autoCamera" data-on="1">camera: cinematic</button>
     <button id="mode">colour: clan</button>
+    <button id="dashboardToggle" class="secondary">show more</button>
     <h2 id="legend-title">clans</h2>
     <ul id="legend"></ul>
-    <h2>deploy an agent</h2>
     <form id="deploy" autocomplete="off">
       <input id="agentName" maxlength="24" placeholder="name" required>
       <input id="agentPersonality" maxlength="140" placeholder="short personality note">
       <button type="submit">deploy</button>
       <p id="deployStatus"></p>
     </form>
-
-    <h2>your agents</h2>
     <ul id="deployed"></ul>
-
-    <h2>World</h2>
     <ul>
       <li><span class="swatch" style="background:#1a7f37"></span>food</li>
       <li><span class="swatch" style="background:#6b5210"></span>wood</li>
       <li><span class="swatch" style="background:#c9d1d9"></span>hut</li>
       <li><span class="swatch" style="background:#1a7f37;opacity:.18"></span>dormant (regrowing)</li>
     </ul>
-  </aside>
+  </div>
 
   <div id="onboarding">
-    <div id="onboarding-attract" class="screen active">
-      <div class="panel">
+    <!-- Splash -->
+    <div id="onboarding-splash" class="screen active">
+      <div class="panel splash-panel">
         <div class="brand"></div>
-        <h1>Neo-Civilization</h1>
-        <p class="subtitle" id="attract-subtitle">A live world is running. Nobody controls it.</p>
-        <button id="btn-enter" class="primary">Enter the world</button>
-        <button id="btn-watch" class="secondary">Just watch</button>
+        <h1 class="hero">NEO-CIVILIZATION</h1>
+        <p class="subtitle" id="splash-subtitle">A Living AI Civilization</p>
+        <p class="press-hint">Press Any Key to Begin</p>
       </div>
     </div>
-    <div id="onboarding-name" class="screen">
-      <div class="panel">
-        <h1>Enter the world</h1>
-        <p class="subtitle">Name your agent. They spawn next tick and live by the same rules as everyone else.</p>
-        <form id="onboarding-form">
-          <div class="name-field">
-            <input id="onboarding-name-input" maxlength="24" autocomplete="off" placeholder="name">
-            <button type="button" id="onboarding-random" class="secondary" title="random name">↻ random</button>
-          </div>
-          <button type="submit" class="primary">Deploy agent</button>
-        </form>
-        <p id="onboarding-status"></p>
-        <button id="onboarding-back" class="secondary text">Back</button>
+
+    <!-- Main Menu -->
+    <div id="onboarding-menu" class="screen">
+      <div class="panel menu-panel">
+        <h1>NEO-CIVILIZATION</h1>
+        <p class="subtitle">A persistent world running in real time.</p>
+        <nav class="menu-nav">
+          <button id="menu-continue" class="primary">Continue Simulation</button>
+          <button id="menu-settings" class="secondary">Settings</button>
+          <button id="menu-exit" class="secondary">Exit</button>
+        </nav>
+        <p class="version">Version 0.1.0</p>
       </div>
     </div>
-    <div id="onboarding-waiting" class="screen">
-      <div class="panel">
-        <h1>Deploying...</h1>
-        <div class="spinner"></div>
-        <p class="subtitle" id="onboarding-waiting-text">Finding a place in the world.</p>
-      </div>
-    </div>
-    <div id="onboarding-summary" class="screen">
-      <div class="panel">
-        <div class="avatar" id="summary-avatar"></div>
-        <div class="hero" id="summary-name">Your agent arrives</div>
-        <div class="pill-row">
-          <span class="pill" id="summary-state"></span>
-          <span class="pill clan" id="summary-clan"></span>
+
+    <!-- Slide 1 -->
+    <div id="onboarding-slide-1" class="screen">
+      <div class="panel slide-panel">
+        <p class="slide-number">1 / 3</p>
+        <h1>Welcome to Neo-Civilization</h1>
+        <p class="subtitle">
+          Every person has needs, goals, and relationships.
+          This is a living civilization — not scripted gameplay.
+        </p>
+        <div class="slide-features">
+          <div class="feature"><span class="feature-dot" style="background:#58a6ff;"></span>Needs &amp; survival</div>
+          <div class="feature"><span class="feature-dot" style="background:#3fb950;"></span>Goals &amp; purpose</div>
+          <div class="feature"><span class="feature-dot" style="background:#a371f7;"></span>Relationships</div>
+          <div class="feature"><span class="feature-dot" style="background:#d29922;"></span>Emergent clans</div>
         </div>
-        <p class="subtitle" id="summary-detail"></p>
-        <p class="question" id="summary-question">Will they survive?</p>
-        <div class="sides">
-          <button id="summary-yes" class="yes">Yes — 25 credits</button>
-          <button id="summary-no" class="no">No — 25 credits</button>
+        <div class="slide-nav">
+          <button id="slide1-skip" class="secondary">Skip intro</button>
+          <button id="slide1-next" class="primary">Next →</button>
         </div>
-        <p id="summary-market-hint" class="hint"></p>
-        <button id="summary-skip" class="secondary text">Skip for now</button>
+      </div>
+    </div>
+
+    <!-- Slide 2 -->
+    <div id="onboarding-slide-2" class="screen">
+      <div class="panel slide-panel">
+        <p class="slide-number">2 / 3</p>
+        <h1>Nothing is scripted</h1>
+        <p class="subtitle">
+          Villages grow. Wars happen. Leaders emerge.
+          Trade routes form. You simply observe — or influence.
+        </p>
+        <div class="slide-features">
+          <div class="feature"><span class="feature-dot" style="background:#58a6ff;"></span>Naturally forming villages</div>
+          <div class="feature"><span class="feature-dot" style="background:#f85149;"></span>Raids &amp; conflicts</div>
+          <div class="feature"><span class="feature-dot" style="background:#3fb950;"></span>Truces &amp; alliances</div>
+          <div class="feature"><span class="feature-dot" style="background:#a371f7;"></span>Evolving economies</div>
+        </div>
+        <div class="slide-nav">
+          <button id="slide2-back" class="secondary">← Back</button>
+          <button id="slide2-next" class="primary">Next →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Slide 3 -->
+    <div id="onboarding-slide-3" class="screen">
+      <div class="panel slide-panel">
+        <p class="slide-number">3 / 3</p>
+        <h1>Your Controls</h1>
+        <div class="controls-grid">
+          <div class="ctrl-item"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move</span></div>
+          <div class="ctrl-item"><kbd>Mouse</kbd> <span>Rotate Camera</span></div>
+          <div class="ctrl-item"><kbd>Wheel</kbd> <span>Zoom</span></div>
+          <div class="ctrl-item"><kbd>Space</kbd> <span>Pause / Play</span></div>
+          <div class="ctrl-item"><kbd>H</kbd> <span>Show / Hide Help</span></div>
+          <div class="ctrl-item"><kbd>1</kbd><span class="ctrl-dash">-</span><kbd>5</kbd> <span>View Presets</span></div>
+        </div>
+        <div class="slide-nav">
+          <button id="slide3-back" class="secondary">← Back</button>
+          <button id="slide3-begin" class="primary begin-btn">Begin Civilization</button>
+        </div>
       </div>
     </div>
   </div>
@@ -434,7 +1279,7 @@ window.addEventListener("error", (event) => {
 
 <script type="module">
 import { WorldView, densestCluster } from "/static/world3d.js";
-import { Director, busiestPlace } from "/static/director.js";
+import { Director, busiestPlace, findEvents } from "/static/director.js";
 
 // Half-extent in world units to hold in frame when flying to a settlement.
 const TILE_SPAN = 18;
@@ -540,6 +1385,168 @@ const worldView = new WorldView(document.getElementById("world"));
 // Test hook: the lifecycle tests drive mount/unmount and read renderer.info from here.
 // Read-only by convention — nothing in the viewer reads it back.
 window.__world = worldView;
+
+const bubbleContainer = document.getElementById("speechBubbles");
+const feedList = document.getElementById("feedList");
+
+const BUBBLE_LIFE_MS = 3500;
+const FEED_LIMIT = 20;
+
+const MESSAGE_ICONS = {
+  info: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
+  request: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  offer: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`,
+  alert: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+};
+
+function messageText(message) {
+  const content = message.content || {};
+  switch (message.type) {
+    case "info":
+      if (content.rally) return `Rally at ${content.rally[0]},${content.rally[1]}`;
+      return "News from the clan";
+    case "request":
+      return `Need ${content.resource || "supplies"}`;
+    case "offer":
+      return `Offering ${content.resource || "help"}`;
+    case "alert":
+      if (content.reason === "raid") return `Raid! ${content.resource || ""}`.trim();
+      return "Alarm!";
+    default:
+      return "Message";
+  }
+}
+
+function messageKey(message) {
+  return `${message.tick}:${message.from}:${message.to}:${message.type}:${JSON.stringify(message.content || {})}`;
+}
+
+const seenMessages = new Set();
+const activeBubbles = new Map();
+let feedMessages = [];
+let firstSnapshotTick = null;
+
+function createBubble(message) {
+  const bubble = document.createElement("div");
+  bubble.className = `speech-bubble type-${message.type}`;
+  bubble.dataset.sender = message.from;
+  const icon = MESSAGE_ICONS[message.type] || MESSAGE_ICONS.info;
+  bubble.innerHTML =
+    `<div class="speaker">${icon}<span>${escapeHtml(message.from_name || `#${message.from}`)}</span></div>` +
+    `<div class="text">${escapeHtml(messageText(message))}</div>`;
+  bubble.style.opacity = "0";
+  bubble.style.left = "-1000px";
+  bubbleContainer.appendChild(bubble);
+  const key = messageKey(message);
+  activeBubbles.set(key, bubble);
+  setTimeout(() => bubble.classList.add("fading"), BUBBLE_LIFE_MS);
+  setTimeout(() => {
+    bubble.remove();
+    activeBubbles.delete(key);
+  }, BUBBLE_LIFE_MS + 400);
+}
+
+function updateFeed(message) {
+  feedMessages.push(message);
+  if (feedMessages.length > FEED_LIMIT) feedMessages.shift();
+  renderFeed();
+}
+
+function renderFeed() {
+  if (feedMessages.length === 0) {
+    feedList.innerHTML = `<li class="feed-empty">The world is quiet...</li>`;
+    return;
+  }
+  feedList.innerHTML = "";
+  for (const message of feedMessages) {
+    const item = document.createElement("li");
+    item.className = "feed-item";
+    item.innerHTML =
+      `<div class="feed-meta">` +
+      `<span class="feed-icon">${MESSAGE_ICONS[message.type] || MESSAGE_ICONS.info}</span>` +
+      `<span>${escapeHtml(message.from_name || `#${message.from}`)}</span>` +
+      `<span class="feed-type ${message.type}">${message.type}</span>` +
+      `</div>` +
+      `<div class="feed-text">${escapeHtml(messageText(message))}</div>`;
+    feedList.appendChild(item);
+  }
+}
+
+function positionBubbles() {
+  if (!worldView.active) return;
+  for (const [key, bubble] of activeBubbles) {
+    const pos = worldView.agentScreenPosition(Number(bubble.dataset.sender));
+    if (!pos || !pos.visible) {
+      bubble.style.opacity = "0";
+      continue;
+    }
+    bubble.style.opacity = bubble.classList.contains("fading") ? "0" : "1";
+    bubble.style.left = `${pos.x}px`;
+    bubble.style.top = `${pos.y}px`;
+  }
+}
+
+function processMessages(snapshot) {
+  const isFirstSnapshot = firstSnapshotTick === null;
+  firstSnapshotTick = snapshot.tick;
+  const currentKeys = new Set();
+
+  for (const message of snapshot.messages || []) {
+    const key = messageKey(message);
+    currentKeys.add(key);
+    if (seenMessages.has(key)) continue;
+    seenMessages.add(key);
+    // Only pop new bubbles for messages that arrive after the page loads; the feed
+    // still shows history so spectators can catch up.
+    if (!isFirstSnapshot) {
+      createBubble(message);
+    }
+    updateFeed(message);
+  }
+
+  // The log is bounded on the server; the viewer's set of seen keys should be too.
+  for (const key of seenMessages) {
+    if (!currentKeys.has(key)) seenMessages.delete(key);
+  }
+}
+
+const WORLD_LOG_ICONS = {
+  building: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4 8 4v14"/><path d="M9 21v-6h6v6"/></svg>`,
+  raid: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`,
+  death: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+  goalChange: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12L2.5 9.5"/></svg>`,
+  arrival: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
+  fleeing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+};
+
+const worldLog = document.getElementById("worldLog");
+const WORLD_LOG_LIMIT = 20;
+let worldLogEntries = [];
+let previousWorldSnapshot = null;
+
+function processWorldLog(snapshot) {
+  const events = findEvents(previousWorldSnapshot, snapshot);
+  previousWorldSnapshot = snapshot;
+  if (events.length === 0) return;
+
+  for (const event of events) {
+    worldLogEntries.push({ tick: snapshot.tick, kind: event.kind, label: event.label });
+  }
+  if (worldLogEntries.length > WORLD_LOG_LIMIT) {
+    worldLogEntries = worldLogEntries.slice(-WORLD_LOG_LIMIT);
+  }
+
+  worldLog.innerHTML = "";
+  for (const entry of worldLogEntries.slice().reverse()) {
+    const item = document.createElement("li");
+    item.className = "feed-item";
+    item.innerHTML =
+      `<span class="feed-icon">${WORLD_LOG_ICONS[entry.kind] || WORLD_LOG_ICONS.goalChange}</span>` +
+      `<span>${escapeHtml(entry.label)}</span>` +
+      `<span class="feed-kind ${entry.kind}">${entry.kind.replace("goalChange", "goal")}</span>`;
+    worldLog.appendChild(item);
+  }
+}
 
 const hudTitle = document.getElementById("hudTitle");
 const hudMeta = document.getElementById("hudMeta");
@@ -665,103 +1672,96 @@ function bar(value, max, colour) {
   return `<div class="bar"><span style="width:${pct}%;background:${colour}"></span></div>`;
 }
 
+function agentCardBar(value, max, colour) {
+  const pct = Math.max(0, Math.min(100, (value / max) * 100));
+  return `<div class="agent-card-bar"><span style="width:${pct}%;background:${colour}"></span></div>`;
+}
+
+function agentAvatar(agent, colour) {
+  // Simple blocky avatar matching the in-world humanoid style: head, torso, legs.
+  const skin = "#d4a373";
+  return `<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+    <rect x="12" y="22" width="5" height="12" rx="1" fill="${colour}" opacity="0.9"/>
+    <rect x="19" y="22" width="5" height="12" rx="1" fill="${colour}" opacity="0.9"/>
+    <rect x="10" y="12" width="16" height="14" rx="2" fill="${colour}"/>
+    <rect x="8" y="14" width="5" height="10" rx="1" fill="${colour}" opacity="0.85"/>
+    <rect x="23" y="14" width="5" height="10" rx="1" fill="${colour}" opacity="0.85"/>
+    <circle cx="18" cy="9" r="6" fill="${skin}"/>
+  </svg>`;
+}
+
+function statIcon(kind) {
+  const icons = {
+    energy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+    hunger: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12L2.5 9.5"/><path d="M12 12V2"/></svg>`,
+    food: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2C7 2 3 7 3 12s4 10 9 10 9-5 9-10S17 2 12 2z"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>`,
+  };
+  return icons[kind] || icons.energy;
+}
+
 function renderInspector(snapshot) {
   if (selectedId === null) {
-    inspector.innerHTML = '<p class="hint">click an agent on the map</p>';
+    inspector.innerHTML = '<p class="agent-card-empty">click an agent to inspect</p>';
     return;
   }
   const agent = snapshot.agents.find((a) => a.id === selectedId);
   if (!agent) {
     inspector.innerHTML =
-      `<p class="hint">agent #${selectedId} is gone — starved, or lost a raid.</p>`;
+      `<p class="agent-card-empty">agent #${selectedId} is gone — starved, or lost a raid.</p>`;
     return;
   }
 
   const clan = (snapshot.clans || []).find((c) => c.id === agent.clan);
   const isLeader = clan && clan.leader === agent.id;
   const colour = clanColour(agent.clan);
+  const stateLabel = agent.state.replace("_", " ").toLowerCase();
+  const clanLabel = clan ? `Clan ${clan.id}${isLeader ? " · Leader" : ""}` : "No Clan";
+  const healthy = agent.hunger > 0 && agent.energy > 20;
 
-  const rows = [
-    ["state", agent.state],
-    ["wants", agent.wants],
-    ["position", `${agent.x}, ${agent.y}`],
-    ["target", agent.target ? `${agent.target[0]}, ${agent.target[1]}` : "—"],
-    ["food", `${agent.food} / 5`],
-    ["wood", `${agent.wood} / 5`],
-    ["huts", agent.huts],
-  ];
-  if (agent.raids_won || agent.raids_lost) {
-    rows.push(["raids won/lost", `${agent.raids_won} / ${agent.raids_lost}`]);
-  }
-  if (agent.received) rows.push(["food received", agent.received]);
+  const energyColor = agent.energy < 30 ? "#f85149" : (agent.energy < 60 ? "#d29922" : "#58a6ff");
+  const hungerColor = agent.hunger === 0 ? "#f85149" : "#3fb950";
+  const foodPercent = Math.min(100, (agent.food / 5) * 100);
 
   let html =
-    `<div class="who">` +
-    `<span class="dot" style="background:${colour}"></span>` +
-    `<span class="name">${escapeHtml(agent.name)}</span>` +
-    `<span class="id">#${agent.id}</span></div>`;
+    `<div class="agent-card-header">` +
+    `<div class="agent-card-name">${escapeHtml(agent.name)}</div>` +
+    `<div class="agent-card-dots">` +
+    `<span class="agent-card-dot" style="background:${colour}"></span>` +
+    `<span class="agent-card-dot" style="background:${healthy ? '#3fb950' : '#f85149'}"></span>` +
+    `</div>` +
+    `</div>` +
+    `<div class="agent-card-body">` +
+    `<div class="agent-card-state">${stateLabel}</div>` +
+    `<div class="agent-card-clan">${clanLabel}</div>` +
+    `<div class="agent-card-main">` +
+    `<div class="agent-card-avatar" style="background:${colour}22">${agentAvatar(agent, colour)}</div>` +
+    `<div class="agent-card-stats">` +
+    `<div class="agent-card-stat">${statIcon("energy")}<span>Energy</span><span class="value">${agent.energy}</span></div>` +
+    `<div class="agent-card-stat">${statIcon("hunger")}<span>Hunger</span><span class="value">${agent.hunger}</span></div>` +
+    `<div class="agent-card-stat">${statIcon("food")}<span>Food</span><span class="value">${agent.food} / 5</span></div>` +
+    `</div>` +
+    `</div>` +
+    `<div class="agent-card-bar"><span style="width:${foodPercent}%;background:#3fb950"></span></div>`;
 
-  if (agent.user) {
-    html += `<p class="note">deployed by you${
-      agent.personality ? ` · ${escapeHtml(agent.personality)}` : ""
-    }</p>`;
+  if (agent.user && agent.personality) {
+    html += `<p class="note" style="margin:12px 0 0;border-left:2px solid ${colour};padding-left:8px">${escapeHtml(agent.personality)}</p>`;
   }
 
-  html += `<h3>vitals</h3>`;
-  html += `<dl><dt>energy</dt><dd>${agent.energy}</dd></dl>${bar(agent.energy, 100, "#a371f7")}`;
-  html += `<dl style="margin-top:6px"><dt>hunger</dt><dd>${agent.hunger}</dd></dl>` +
-          `${bar(agent.hunger, 100, agent.hunger === 0 ? "#f85149" : "#3fb950")}`;
-  if (agent.hunger === 0) {
-    html += `<p class="note" style="margin-top:8px;border-color:#f85149">starving — cannot rest</p>`;
+  html += `<div class="agent-card-actions">` +
+    `<button class="follow-agent">Fly to ${escapeHtml(agent.name)}</button>`;
+  if (clan && clan.centre) {
+    html += `<button class="follow-clan">Clan ${clan.id}</button>`;
   }
-
-  html += `<h3>doing</h3><dl>`;
-  for (const [label, value] of rows) html += `<dt>${label}</dt><dd>${value}</dd>`;
-  html += `</dl>`;
-
-  if (!clan) {
-    html += `<h3>clan</h3><p class="hint">unaffiliated</p>`;
-  } else {
-    html += `<h3>clan ${clan.id}${isLeader ? " · leader" : ""}</h3><dl>` +
-      `<dt>members</dt><dd>${clan.size}</dd>` +
-      `<dt>goal</dt><dd>${clan.goal}</dd>` +
-      `<dt>goal set by</dt><dd>${clan.goal_source}</dd>` +
-      `</dl>`;
-    if (clan.goal_reason) html += `<p class="note">${escapeHtml(clan.goal_reason)}</p>`;
-
-    const grudges = Object.entries(clan.grudges || {});
-    if (grudges.length) {
-      html += `<h3>grudges</h3>`;
-      for (const [other, [times, lastTick]] of grudges) {
-        html += `<span class="tag foe">clan ${other} ×${times} <span style="opacity:.7">day ${dayNumber(lastTick)}</span></span>`;
-      }
-    }
-    if ((clan.allies || []).length) {
-      html += `<h3>truces</h3>`;
-      for (const other of clan.allies) html += `<span class="tag ally">clan ${other}</span>`;
-    }
-    if (!grudges.length && !(clan.allies || []).length) {
-      html += `<h3>history</h3><p class="hint">no raids, no truces</p>`;
-    }
-  }
+  html += `</div></div>`;
 
   inspector.innerHTML = html;
 
-  const follow = document.createElement("button");
-  follow.textContent = `fly to ${agent.name}`;
-  follow.addEventListener("click", () =>
+  inspector.querySelector(".follow-agent")?.addEventListener("click", () =>
     flyToSim(agent.x, agent.y, `${agent.name} · ${agent.state}`, 8)
   );
-  inspector.appendChild(follow);
-
-  if (clan && clan.centre) {
-    const button = document.createElement("button");
-    button.textContent = `fly to clan ${clan.id}`;
-    button.addEventListener("click", () =>
-      flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
-    );
-    inspector.appendChild(button);
-  }
+  inspector.querySelector(".follow-clan")?.addEventListener("click", () =>
+    flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
+  );
 }
 
 // --- prediction markets -----------------------------------------------------
@@ -781,6 +1781,11 @@ whoami.addEventListener("input", () => {
 
 let lastBook = null;
 
+function marketIcon(kind) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">` +
+    `<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v8H2z"/><path d="M6 1v6"/><path d="M10 1v6"/><path d="M14 1v6"/></svg>`;
+}
+
 function renderMarkets(book) {
   lastBook = book;
   const me = whoami.value.trim();
@@ -796,17 +1801,24 @@ function renderMarkets(book) {
     const open = entry.state === "open";
     const node = document.createElement("div");
     node.className = "market";
+    const statusClass = open ? "open" : "closed";
+    const statusText = open ? "Open for bets" : "Betting closed";
     node.innerHTML =
-      `<div class="q">${escapeHtml(entry.question)}</div>` +
-      `<div class="meta">${entry.state} · pool ${entry.pool.yes} yes / ${entry.pool.no} no` +
-      ` · settles day ${dayNumber(entry.resolves_tick)}</div>` +
+      `<div class="market-icon">${marketIcon()}</div>` +
+      `<div class="market-main">` +
+      `<div class="market-q">${escapeHtml(entry.question)}</div>` +
+      `<div class="market-meta">` +
+      `<strong>${entry.pool.yes} YES</strong> / ${entry.pool.no} NO · Settles day ${dayNumber(entry.resolves_tick)}` +
+      `</div>` +
+      `<div class="market-status ${statusClass}">${statusText}</div>` +
       (open
-        ? `<div class="sides">
-             <button class="yes" data-id="${entry.id}" data-side="yes">yes · 25</button>
-             <button class="no"  data-id="${entry.id}" data-side="no">no · 25</button>
+        ? `<div class="market-actions">
+             <button class="yes" data-id="${entry.id}" data-side="yes">YES · 25</button>
+             <button class="no"  data-id="${entry.id}" data-side="no">NO · 25</button>
            </div>`
-        : '<div class="meta">betting closed</div>') +
-      (held ? `<div class="held">you: ${held.yes} yes / ${held.no} no</div>` : "");
+        : "") +
+      (held ? `<div class="market-held">You: ${held.yes} YES / ${held.no} NO</div>` : "") +
+      `</div>`;
     marketsEl.appendChild(node);
   }
 
@@ -816,9 +1828,15 @@ function renderMarkets(book) {
     const node = document.createElement("div");
     node.className = "market settled";
     node.innerHTML =
-      `<div class="q">${escapeHtml(entry.question)} <span class="out ${outcome}">${outcome || "—"}</span></div>` +
-      `<div class="meta">settled day ${dayNumber(entry.resolved_tick)} · pool ${entry.pool.yes}/${entry.pool.no}</div>` +
-      (held ? `<div class="held">you had ${held.yes} yes / ${held.no} no</div>` : "");
+      `<div class="market-icon">${marketIcon()}</div>` +
+      `<div class="market-main">` +
+      `<div class="market-q">${escapeHtml(entry.question)}</div>` +
+      `<div class="market-meta">` +
+      `<strong class="out ${outcome}">${outcome.toUpperCase() || "—"}</strong> · Settled day ${dayNumber(entry.resolved_tick)}` +
+      `</div>` +
+      `<div class="market-status settled">Resolved</div>` +
+      (held ? `<div class="market-held">You had ${held.yes} YES / ${held.no} NO</div>` : "") +
+      `</div>`;
     marketsEl.appendChild(node);
   }
 
@@ -907,239 +1925,129 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
 });
 
 
-// --- onboarding flow --------------------------------------------------------
+// --- onboarding & menu flow -------------------------------------------------
 //
-// First-time visitors see a sequence of overlays on the live world. Returning
-// visitors skip straight to the dashboard. The simulation itself is untouched.
+// Splash → Menu → (slides if first time) → Gameplay.
+// The simulation is untouched; everything is a viewer overlay.
 
 const onboardingEl = document.getElementById("onboarding");
-const attractScreen = document.getElementById("onboarding-attract");
-const nameScreen = document.getElementById("onboarding-name");
-const waitingScreen = document.getElementById("onboarding-waiting");
-const summaryScreen = document.getElementById("onboarding-summary");
-const attractSubtitle = document.getElementById("attract-subtitle");
-const nameInput = document.getElementById("onboarding-name-input");
-const onboardingStatus = document.getElementById("onboarding-status");
-const waitingText = document.getElementById("onboarding-waiting-text");
-const summaryName = document.getElementById("summary-name");
-const summaryAvatar = document.getElementById("summary-avatar");
-const summaryDetail = document.getElementById("summary-detail");
-const summaryState = document.getElementById("summary-state");
-const summaryClan = document.getElementById("summary-clan");
-const summaryQuestion = document.getElementById("summary-question");
-const summarySides = document.querySelector("#onboarding-summary .sides");
-const summaryHint = document.getElementById("summary-market-hint");
-const dashboardToggle = document.getElementById("dashboardToggle");
-const asideEl = document.querySelector("aside");
-
-const NAME_SUGGESTIONS = [
-  "Ash", "Bracken", "Cinder", "Dust", "Ember", "Frost", "Glen", "Hollow", "Iron",
-  "Juniper", "Kettle", "Lichen", "Moss", "Nettle", "Oak", "Pebble", "Quill", "Reed",
-  "Silt", "Thorn", "Vale", "Wren",
-];
+const splashScreen = document.getElementById("onboarding-splash");
+const menuScreen = document.getElementById("onboarding-menu");
+const slide1 = document.getElementById("onboarding-slide-1");
+const slide2 = document.getElementById("onboarding-slide-2");
+const slide3 = document.getElementById("onboarding-slide-3");
+const splashSubtitle = document.getElementById("splash-subtitle");
 
 let introDone =
   localStorage.getItem("neociv.intro") === "done" ||
   new URLSearchParams(location.search).has("skipIntro");
-let onboardingState = introDone ? "done" : "attract";
-let pendingAgentName = null;
-let pendingAgentId = null;
-
-function pickName() {
-  const root = NAME_SUGGESTIONS[Math.floor(Math.random() * NAME_SUGGESTIONS.length)];
-  return `${root}-${Math.floor(Math.random() * 900 + 100)}`;
-}
+let onboardingState = "splash";
+let hintsActive = false;
 
 function showScreen(id) {
-  for (const el of [attractScreen, nameScreen, waitingScreen, summaryScreen]) {
+  for (const el of [splashScreen, menuScreen, slide1, slide2, slide3]) {
     el.classList.remove("active");
   }
   document.getElementById(id).classList.add("active");
   onboardingState = id.replace("onboarding-", "");
 }
 
-function markIntroDone() {
+function showSplash() { showScreen("onboarding-splash"); }
+function showMenu() { showScreen("onboarding-menu"); }
+function showSlide1() { showScreen("onboarding-slide-1"); }
+function showSlide2() { showScreen("onboarding-slide-2"); }
+function showSlide3() { showScreen("onboarding-slide-3"); }
+
+function enterGameplay() {
   introDone = true;
   localStorage.setItem("neociv.intro", "done");
   onboardingEl.classList.add("hidden");
-  asideEl.classList.add("compact");
-  dashboardToggle.textContent = "show more";
-}
-
-function showAttract() {
-  showScreen("onboarding-attract");
-}
-
-function showName() {
-  nameInput.value = pickName();
-  onboardingStatus.textContent = "";
-  onboardingStatus.className = "";
-  showScreen("onboarding-name");
-  nameInput.focus();
-}
-
-function updateAttractCount(snapshot) {
-  if (introDone) return;
-  attractSubtitle.textContent =
-    `${snapshot.stats.agents} people are alive in here. Nobody controls them.`;
-}
-
-document.getElementById("btn-enter").addEventListener("click", showName);
-document.getElementById("btn-watch").addEventListener("click", markIntroDone);
-document.getElementById("onboarding-back").addEventListener("click", showAttract);
-document.getElementById("onboarding-random").addEventListener("click", () => {
-  nameInput.value = pickName();
-  nameInput.focus();
-});
-
-document.getElementById("onboarding-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const name = nameInput.value.trim();
-  if (!name) {
-    onboardingStatus.className = "bad";
-    onboardingStatus.textContent = "enter a name";
-    return;
+  // Start first-session hints only the very first time
+  if (!localStorage.getItem("neociv.hints")) {
+    hintsActive = true;
+    setTimeout(() => showHint("Click any villager to inspect them.", 8000), 5000);
   }
-  onboardingStatus.className = "";
-  onboardingStatus.textContent = "deploying...";
-  try {
-    const response = await fetch("/agents", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, personality: "" }),
-    });
-    const body = await response.json();
-    if (!response.ok) {
-      onboardingStatus.className = "bad";
-      onboardingStatus.textContent = body.detail || "deploy failed";
-      return;
-    }
-    pendingAgentName = name;
-    whoami.value = name;
-    localStorage.setItem("neociv.user", name);
-    waitingText.textContent = `${name} is spawning now...`;
-    showScreen("onboarding-waiting");
-    waitForAgent(name);
-  } catch {
-    onboardingStatus.className = "bad";
-    onboardingStatus.textContent = "deploy failed";
+}
+
+function updateSplashCount(snapshot) {
+  if (introDone && onboardingState !== "splash") return;
+  splashSubtitle.textContent =
+    `${snapshot.stats.agents} people are alive. Nobody controls them.`;
+}
+
+// Splash: any key or click advances to menu
+document.addEventListener("keydown", (e) => {
+  if (onboardingState === "splash") {
+    e.preventDefault();
+    showMenu();
   }
 });
 
-async function waitForAgent(name) {
-  for (let i = 0; i < 40; i++) {
-    try {
-      const res = await fetch("/agents");
-      if (!res.ok) {
-        await new Promise((r) => setTimeout(r, 500));
-        continue;
-      }
-      const data = await res.json();
-      const found = data.agents.find((a) => a.name === name);
-      if (found) {
-        // The agent exists, but its spawn-market may not be in lastBook yet.
-        // Refresh markets before showing the summary so the bet buttons are real.
-        await refreshMarkets();
-        onAgentFound(found);
-        return;
-      }
-      const stillPending = (data.pending || []).some((p) => p.name === name);
-      if (!stillPending && i > 6) break;
-    } catch {}
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  waitingText.textContent = "Could not confirm arrival. Check the sidebar for your agent.";
-  setTimeout(markIntroDone, 1500);
-}
-
-function onAgentFound(agent) {
-  pendingAgentId = agent.id;
-  summaryName.textContent = `${agent.name} arrives`;
-  const initial = agent.name.charAt(0).toUpperCase();
-  const colour = clanColour(agent.clan);
-  summaryAvatar.textContent = initial;
-  summaryAvatar.style.borderColor = colour;
-  summaryAvatar.style.background = `linear-gradient(135deg, ${colour}33, ${colour}18)`;
-  summaryAvatar.style.boxShadow = `0 0 0 1px rgba(255,255,255,0.04), 0 4px 14px rgba(0,0,0,0.35), 0 0 18px ${colour}40`;
-  const stateLabels = {
-    IDLE: "idle", SEEK_NEED: "looking for something", GATHER: "gathering",
-    BUILD: "building", REST: "resting", FLEE: "fleeing", FOLLOW: "following", MEET: "meeting",
-  };
-  summaryState.textContent = stateLabels[agent.state] || agent.state.toLowerCase();
-  summaryClan.textContent = agent.clan != null ? `clan ${agent.clan}` : "clanless";
-  summaryDetail.textContent = "You are watching them from street level.";
-  const market = findAgentMarket(agent.id);
-  if (market) {
-    summaryQuestion.textContent = `Will ${agent.name} still be alive by day ${dayNumber(market.settles_at_tick)}?`;
-    summaryHint.textContent = "Placing a bet costs 25 credits.";
-    summarySides.style.display = "";
-  } else {
-    summaryQuestion.textContent = `A market on ${agent.name} opens shortly. We'll show it in the sidebar.`;
-    summaryHint.textContent = "";
-    summarySides.style.display = "none";
-  }
-  showScreen("onboarding-summary");
-  dropIn(agent);
-}
-
-function findAgentMarket(agentId) {
-  if (!lastBook) return null;
-  return lastBook.open.find((m) => m.subject && m.subject.agent === agentId);
-}
-
-function dropIn(agent) {
-  director.disable();
-  autoResumeAt = performance.now() + 20000;
-  worldView.streetLevel(agent.x, agent.y);
-  setLabel(agent.name);
-  selectedId = agent.id;
-  if (lastSnapshot) {
-    renderInspector(lastSnapshot);
-    drawMinimap(lastSnapshot);
-  }
-}
-
-async function placeOnboardingBet(side) {
-  const market = findAgentMarket(pendingAgentId);
-  if (!market) {
-    summaryHint.textContent = "No open market for them yet.";
-    setTimeout(markIntroDone, 600);
-    return;
-  }
-  summaryHint.textContent = side === "yes" ? "betting yes..." : "betting no...";
-  try {
-    const response = await fetch(`/markets/${market.id}/positions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: whoami.value.trim(), side, stake: 25 }),
-    });
-    if (response.ok) {
-      summaryHint.textContent = "Bet placed. Good luck.";
-    } else {
-      const body = await response.json().catch(() => ({}));
-      summaryHint.textContent = body.detail || "bet refused";
-    }
-  } catch {
-    summaryHint.textContent = "no connection";
-  }
-  setTimeout(markIntroDone, 900);
-}
-
-document.getElementById("summary-yes").addEventListener("click", () => placeOnboardingBet("yes"));
-document.getElementById("summary-no").addEventListener("click", () => placeOnboardingBet("no"));
-document.getElementById("summary-skip").addEventListener("click", markIntroDone);
-
-dashboardToggle.addEventListener("click", () => {
-  asideEl.classList.toggle("compact");
-  dashboardToggle.textContent = asideEl.classList.contains("compact") ? "show more" : "show less";
+splashScreen.addEventListener("click", () => {
+  if (onboardingState === "splash") showMenu();
 });
+
+// Menu buttons
+document.getElementById("menu-continue").addEventListener("click", () => {
+  if (introDone) enterGameplay();
+  else showSlide1();
+});
+
+document.getElementById("menu-settings").addEventListener("click", () => {
+  const panel = document.getElementById("settingsPanel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+  document.querySelector('[data-panel="settingsPanel"]')?.classList.toggle("active", panel.style.display !== "none");
+  onboardingEl.classList.add("hidden");
+});
+
+document.getElementById("menu-exit").addEventListener("click", () => {
+  onboardingEl.classList.add("hidden");
+  document.body.classList.add("ui-hidden");
+});
+
+// Slide navigation
+document.getElementById("slide1-next").addEventListener("click", showSlide2);
+document.getElementById("slide1-skip").addEventListener("click", enterGameplay);
+document.getElementById("slide2-next").addEventListener("click", showSlide3);
+document.getElementById("slide2-back").addEventListener("click", showSlide1);
+document.getElementById("slide3-begin").addEventListener("click", enterGameplay);
+document.getElementById("slide3-back").addEventListener("click", showSlide2);
 
 if (introDone) {
   onboardingEl.classList.add("hidden");
-  asideEl.classList.remove("compact");
-} else {
-  asideEl.classList.add("compact");
 }
+
+// Hide new panels by default so dock toggles work correctly
+for (const id of ["deployPanel", "legendPanel", "settingsPanel"]) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = "none";
+}
+
+// --- gameplay hints ---------------------------------------------------------
+
+const hintsContainer = document.getElementById("gameplayHints");
+
+function showHint(text, duration = 6000) {
+  const el = document.createElement("div");
+  el.className = "gameplay-hint";
+  el.textContent = text;
+  hintsContainer.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 500);
+  }, duration);
+}
+
+// Settings reset intro
+document.getElementById("settingsResetIntro").addEventListener("click", () => {
+  localStorage.removeItem("neociv.intro");
+  localStorage.removeItem("neociv.hints");
+  hintsActive = false;
+  introDone = false;
+  onboardingEl.classList.remove("hidden");
+  showSplash();
+});
 
 
 modeButton.addEventListener("click", () => {
@@ -1253,7 +2161,7 @@ function drawMinimap(snapshot) {
 function render(snapshot) {
   lastSnapshot = snapshot;
   ensureMounted(snapshot);
-  updateAttractCount(snapshot);
+  updateSplashCount(snapshot);
 
   setText("tick", snapshot.tick);
   setText("day", snapshot.day);
@@ -1264,10 +2172,19 @@ function render(snapshot) {
   setText("clans", snapshot.stats.clans);
   setText("clanned", snapshot.stats.clanned);
   setText("userAgents", snapshot.stats.user_agents);
-  renderDeployed(snapshot);
 
+  // Top bar stats
+  setText("topDay", snapshot.day);
+  setText("topAgents", snapshot.stats.agents);
+  setText("topHuts", snapshot.stats.buildings);
+  setText("topClans", snapshot.stats.clans);
+  setText("topResources", snapshot.stats.resources);
+
+  renderDeployed(snapshot);
   renderLegend(snapshot);
   renderInspector(snapshot);
+  processMessages(snapshot);
+  processWorldLog(snapshot);
   if (worldView.active) {
     worldView.update(snapshot);
     // Events come from the difference between two snapshots, so the director has to see
@@ -1356,7 +2273,33 @@ worldEl.addEventListener("pointerup", (event) => {
     renderInspector(lastSnapshot);
     drawMinimap(lastSnapshot);
   }
+  // First-session hints: advance on agent click
+  if (hit != null && hintsActive) {
+    hintsActive = false;
+    localStorage.setItem("neociv.hints", "done");
+    showHint("Every citizen has unique goals, memories, and relationships.", 6000);
+    setTimeout(() => showHint("Zoom out to observe how civilization evolves over time.", 8000), 7000);
+  }
 });
+
+const pauseOverlay = document.getElementById("pauseOverlay");
+const worldStage = document.getElementById("stage");
+
+function togglePause() {
+  // Don't pause if onboarding is showing
+  if (!onboardingEl.classList.contains("hidden")) return;
+  const showing = pauseOverlay.classList.toggle("show");
+  worldStage.classList.toggle("blur", showing);
+  if (showing) {
+    // Stop the camera from drifting while "paused"
+    if (director.enabled) director.disable();
+  }
+}
+
+function resumePause() {
+  pauseOverlay.classList.remove("show");
+  worldStage.classList.remove("blur");
+}
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && selectedId !== null) {
@@ -1366,13 +2309,45 @@ document.addEventListener("keydown", (event) => {
       drawMinimap(lastSnapshot);
     }
   }
+  if (event.key.toLowerCase() === "h") {
+    document.body.classList.toggle("ui-hidden");
+  }
+  if (event.key === " " && !event.repeat) {
+    // Don't toggle pause while typing in an input
+    if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+    togglePause();
+  }
 });
+
+document.getElementById("pause-resume").addEventListener("click", resumePause);
+document.getElementById("pause-settings").addEventListener("click", () => {
+  const panel = document.getElementById("settingsPanel");
+  panel.style.display = panel.style.display === "none" ? "block" : "none";
+  document.querySelector('[data-panel="settingsPanel"]')?.classList.toggle("active", panel.style.display !== "none");
+});
+document.getElementById("pause-exit").addEventListener("click", () => {
+  resumePause();
+  document.body.classList.toggle("ui-hidden");
+});
+
+// Dock button toggles
+for (const btn of document.querySelectorAll("#bottomDock .dock-btn")) {
+  btn.addEventListener("click", () => {
+    const panelId = btn.dataset.panel;
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const isHidden = panel.style.display === "none";
+    panel.style.display = isHidden ? "" : "none";
+    btn.classList.toggle("active", isHidden);
+  });
+}
 
 // The camera moves between ticks, so the viewport ring would lag a second behind the
 // scene if it only redrew on a snapshot.
 (function trackCamera() {
   requestAnimationFrame(trackCamera);
   if (worldView.active && lastSnapshot) drawMinimap(lastSnapshot);
+  positionBubbles();
 })();
 
 let socket = null;

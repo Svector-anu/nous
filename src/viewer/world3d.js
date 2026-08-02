@@ -24,6 +24,34 @@ import * as THREE from "/static/vendor/three.module.min.js";
 const TILE = 2; // world metres per simulation tile
 const TEXTURE_SIZE = 128;
 
+// --- event flashes ----------------------------------------------------------
+// Short-lived glows at the location of something the spectator should notice.
+// These are viewer-only cosmetics; the simulation has no idea they exist.
+
+function makeFlashTexture(colorHex) {
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const cx = size / 2;
+  const gradient = ctx.createRadialGradient(cx, cx, 0, cx, cx, size / 2);
+  const hex = colorHex.toString(16).padStart(6, "0");
+  gradient.addColorStop(0, `#${hex}`);
+  gradient.addColorStop(0.45, `rgba(${(colorHex >> 16) & 255}, ${(colorHex >> 8) & 255}, ${colorHex & 255}, 0.35)`);
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const FLASH_CONFIG = {
+  build: { color: 0xffd700, scale: TILE * 1.4, duration: 1.6 },
+  raid:  { color: 0xf85149, scale: TILE * 1.8, duration: 2.0 },
+};
+
 // --- noise ------------------------------------------------------------------
 
 function hash2(x, y, seed) {
@@ -732,6 +760,14 @@ export class WorldView {
       euler: new THREE.Euler(),
     };
     this.lastSnapshotAt = 0;
+    this.lastSnapshot = null;
+    this.agentPositions = new Map();
+    this.flashTextures = {
+      build: makeFlashTexture(FLASH_CONFIG.build.color),
+      raid: makeFlashTexture(FLASH_CONFIG.raid.color),
+    };
+    this._own(...Object.values(this.flashTextures));
+    this.flashSprites = [];
 
     const { width, height } = this._size();
 
@@ -1253,8 +1289,47 @@ export class WorldView {
     // next one. The simulation clock is 1 second per tick, but render frames arrive far faster.
     this.lastSnapshotAt = this.clock;
     this._syncAgents(agents);
+    this._spawnEventFlashes(snapshot);
+    this.lastSnapshot = snapshot;
 
     this.stats = { huts: buildings.length, agents: agents.length, nodes: resources.length };
+  }
+
+  _spawnEventFlashes(snapshot) {
+    if (!this.lastSnapshot) return;
+    const beforeAgents = new Map();
+    for (const agent of this.lastSnapshot.agents) beforeAgents.set(agent.id, agent);
+    const beforeBuildings = new Set(this.lastSnapshot.buildings.map((b) => b.id));
+
+    for (const agent of snapshot.agents) {
+      const was = beforeAgents.get(agent.id);
+      if (was && (agent.raids_won > was.raids_won || agent.raids_lost > was.raids_lost)) {
+        this._spawnFlash("raid", agent.x, agent.y);
+      }
+    }
+
+    for (const building of snapshot.buildings) {
+      if (!beforeBuildings.has(building.id)) {
+        this._spawnFlash("build", building.x, building.y);
+      }
+    }
+  }
+
+  _spawnFlash(kind, x, y) {
+    const cfg = FLASH_CONFIG[kind];
+    if (!cfg) return;
+    const [wx, wz] = this.local({ x, y });
+    const material = new THREE.SpriteMaterial({
+      map: this.flashTextures[kind],
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    });
+    const sprite = new THREE.Sprite(material);
+    sprite.position.set(wx, terrainHeight(wx, wz) + TILE * 0.15, wz);
+    sprite.scale.set(cfg.scale, cfg.scale, 1);
+    this.scene.add(sprite);
+    this.flashSprites.push({ sprite, spawn: this.clock, duration: cfg.duration, baseScale: cfg.scale });
   }
 
   _buildStatic(buildings, resources) {
@@ -1600,6 +1675,11 @@ export class WorldView {
         matrix.compose(position, quaternion, scale);
         entry.body.setMatrixAt(i, matrix);
         entry.head.setMatrixAt(i, matrix);
+        this.agentPositions.set(pose.id, {
+          x: ix,
+          y: iground + bob + TILE * (1.45 + pose.tall * 0.08),
+          z: iz,
+        });
       }
       entry.body.instanceMatrix.needsUpdate = true;
       entry.head.instanceMatrix.needsUpdate = true;
@@ -1637,6 +1717,23 @@ export class WorldView {
     this.rings.instanceMatrix.needsUpdate = true;
   }
 
+  _updateFlashes() {
+    for (let i = this.flashSprites.length - 1; i >= 0; i--) {
+      const f = this.flashSprites[i];
+      const age = this.clock - f.spawn;
+      if (age >= f.duration) {
+        this.scene.remove(f.sprite);
+        f.sprite.material.dispose();
+        this.flashSprites.splice(i, 1);
+        continue;
+      }
+      const t = age / f.duration;
+      const scale = f.baseScale * (1 + t * 1.2);
+      f.sprite.scale.set(scale, scale, 1);
+      f.sprite.material.opacity = (1 - t) * 0.8;
+    }
+  }
+
   _disposeAgentGroup(key) {
     const entry = this.agentMeshes.get(key);
     if (!entry) return;
@@ -1672,6 +1769,7 @@ export class WorldView {
     const dt = this.lastFrameAt === null ? 0 : Math.min((now - this.lastFrameAt) / 1000, 0.25);
     this.lastFrameAt = now;
     this.clock += dt;
+    this._updateFlashes();
     if (this.onBeforeFrame) this.onBeforeFrame(dt);
     if (dt > 0) {
       this._easeCamera(dt);
@@ -1713,6 +1811,23 @@ export class WorldView {
       x,
       y,
       radius: (this.orbit.distance * Math.tan(halfFov)) / TILE,
+    };
+  }
+
+  // Screen position of an agent's head, for overlaying speech bubbles. The height is
+  // eyeballed above the merged humanoid so the bubble sits over the head, not the feet.
+  agentScreenPosition(id) {
+    if (!this.active) return null;
+    const pos = this.agentPositions.get(id);
+    if (!pos) return null;
+    const v = new THREE.Vector3(pos.x, pos.y, pos.z);
+    v.project(this.camera);
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const onScreen = v.z >= -1 && v.z <= 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1;
+    return {
+      x: (v.x * 0.5 + 0.5) * rect.width + rect.left,
+      y: (-v.y * 0.5 + 0.5) * rect.height + rect.top,
+      visible: onScreen,
     };
   }
 
@@ -1765,7 +1880,11 @@ export class WorldView {
       this.rings.dispose();
       this.rings = null;
     }
-    this.clanMaterials.clear();
+    for (const f of this.flashSprites) {
+      this.scene.remove(f.sprite);
+      f.sprite.material.dispose();
+    }
+    this.flashSprites = [];
     this.agentIndex.clear();
 
     for (const item of this.disposables) {
@@ -1789,6 +1908,7 @@ export class WorldView {
     this.raycaster = null;
     this.sun = null;
     this.staticKey = null;
+    this.agentPositions.clear();
   }
 }
 

@@ -9,7 +9,7 @@ import uvicorn
 from .api.server import create_app
 from .env import load_env
 
-HOST = "127.0.0.1"
+HOST = "0.0.0.0"
 PORT = 8000
 
 

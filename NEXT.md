@@ -15,14 +15,14 @@ Before writing any code, report back:
 Do not start until I confirm your read is right.
 ```
 
-## Current state — verified 2026-07-31
+## Current state — verified 2026-08-02
 
 | | |
 |---|---|
-| Tests | **358 passed in 195s** (`pytest -q`, actual output) |
+| Tests | **366 passed in 154s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
 | Commits | 35, `main`, pushed to `origin` (private) |
-| Working tree | clean |
+| Working tree | dirty (speech-bubble + social-feed + visibility/aliveness pass, uncommitted) |
 | Lint / typecheck / CI | **none exist** |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
@@ -30,7 +30,10 @@ clans, goals, influence, user-deployed agents, raiding, grudges, truces); chunke
 index; multi-provider LLM advisor, off by default, verified live and **measured against the
 rules** (79% divergence, coherent reasoning — see `scripts/compare_advisor.py`);
 procedural 3D as the main view with a self-directing cinematic camera; humanoid agents;
-prediction markets.
+prediction markets; comic-style real-time speech bubbles and a social feed so spectators
+can see the social layer; visibility / aliveness pass (event flashes for builds and raids,
+right-card WORLD log, shorter director shots, `longestJourney` follows) so purposeful
+movement and world activity read clearly.
 
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.

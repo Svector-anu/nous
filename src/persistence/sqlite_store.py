@@ -33,6 +33,7 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.Clan,
     component_module.SpawnQueue,
     component_module.DecisionLog,
+    component_module.MessageLog,
     component_module.AdvisorState,
     component_module.MarketBook,
 )
@@ -164,5 +165,9 @@ class SqliteWorldStore:
             "SELECT entity, kind, data FROM components ORDER BY entity, kind"
         ):
             world.add(entity_id, _decode(kind, data))
+
+        # Migration: MessageLog was added after some saves; older worlds resume without it.
+        if world.first(component_module.MessageLog) is None:
+            world.add(world.create_entity(), component_module.MessageLog())
 
         return world

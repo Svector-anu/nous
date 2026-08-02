@@ -15,7 +15,7 @@ const TILE = 2;
 
 // How long a shot holds before the director looks for something new. An event worth more
 // than the current subject can cut early; see `_shouldCut`.
-const SHOT_SECONDS = { establish: 11, orbit: 9, push: 8, follow: 10, survey: 13, vista: 14 };
+const SHOT_SECONDS = { establish: 8, orbit: 7, push: 6, follow: 7, survey: 9, vista: 10 };
 
 // Weights for why a subject is worth watching. Tuned so a fight beats a building site and
 // a building site beats an empty field, which is the whole editorial policy.
@@ -119,6 +119,35 @@ export function busiestPlace(snapshot, radius = 6) {
   const x = best.reduce((sum, a) => sum + a.x, 0) / best.length;
   const y = best.reduce((sum, a) => sum + a.y, 0) / best.length;
   return { x, y, count: best.length };
+}
+
+const MOVING_STATES = new Set(["SEEK_NEED", "FOLLOW", "MEET", "FLEE"]);
+
+// The agent with the longest current journey, as a way to show purposeful movement.
+// A journey is only worth a shot if the target is far enough to read as travel.
+export function longestJourney(snapshot) {
+  if (!snapshot || snapshot.agents.length === 0) return null;
+  let best = null;
+  let bestDistance = 4; // minimum Chebyshev distance to bother following
+  for (const agent of snapshot.agents) {
+    if (!agent.target) continue;
+    if (!MOVING_STATES.has(agent.state)) continue;
+    const dx = Math.abs(agent.x - agent.target[0]);
+    const dy = Math.abs(agent.y - agent.target[1]);
+    const distance = Math.max(dx, dy);
+    if (distance > bestDistance) {
+      bestDistance = distance;
+      best = agent;
+    }
+  }
+  if (!best) return null;
+  return {
+    x: best.x,
+    y: best.y,
+    agent: best.id,
+    distance: bestDistance,
+    label: `${best.name} is ${best.state.toLowerCase().replace("_", " ")}`,
+  };
 }
 
 export class Director {
@@ -226,6 +255,19 @@ export class Director {
         label: `${busy.count} gathered`,
       });
     }
+
+    const journey = longestJourney(this.snapshot);
+    if (journey) {
+      candidates.push({
+        kind: "traveller",
+        score: Math.min(18, 8 + journey.distance * 1.2),
+        x: journey.x,
+        y: journey.y,
+        agent: journey.agent,
+        label: journey.label,
+      });
+    }
+
     candidates.push({
       kind: "world", score: 8, x: this.snapshot.grid.width / 2, y: this.snapshot.grid.height / 2,
       label: "the world", forceKind: "establish", span: (this.snapshot.grid.width / 2) * TILE,

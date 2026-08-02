@@ -17,7 +17,7 @@ class WorldConfig:
     grid_width: int = 64
     grid_height: int = 64
     agent_count: int = 120
-    resource_count: int = 220
+    resource_count: int = 210
 
     tick_seconds: float = 1.0
     save_every_ticks: int = 50
@@ -40,12 +40,13 @@ class WorldConfig:
     node_min_amount: int = 4
     node_max_amount: int = 12
 
-    max_huts_per_agent: int = 3
+    max_huts_per_agent: int = 5
     global_build_stop_fraction: float = 0.6
 
     blackboard_ttl_ticks: int = 300
     blackboard_max_locations: int = 8
     inbox_capacity: int = 16
+    message_log_limit: int = 128
     clan_form_radius: int = 3
     clan_form_chance: float = 0.25
     max_clan_size: int = 8
@@ -121,7 +122,7 @@ class WorldConfig:
     # Raiding needs real desperation, not merely empty stores. Measured mean clan hunger
     # never drops below 22 in a healthy world, so a bar under that means raids happen
     # during genuine famine and essentially never otherwise.
-    clan_desperate_threshold: int = 20
+    clan_desperate_threshold: int = 25
     huts_per_member_target: float = 3.0
 
     def build_ceiling(self) -> int:

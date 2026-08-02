@@ -62,8 +62,13 @@ def _tick_combat(world: World) -> None:
 
 
 def test_healthy_world_never_raids():
-    """The whole design intent: a world with enough food sees no violence."""
-    simulation = Simulation(create_world(WorldConfig()))
+    """The whole design intent: a world with enough food sees no violence.
+
+    The default world is tuned to be a little harsher, so the test uses an
+    explicitly plentiful configuration to assert the rule itself.
+    """
+    healthy = WorldConfig(resource_count=260)
+    simulation = Simulation(create_world(healthy))
     simulation.run(4000)
     world = simulation.world
 

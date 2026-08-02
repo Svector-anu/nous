@@ -16,6 +16,7 @@ from .components import (
     Inbox,
     Inventory,
     MarketBook,
+    MessageLog,
     Needs,
     Outbox,
     Position,
@@ -87,6 +88,7 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), Blackboard())
     world.add(world.create_entity(), SpawnQueue())
     world.add(world.create_entity(), DecisionLog())
+    world.add(world.create_entity(), MessageLog())
     world.add(world.create_entity(), AdvisorState())
     world.add(world.create_entity(), MarketBook())
 
@@ -254,6 +256,11 @@ class Simulation:
                 }
             )
 
+        message_log_entity = world.first(MessageLog)
+        messages = []
+        if message_log_entity is not None:
+            messages = list(world.get(message_log_entity, MessageLog).entries)
+
         return {
             "tick": world.tick,
             "day": self.day,
@@ -262,6 +269,7 @@ class Simulation:
             "resources": resources,
             "buildings": buildings,
             "clans": clans,
+            "messages": messages,
             "stats": {
                 "agents": len(agents),
                 "resources": len(resources) - dormant,

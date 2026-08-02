@@ -220,6 +220,22 @@ class DecisionLog:
 
 
 @dataclass
+class MessageLog:
+    """Recent messages delivered in the world, for the viewer to show as captions.
+
+    Bounded: the inbox itself is bounded, but a separate log is needed because messages
+    are consumed within the same tick they arrive.
+    """
+
+    entries: list[dict] = field(default_factory=list)
+
+    def record(self, entry: dict, limit: int) -> None:
+        self.entries.append(entry)
+        if limit > 0 and len(self.entries) > limit:
+            del self.entries[: len(self.entries) - limit]
+
+
+@dataclass
 class SpawnQueue:
     """Deployment requests waiting to enter the world, held by a single world entity.
 
