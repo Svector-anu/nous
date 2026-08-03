@@ -24,6 +24,14 @@ function check(name, ok, detail) {
   if (!ok) failures.push(name);
 }
 
+async function openCameraTours() {
+  const panel = await page.locator("#objectivesCard").first();
+  if (await panel.isVisible().catch(() => false)) return;
+  await page.click('[data-panel="settingsPanel"]');
+  await page.click("#settingsShowTours");
+  await panel.waitFor({ state: "visible" });
+}
+
 const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
 
@@ -297,6 +305,7 @@ check("collapsed container keeps a finite aspect", edges.collapsed);
 // Autopilot has to be off for this: projecting 40-odd agents and raycasting each takes real
 // time, and a camera gliding underneath it invalidates every projection computed before it
 // moved. That alone pushed misses from 2 to 8.
+await openCameraTours();
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyDensest");
 await page.waitForTimeout(1200);
@@ -541,6 +550,7 @@ check(
 );
 
 // --- 11. street level is low and among the huts, not an aerial -------------
+await openCameraTours();
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyStreet");
 await page.waitForTimeout(2500);
