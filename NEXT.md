@@ -19,11 +19,13 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **378 passed in 118s** (`pytest -q`, actual output) |
+| Tests | **394 passed in 206s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 36, `main`, pushed to `origin` (private) |
-| Working tree | dirty (Phase 1: natural clan-leader messages influenced by personality) |
+| Commits | 41, branch `phase/2-user-agent-standing` ready to merge |
+| Working tree | dirty (Phase 2: user-agent standing and progression) |
 | Lint / typecheck / CI | **none exist** |
+| GitHub issues | #1–#6 filed |
+| Open PRs | #7 phase 2 ready, #8 phase 1b, #9 phase 3 (drafts) |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
 clans, goals, influence, user-deployed agents, raiding, grudges, truces); chunked spatial
@@ -34,7 +36,9 @@ prediction markets; comic-style real-time speech bubbles and a social feed so sp
 can see the social layer; visibility / aliveness pass (event flashes for builds and raids,
 right-card WORLD log, shorter director shots, `longestJourney` follows) so purposeful
 movement and world activity read clearly; Phase 1 natural-language clan-leader messages
-influenced by personality (no LLM, deterministic, bounded text length).
+influenced by personality (no LLM, deterministic, bounded text length); Phase 2
+user-agent standing and progression (Member → Trusted → Officer → leader succession)
+based only on recorded actions: donations, builds, raids, survival, membership time.
 
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.

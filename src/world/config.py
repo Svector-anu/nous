@@ -125,6 +125,17 @@ class WorldConfig:
     clan_desperate_threshold: int = 25
     huts_per_member_target: float = 3.0
 
+    # Standing and rank progression for user-deployed agents. Standing only increases from
+    # recorded actions; it is never granted for free.
+    standing_trusted_threshold: int = 60
+    standing_officer_threshold: int = 150
+    standing_per_hut_built: int = 10
+    standing_per_food_given: int = 3
+    standing_per_wood_given: int = 3
+    standing_per_raid_won: int = 40
+    standing_per_survival_ticks: int = 200  # standing +1 every 200 ticks alive
+    standing_per_membership_ticks: int = 100  # standing +1 every 100 ticks in a clan
+
     def build_ceiling(self) -> int:
         """Hard cap on total buildings. Truncated so the last permitted placement
         still lands at or under the fraction, never one past it."""

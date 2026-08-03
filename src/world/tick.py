@@ -23,6 +23,7 @@ from .components import (
     ResourceKind,
     ResourceNode,
     SpawnQueue,
+    Standing,
 )
 from .config import TICKS_PER_DAY, WorldConfig
 from .ecs import SystemRegistry, World
@@ -40,6 +41,7 @@ from .systems import (
     regrowth,
     social,
     spawning,
+    standing,
     trade,
 )
 
@@ -67,6 +69,7 @@ def build_registry() -> SystemRegistry:
     registry.register("regrowth", regrowth.run)
     registry.register("leadership", leadership.run)
     registry.register("social", social.run)
+    registry.register("standing", standing.run)
     registry.register("blackboard", blackboard.run)
     # Last: a market resolves against the tick's final state, so it must run after every
     # system that can change the world. It only ever reads that state.
@@ -123,7 +126,8 @@ def create_world(config: WorldConfig) -> World:
         world.add(entity, ClanRef())
         world.add(entity, Inbox())
         world.add(entity, Outbox())
-        world.add(entity, Agent(name=_agent_name(rng, index)))
+        world.add(entity, Agent(name=_agent_name(rng, index), spawn_tick=0))
+        world.add(entity, Standing())
 
     return world
 
@@ -200,6 +204,16 @@ class Simulation:
                         [agent.target_x, agent.target_y]
                         if agent.target_x is not None and agent.target_y is not None
                         else None
+                    ),
+                    "standing": (
+                        world.get(entity, Standing).value
+                        if world.has(entity, Standing)
+                        else 0
+                    ),
+                    "rank": (
+                        world.get(entity, Standing).rank
+                        if world.has(entity, Standing)
+                        else "member"
                     ),
                 }
             )

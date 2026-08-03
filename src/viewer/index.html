@@ -1741,6 +1741,7 @@ function renderInspector(snapshot) {
     `<div class="agent-card-stat">${statIcon("energy")}<span>Energy</span><span class="value">${agent.energy}</span></div>` +
     `<div class="agent-card-stat">${statIcon("hunger")}<span>Hunger</span><span class="value">${agent.hunger}</span></div>` +
     `<div class="agent-card-stat">${statIcon("food")}<span>Food</span><span class="value">${agent.food} / 5</span></div>` +
+    `<div class="agent-card-stat"><span style="font-size:14px">★</span><span>Standing</span><span class="value">${agent.standing || 0} · ${agent.rank || 'member'}</span></div>` +
     `</div>` +
     `</div>` +
     `<div class="agent-card-bar"><span style="width:${foodPercent}%;background:#3fb950"></span></div>`;

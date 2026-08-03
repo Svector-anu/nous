@@ -31,6 +31,7 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.Inbox,
     component_module.Outbox,
     component_module.Clan,
+    component_module.Standing,
     component_module.SpawnQueue,
     component_module.DecisionLog,
     component_module.MessageLog,
