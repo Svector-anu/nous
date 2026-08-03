@@ -50,9 +50,9 @@ def test_provider_none_is_off():
     assert isinstance(build_advisor(WorldConfig(llm_enabled=True, llm_provider="none")), NullAdvisor)
 
 
-def test_anthropic_is_the_default_provider():
+def test_dgrid_is_the_default_provider():
     advisor = build_advisor(WorldConfig(llm_enabled=True))
-    assert isinstance(advisor, ClaudeAdvisor)
+    assert isinstance(advisor, DGridAdvisor)
     advisor.close()
 
 
@@ -372,12 +372,14 @@ def test_dgrid_accepts_a_model_key(monkeypatch):
 
 
 def test_dgrid_rejects_a_model_without_a_provider_prefix(monkeypatch):
-    """WorldConfig.llm_model defaults to a plain anthropic id, which is correct for the
-    anthropic provider and wrong for the gateway. Unprefixed, it would come back as a remote
-    400 about an unknown model rather than pointing at the missing prefix."""
+    """A plain anthropic id is correct for the anthropic provider and wrong for the
+    gateway. Unprefixed, it would come back as a remote 400 about an unknown model rather
+    than pointing at the missing prefix."""
     monkeypatch.setenv("DGRID_API_KEY", "sk-abcdef123456")
-    advisor = build_advisor(WorldConfig(llm_enabled=True, llm_provider="dgrid"))
-    assert advisor.model == "claude-opus-5", "the config default should reach the advisor"
+    advisor = build_advisor(
+        WorldConfig(llm_enabled=True, llm_provider="dgrid", llm_model="claude-opus-5")
+    )
+    assert advisor.model == "claude-opus-5"
     with pytest.raises(RuntimeError) as caught:
         advisor._create_client()
     assert "provider prefix" in str(caught.value)

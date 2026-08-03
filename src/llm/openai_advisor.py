@@ -142,6 +142,7 @@ class OpenAICompatibleAdvisor(ThreadedAdvisor):
             clan_id=brief.clan_id,
             goal=str(payload["goal"]),
             reason=str(payload.get("reason", "")),
+            message=str(payload.get("message", ""))[:120],
             source="llm",
             rules_goal=brief.rules_goal,
             prompt=brief.as_prompt(),
@@ -188,7 +189,7 @@ class DGridAdvisor(OpenAICompatibleAdvisor):
     """
 
     name = "dgrid"
-    DEFAULT_MODEL = "anthropic/claude-opus-5"
+    DEFAULT_MODEL = "anthropic/claude-sonnet-4"
 
     # The gateway issues two kinds of credential and only one of them can infer.
     MANAGEMENT_KEY_PREFIX = "mk-"

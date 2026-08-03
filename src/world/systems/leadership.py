@@ -31,7 +31,7 @@ from ..components import (
 )
 from ..ecs import Entity, World
 from ..rng import TickRng
-from .messaging import BROADCAST_CLAN, make_message, send
+from .messaging import BROADCAST_CLAN, MessageType, make_message, send
 from .message_composer import compose_content
 
 logger = logging.getLogger("neociv.leadership")
@@ -148,6 +148,8 @@ def _brief(world: World, clan: Clan, nearby: int):
     raids = sum(
         world.get(m, Agent).raids_lost for m in living if world.has(m, Agent)
     )
+    leader = clan.leader
+    leader_agent = world.try_get(leader, Agent) if leader is not None else None
     return GoalBrief(
         clan_id=clan.clan_id,
         tick=world.tick,
@@ -162,6 +164,8 @@ def _brief(world: World, clan: Clan, nearby: int):
         # Evaluated now, against the same state the model is about to see, so the two
         # answers are genuinely comparable rather than taken at different ticks.
         rules_goal=_choose_goal(world, clan).value,
+        leader_personality=leader_agent.personality if leader_agent is not None else "",
+        leader_name=leader_agent.name if leader_agent is not None else "",
     )
 
 
@@ -194,6 +198,9 @@ def _apply(world: World, decision) -> None:
     clan.goal_reason = decision.reason
     leader = clan.leader
     if leader is not None and world.is_alive(leader) and previous_goal != decision.goal:
+        content: dict = {"goal": clan.goal}
+        if decision.message:
+            content["text"] = decision.message[:120]
         send(
             world,
             leader,
@@ -205,7 +212,7 @@ def _apply(world: World, decision) -> None:
                     world,
                     leader,
                     MessageType.INFO,
-                    {"goal": clan.goal},
+                    content,
                     world.tick,
                 ),
             ),
@@ -221,6 +228,7 @@ def _apply(world: World, decision) -> None:
             "latency_ms": decision.latency_ms,
             "rules_goal": decision.rules_goal,
             "verdict": decision.verdict,
+            "message": decision.message,
             # The exact exchange, so a decision can be audited long after it was made.
             # Bounded by llm_log_limit like everything else in this world.
             "prompt": decision.prompt,
