@@ -21,9 +21,11 @@ Do not start until I confirm your read is right.
 |---|---|
 | Tests | **378 passed in 118s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 36, `main`, pushed to `origin` (private) |
-| Working tree | dirty (Phase 1: natural clan-leader messages influenced by personality) |
+| Commits | 38, `main`, pushed to `origin` (private) |
+| Working tree | clean |
 | Lint / typecheck / CI | **none exist** |
+| GitHub issues | #1–#6 filed |
+| Open PRs | #7 phase 2, #8 phase 1b, #9 phase 3 (drafts) |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
 clans, goals, influence, user-deployed agents, raiding, grudges, truces); chunked spatial
