@@ -1876,6 +1876,10 @@ export class WorldView {
   _syncRings(users) {
     if (this.rings && this.rings.count !== users.length) {
       this.scene.remove(this.rings);
+      // The ring geometry is shared and owned by this.disposables; do not let a single
+      // ring mesh dispose it. Clearing the reference prevents the shared geometry from
+      // dropping and then re-appearing as a phantom geometry count during user-agent changes.
+      this.rings.geometry = null;
       this.rings.dispose();
       this.rings = null;
     }
@@ -1905,6 +1909,9 @@ export class WorldView {
       if (age >= f.duration) {
         this.scene.remove(f.sprite);
         f.sprite.material.dispose();
+        // Sprites carry a small internal geometry; disposing it keeps the GPU
+        // geometry count stable across flash events and prevents a leak on unmount.
+        f.sprite.geometry.dispose();
         this.flashSprites.splice(i, 1);
         continue;
       }
@@ -2084,12 +2091,16 @@ export class WorldView {
     for (const key of [...this.agentMeshes.keys()]) this._disposeAgentGroup(key);
     if (this.rings) {
       this.scene.remove(this.rings);
+      // The shared ring geometry is owned by this.disposables; clearing the reference
+      // before dispose keeps the renderer geometry count consistent on unmount.
+      this.rings.geometry = null;
       this.rings.dispose();
       this.rings = null;
     }
     for (const f of this.flashSprites) {
       this.scene.remove(f.sprite);
       f.sprite.material.dispose();
+      f.sprite.geometry.dispose();
     }
     this.flashSprites = [];
     if (this.selectionIndicator) this.scene.remove(this.selectionIndicator);
