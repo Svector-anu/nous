@@ -45,19 +45,25 @@ class GoalBrief:
     # What the rule-based _choose_goal would pick in this exact state. Carried purely so
     # every model answer can be compared against the rules it is meant to beat.
     rules_goal: str = ""
+    # Leader's personality note, if any. Empty for genesis agents.
+    leader_personality: str = ""
+    leader_name: str = ""
 
     def as_prompt(self) -> str:
-        return (
-            f"tick: {self.tick}\n"
-            f"clan size: {self.members}\n"
-            f"current goal: {self.current_goal}\n"
-            f"mean hunger (0 starving, 100 full): {self.mean_hunger:.0f}\n"
-            f"food stores (0 empty, 1 full): {self.food_ratio:.2f}\n"
-            f"huts per member (target {3}): {self.huts_per_member:.1f}\n"
-            f"wood held by clan: {self.wood_held}\n"
-            f"other clans within sight: {self.nearby_clans}\n"
-            f"raids suffered recently: {self.recent_raids_suffered}"
-        )
+        lines = [
+            f"tick: {self.tick}",
+            f"clan size: {self.members}",
+            f"current goal: {self.current_goal}",
+            f"mean hunger (0 starving, 100 full): {self.mean_hunger:.0f}",
+            f"food stores (0 empty, 1 full): {self.food_ratio:.2f}",
+            f"huts per member (target {3}): {self.huts_per_member:.1f}",
+            f"wood held by clan: {self.wood_held}",
+            f"other clans within sight: {self.nearby_clans}",
+            f"raids suffered recently: {self.recent_raids_suffered}",
+        ]
+        if self.leader_personality:
+            lines.append(f"your personality: {self.leader_personality}")
+        return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -70,6 +76,9 @@ class GoalDecision:
     rules_goal: str = ""
     prompt: str = ""
     raw_response: str = ""
+    # Optional short message the leader broadcasts to the clan with the goal change.
+    # If empty, the local message composer generates one.
+    message: str = ""
 
     def is_valid(self) -> bool:
         return self.goal in GOALS
@@ -127,7 +136,10 @@ Be decisive.
 Reply with a single JSON object and nothing else. No prose, no markdown, no code fence:
 
 {"goal": "<one of: gather_food, gather_wood, expand, rally, raid>", "reason": "<one short \
-sentence>"}
+sentence>", "message": "<one short sentence your clan would hear, influenced by your personality>"}
+
+The message is optional but encouraged: if you give it, it will be broadcast to your clan \
+when this goal is announced. If you omit it, a local template will fill one in.
 
 The shape is stated here rather than left to `response_format` because not every endpoint \
 honours that parameter — gateways in particular accept it and ignore it, and the answer \
@@ -138,6 +150,10 @@ RESPONSE_SCHEMA: dict[str, Any] = {
     "properties": {
         "goal": {"type": "string", "enum": list(GOALS)},
         "reason": {"type": "string", "description": "One short sentence."},
+        "message": {
+            "type": "string",
+            "description": "One short sentence the leader broadcasts to the clan. Optional.",
+        },
     },
     "required": ["goal", "reason"],
     "additionalProperties": False,

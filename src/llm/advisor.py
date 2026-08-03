@@ -85,8 +85,15 @@ class ScriptedAdvisor:
 
     name = "scripted"
 
-    def __init__(self, answers: dict[int, str], lag_calls: int = 1, reason: str = "scripted"):
+    def __init__(
+        self,
+        answers: dict[int, str],
+        lag_calls: int = 1,
+        reason: str = "scripted",
+        messages: dict[int, str] | None = None,
+    ):
         self.answers = answers
+        self.messages = messages or {}
         self.lag_calls = max(0, lag_calls)
         self.reason = reason
         self.calls = 0
@@ -104,6 +111,7 @@ class ScriptedAdvisor:
                     brief.clan_id,
                     goal,
                     self.reason,
+                    message=self.messages.get(brief.clan_id, ""),
                     source="llm",
                     rules_goal=brief.rules_goal,
                     prompt=brief.as_prompt(),

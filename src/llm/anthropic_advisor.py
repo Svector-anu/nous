@@ -79,6 +79,7 @@ class ClaudeAdvisor(ThreadedAdvisor):
             clan_id=brief.clan_id,
             goal=payload["goal"],
             reason=payload.get("reason", ""),
+            message=str(payload.get("message", ""))[:120],
             source="llm",
             rules_goal=brief.rules_goal,
             prompt=brief.as_prompt(),

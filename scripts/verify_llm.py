@@ -47,7 +47,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scripted", action="store_true", help="offline harness check")
     parser.add_argument("--max-calls", type=int, default=3)
-    parser.add_argument("--model", default="claude-opus-5")
+    parser.add_argument("--model", default="anthropic/claude-sonnet-4")
     parser.add_argument(
         "--provider",
         default="anthropic",
@@ -180,6 +180,7 @@ def main() -> int:
     print(f"rules chose : {entry['rules_goal']}")
     print(f"verdict     : {entry['verdict']}")
     print(f"reason      : {entry['reason']}")
+    print(f"message     : {entry.get('message', '')}")
     print(f"latency     : {entry['latency_ms']} ms")
 
     _rule("4. applied to the world")

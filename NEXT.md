@@ -19,10 +19,10 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **394 passed in 206s** (`pytest -q`, actual output) |
+| Tests | **399 passed in 199s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | 41, branch `phase/2-user-agent-standing` ready to merge |
-| Working tree | dirty (Phase 2: user-agent standing and progression) |
+| Commits | on branch `phase/1b-llm-leader-messages` |
+| Working tree | dirty (Phase 1b: llm-generated leader messages) |
 | Lint / typecheck / CI | **none exist** |
 | GitHub issues | #1–#6 filed |
 | Open PRs | #7 phase 2 ready, #8 phase 1b, #9 phase 3 (drafts) |
@@ -38,7 +38,9 @@ right-card WORLD log, shorter director shots, `longestJourney` follows) so purpo
 movement and world activity read clearly; Phase 1 natural-language clan-leader messages
 influenced by personality (no LLM, deterministic, bounded text length); Phase 2
 user-agent standing and progression (Member → Trusted → Officer → leader succession)
-based only on recorded actions: donations, builds, raids, survival, membership time.
+based only on recorded actions: donations, builds, raids, survival, membership time;
+Phase 1b optional LLM-generated leader messages (reuses the same goal-call budget and
+cooldown, falls back to local templates when disabled / over budget / timeout).
 
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.

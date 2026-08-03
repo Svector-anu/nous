@@ -77,8 +77,8 @@ class WorldConfig:
     llm_enabled: bool = False
     # "anthropic" | "xai" | "openai" | "none". The openai path also serves openrouter,
     # ollama, vllm and lm studio — they differ only by llm_base_url.
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-opus-5"
+    llm_provider: str = "dgrid"
+    llm_model: str = "anthropic/claude-sonnet-4"
     llm_base_url: str = ""
     llm_api_key_env: str = ""
     llm_effort: str = "low"
