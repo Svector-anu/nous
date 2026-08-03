@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Neo-Civilization: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid. Watch, deploy your own agent, and bet on outcomes.">
-<title>Neo-C</title>ivilization — a living world of autonomous agents</title>
+<title>Neo-Civilization — a living world of autonomous agents</title>
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
 <style>
   :root {
@@ -425,7 +425,13 @@
     position: fixed; top: 48px; right: 12px; bottom: 80px; z-index: 40;
     display: flex; flex-direction: column; gap: 12px;
     width: 260px;
+    height: calc(100vh - 128px);
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
   }
+  #rightCards::-webkit-scrollbar { width: 4px; }
+  #rightCards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
 
   .floating-card {
     background: var(--panel);
@@ -860,8 +866,7 @@
     cursor: pointer;
   }
   .copy-btn:hover { background: rgba(139,148,158,0.18); color: var(--text); }
-    border-color: rgba(88,166,255,0.45);
-  }
+  #settingsPanel .secondary:hover { border-color: rgba(88,166,255,0.45); }
 
   /* Market card — match the reference: icon, question, status line */
   #marketsCard {
@@ -1019,6 +1024,11 @@
     backdrop-filter: blur(10px) saturate(1.1);
   }
 
+  /* Panel visibility is class-driven so mobile and desktop can differ. */
+  #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { display: none; }
+  #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; }
+  #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open { display: block; }
+
   /* Hide UI mode */
   body.ui-hidden #topBar,
   body.ui-hidden #rightCards,
@@ -1036,6 +1046,204 @@
   #legacyHidden { display: none; }
 
   /* === end new layout ================================================ */
+
+  /* === MOBILE RESPONSIVENESS ========================================= */
+  /*
+   * Phone-width constraints: the desktop floating-card layout is too wide and
+   * too stacked. We turn every panel into a bottom sheet, shrink the minimap,
+   * collapse the dock to icons, and hide secondary cards by default so the
+   * world stays visible.
+   */
+
+  /* Phone and tablet portrait / narrow desktop: switch to bottom sheets and icon dock. */
+  @media (max-width: 900px) {
+    body { font-size: 14px; }
+
+    #topBar {
+      gap: 8px;
+      padding: 8px 10px;
+      min-height: 44px;
+    }
+    #topBar .logo {
+      font-size: 11px;
+      letter-spacing: .1em;
+      max-width: 90px;
+      line-height: 1.2;
+    }
+    #topBar .topStats {
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    #topBar .stat {
+      padding: 3px 8px;
+      font-size: 11px;
+      gap: 4px;
+    }
+    #topBar .stat-icon { width: 12px; height: 12px; }
+    /* Keep only day + agents on the smallest screens. */
+    #topBar .stat:nth-child(n+3) { display: none; }
+
+    #rightCards {
+      position: fixed;
+      top: auto;
+      right: 0;
+      left: 0;
+      bottom: 72px;
+      width: 100%;
+      height: auto;
+      overflow-y: visible;
+      padding: 0 10px;
+      gap: 0;
+      pointer-events: none;
+      align-items: center;
+    }
+    #rightCards .floating-card {
+      width: 100%;
+      max-width: 100%;
+      max-height: 55vh;
+      border-radius: 16px 16px 0 0;
+      display: none;
+      pointer-events: auto;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
+    }
+    #rightCards .floating-card.open {
+      display: flex;
+    }
+
+    /* Left panels become bottom sheets too. */
+    #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel {
+      position: fixed;
+      top: auto;
+      left: 0;
+      right: 0;
+      bottom: 72px;
+      width: 100%;
+      max-height: 55vh;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
+      display: none;
+    }
+    #agentCards.open { display: flex; flex-direction: column; }
+    #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open { display: block; }
+
+    #agentCards {
+      padding: 0;
+      gap: 0;
+    }
+    #agentCards #inspector {
+      border-radius: 16px 16px 0 0;
+      max-height: 55vh;
+    }
+
+    #deployPanel, #legendPanel, #settingsPanel, #controlsPanel { width: 100%; }
+    #deployPanel .card-body, #legendPanel .card-body {
+      padding: 14px 16px 18px;
+    }
+
+    #minimap {
+      width: 120px;
+      height: 120px;
+      right: 10px;
+      bottom: 80px;
+      border-radius: 10px;
+    }
+    #minimapHint {
+      right: 10px;
+      bottom: 204px;
+      font-size: 9px;
+    }
+
+    #hud {
+      top: 42px;
+      padding: 8px 10px;
+      gap: 6px;
+    }
+    #hud .title { font-size: 12px; }
+    #hud .meta { font-size: 10px; }
+    #hud .meta:last-child { display: none; }
+
+    #bottomDock {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      transform: none;
+      padding: 6px 4px;
+      gap: 2px;
+      border-radius: 0;
+      border-left: 0;
+      border-right: 0;
+      border-bottom: 0;
+    }
+    .dock-btn {
+      flex: 1;
+      padding: 6px 2px;
+      gap: 2px;
+      min-width: 0;
+    }
+    .dock-icon { width: 22px; height: 22px; }
+    .dock-label {
+      font-size: 9px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    /* Larger touch targets inside cards. */
+    .my-agent-actions button,
+    .agent-card-actions button,
+    .market-actions button {
+      min-height: 40px;
+      font-size: 13px;
+    }
+    .objective-btn {
+      padding: 12px 14px;
+      min-height: 44px;
+    }
+    #marketsCard input,
+    #deployPanel input,
+    #deployPanel button {
+      min-height: 40px;
+      font-size: 14px;
+    }
+
+    .gameplay-hint {
+      font-size: 12px;
+      padding: 10px 16px;
+      max-width: 90vw;
+    }
+
+    /* Onboarding panels fit small screens. */
+    #onboarding .panel {
+      padding: 28px 22px;
+      width: 92%;
+      max-width: none;
+    }
+    .splash-panel { padding: 36px 28px; }
+    .splash-panel .hero { font-size: 28px; }
+    .menu-panel {
+      margin: auto;
+      align-self: center;
+      width: 92%;
+      max-width: none;
+    }
+    .slide-features { grid-template-columns: 1fr; gap: 8px; }
+    .controls-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .speech-bubble {
+      font-size: 12px;
+      padding: 6px 10px 8px;
+      max-width: 180px;
+    }
+    .speech-bubble .text { font-size: 12px; }
+  }
+
+  /* Small phones: icon-only dock to avoid truncation and keep targets large. */
+  @media (max-width: 420px) {
+    .dock-label { display: none; }
+    .dock-btn { padding: 9px 2px; }
+  }
 
 </style>
 </head>
@@ -1059,7 +1267,7 @@
       <div class="brand" style="margin:0 auto 16px;width:40px;height:40px;"></div>
       <h1>PAUSED</h1>
       <p class="subtitle">The world waits. Press Space to resume.</p>
-      <nav class="menu-nav" style="gap</h1>:8px;margin-top:4px;">
+      <nav class="menu-nav" style="gap:8px;margin-top:4px;">
         <button id="pause-resume" class="primary">Resume Simulation</button>
         <button id="pause-settings" class="secondary">Settings</button>
         <button id="pause-exit" class="secondary">Hide UI</button>
@@ -1082,19 +1290,19 @@
   </div>
 
   <!-- Left Controls (secondary) -->
-  <div id="controlsPanel" style="display:none;">
+  <div id="controlsPanel">
     <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
     <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
     <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
     <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
     <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
     <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
-    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>V</span>iew Presets</span></div>
+    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>View Presets</span></div>
     <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
   </div>
 
   <!-- Bottom Left Agent Cards -->
-  <div id="agentCards" style="display:none;">
+  <div id="agentCards">
     <div id="inspector"><p class="hint">click an agent on the map</p></div>
   </div>
 
@@ -1115,12 +1323,12 @@
       <div class="card-body">
         <p id="worldSummary" class="world-summary">Connecting…</p>
         <dl>
-        </dl>  <dt>status</dt><dd id="status">connecting</dd>
+          <dt>status</dt><dd id="status">connecting</dd>
           <dt>day</dt><dd id="day">—</dd>
           <dt>people</dt><dd id="agents">—</dd>
           <dt>clans</dt><dd id="clans">—</dd>
           <dt>huts</dt><dd id="buildings">—</dd>
-          <dt>food &</dt> wood</dt><dd id="resources">—</dd>
+          <dt>food &amp; wood</dt><dd id="resources">—</dd>
         </dl>
       </div>
     </div>
@@ -1149,7 +1357,7 @@
       </div>
     </div>
 
-    <div class="floating-card" id="objectivesCard" style="display:none;">
+    <div class="floating-card" id="objectivesCard">
       <h3 class="card-title">CAMERA TOURS</h3>
       <div class="card-body">
         <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
@@ -1160,7 +1368,7 @@
   </div>
 
   <!-- Deploy Panel -->
-  <div id="deployPanel" style="display:none;">
+  <div id="deployPanel">
     <h3 class="card-title">DEPLOY AN AGENT</h3>
     <div class="card-body">
       <p class="hint" style="margin:0 0 10px;">Give them a name and they'll spawn next tick, just like everyone else.</p>
@@ -1171,10 +1379,10 @@
       </form>
       <p id="deployStatus" style="min-height:1.5em;font-size:11px;color:var(--muted);margin:0;"></p>
     </div>
-  </div>div>
+  </div>
 
   <!-- Legend Panel (toggled by Clans dock button) -->
-  <div id="legendPanel" style="display:none;">
+  <div id="legendPanel">
     <h3 class="card-title">CLANS</h3>
     <div class="card-body">
       <p style="font-size:11px;color:var(--muted);margin:0 0 10px;">Click a clan to fly to it.</p>
@@ -1191,7 +1399,7 @@
   </div>
 
   <!-- Settings Panel (toggled by Settings dock button) -->
-  <div id="settingsPanel" style="display:none;">
+  <div id="settingsPanel">
     <h3 class="card-title">SETTINGS</h3>
     <div class="card-body">
       <div style="margin-bottom:12px;">
@@ -1402,6 +1610,38 @@ const modeButton = document.getElementById("mode");
 let colourBy = "clan";
 let lastSnapshot = null;
 
+// Panel visibility is class-driven so the same code works for desktop floating
+// cards and mobile bottom sheets.
+function panelOpen(id) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  return el && el.classList.contains("open");
+}
+function setPanelOpen(id, open) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) return;
+  el.classList.toggle("open", open);
+  const btn = document.querySelector(`[data-panel="${el.id}"]`);
+  if (btn) btn.classList.toggle("active", open);
+}
+function togglePanel(id) {
+  setPanelOpen(id, !panelOpen(id));
+}
+function isMobileLayout() {
+  return window.innerWidth <= 640 || document.body.classList.contains("mobile");
+}
+
+function closeAllPanels(exceptId = null) {
+  // Overlays (left panels, settings, controls, tours, inspector) always close when
+  // another overlay opens. On mobile, the right cards are also sheet-style and only
+  // one should be open at a time; on desktop they stay visible as the persistent HUD.
+  const overlays = ["deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard", "agentCards"];
+  const rightCards = ["myAgentsCard", "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard"];
+  const toClose = isMobileLayout() ? [...overlays, ...rightCards] : overlays;
+  for (const id of toClose) {
+    if (id !== exceptId) setPanelOpen(id, false);
+  }
+}
+
 // Golden-angle hue steps keep adjacent clan ids visually far apart.
 function clanColour(id) {
   if (id === null || id === undefined) return CLANLESS;
@@ -1562,8 +1802,10 @@ function renderMyAgents(snapshot) {
 
     item.querySelector(".find-agent").addEventListener("click", () => {
       selectedId = agent.id;
+      worldView.setSelected(selectedId);
       flyToSim(agent.x, agent.y, `${agent.name} · ${status}`, 8);
-      document.getElementById("agentCards").style.display = "";
+      closeAllPanels("agentCards");
+      setPanelOpen("agentCards", true);
       renderInspector(snapshot);
     });
     item.querySelector(".rest-agent").addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
@@ -1603,15 +1845,15 @@ copyWorldStatus.addEventListener("click", () => {
 });
 
 deployFromMyAgents.addEventListener("click", () => {
-  const panel = document.getElementById("deployPanel");
-  const btn = document.querySelector('[data-panel="deployPanel"]');
-  panel.style.display = panel.style.display === "none" ? "" : "none";
-  btn?.classList.toggle("active", panel.style.display !== "none");
+  closeAllPanels("deployPanel");
+  togglePanel("deployPanel");
 });
 
 // --- the 3d world view ------------------------------------------------------
 
-const worldView = new WorldView(document.getElementById("world"));
+const isMobileNow = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 900;
+if (isMobileNow) document.body.classList.add("mobile");
+const worldView = new WorldView(document.getElementById("world"), { mobile: isMobileNow });
 // Test hook: the lifecycle tests drive mount/unmount and read renderer.info from here.
 // Read-only by convention — nothing in the viewer reads it back.
 window.__world = worldView;
@@ -2233,9 +2475,8 @@ document.getElementById("menu-continue").addEventListener("click", () => {
 });
 
 document.getElementById("menu-settings").addEventListener("click", () => {
-  const panel = document.getElementById("settingsPanel");
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
-  document.querySelector('[data-panel="settingsPanel"]')?.classList.toggle("active", panel.style.display !== "none");
+  closeAllPanels("settingsPanel");
+  togglePanel("settingsPanel");
   onboardingEl.classList.add("hidden");
 });
 
@@ -2257,9 +2498,10 @@ if (introDone) {
 }
 
 // Hide new panels by default so dock toggles work correctly
+// Ensure panels start closed; the class rules handle display.
 for (const id of ["deployPanel", "legendPanel", "settingsPanel"]) {
   const el = document.getElementById(id);
-  if (el) el.style.display = "none";
+  if (el) el.classList.remove("open");
 }
 
 // --- gameplay hints ---------------------------------------------------------
@@ -2289,15 +2531,13 @@ document.getElementById("settingsResetIntro").addEventListener("click", () => {
 });
 
 document.getElementById("settingsShowTours").addEventListener("click", () => {
-  const panel = document.getElementById("objectivesCard");
-  const isHidden = panel.style.display === "none";
-  panel.style.display = isHidden ? "" : "none";
+  closeAllPanels("objectivesCard");
+  togglePanel("objectivesCard");
 });
 
 document.getElementById("settingsShowControls").addEventListener("click", () => {
-  const panel = document.getElementById("controlsPanel");
-  const isHidden = panel.style.display === "none";
-  panel.style.display = isHidden ? "" : "none";
+  closeAllPanels("controlsPanel");
+  togglePanel("controlsPanel");
 });
 
 
@@ -2533,9 +2773,10 @@ worldEl.addEventListener("pointerup", (event) => {
   if (moved > 5) return;
   const hit = worldView.pick(event.clientX, event.clientY);
   selectedId = hit;
+  worldView.setSelected(selectedId);
   if (hit != null) {
-    document.getElementById("agentCards").style.display = "";
-    document.querySelector('[data-panel="agentCards"]')?.classList.add("active");
+    closeAllPanels("agentCards");
+    setPanelOpen("agentCards", true);
   }
   if (lastSnapshot) {
     renderInspector(lastSnapshot);
@@ -2572,6 +2813,7 @@ function resumePause() {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && selectedId !== null) {
     selectedId = null;
+    worldView.setSelected(null);
     if (lastSnapshot) {
       renderInspector(lastSnapshot);
       drawMinimap(lastSnapshot);
@@ -2589,9 +2831,8 @@ document.addEventListener("keydown", (event) => {
 
 document.getElementById("pause-resume").addEventListener("click", resumePause);
 document.getElementById("pause-settings").addEventListener("click", () => {
-  const panel = document.getElementById("settingsPanel");
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
-  document.querySelector('[data-panel="settingsPanel"]')?.classList.toggle("active", panel.style.display !== "none");
+  closeAllPanels("settingsPanel");
+  togglePanel("settingsPanel");
 });
 document.getElementById("pause-exit").addEventListener("click", () => {
   resumePause();
@@ -2604,9 +2845,9 @@ for (const btn of document.querySelectorAll("#bottomDock .dock-btn")) {
     const panelId = btn.dataset.panel;
     const panel = document.getElementById(panelId);
     if (!panel) return;
-    const isHidden = panel.style.display === "none";
-    panel.style.display = isHidden ? "" : "none";
-    btn.classList.toggle("active", isHidden);
+    const willOpen = !panel.classList.contains("open");
+    closeAllPanels(panelId);
+    setPanelOpen(panelId, willOpen);
   });
 }
 

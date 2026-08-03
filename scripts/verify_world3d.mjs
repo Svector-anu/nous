@@ -574,6 +574,128 @@ check(
     "(distance is height/cos(phi) at this angle, so a tall camera is also a distant one)"
 );
 
+// --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
+// The desktop floating-card layout is too wide for a phone. This checks the adaptive
+// layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find
+// → rest/resume flow can be driven with touch events.
+const mobileBrowser = await chromium.launch({ channel: "chrome" });
+const mobilePage = await mobileBrowser.newPage({
+  viewport: { width: 390, height: 844 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 2,
+});
+const mobileErrors = [];
+mobilePage.on("console", (m) => { if (m.type() === "error") mobileErrors.push(m.text()); });
+mobilePage.on("pageerror", (e) => mobileErrors.push(`pageerror: ${e.message}`));
+
+await mobilePage.goto(URL, { waitUntil: "networkidle" });
+await mobilePage.waitForFunction(
+  () => document.getElementById("status").textContent.trim() === "live",
+  { timeout: 20000 }
+);
+await mobilePage.waitForTimeout(2500);
+
+const mobileInfo = await mobilePage.evaluate(() => {
+  const view = window["__world"];
+  const docWidth = document.documentElement.scrollWidth;
+  const clientWidth = document.documentElement.clientWidth;
+  return {
+    ratio: view.renderer.getPixelRatio(),
+    docWidth,
+    clientWidth,
+    docOverflow: docWidth > clientWidth + 1,
+    activeCards: Array.from(document.querySelectorAll("#rightCards .floating-card.open, #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open")).map((el) => el.id),
+  };
+});
+check(
+  "mobile pixel ratio is capped to save GPU",
+  mobileInfo.ratio <= 1.3,
+  `ratio ${mobileInfo.ratio.toFixed(2)}`
+);
+check(
+  "mobile page has no horizontal overflow",
+  !mobileInfo.docOverflow,
+  `${mobileInfo.docWidth} vs ${mobileInfo.clientWidth}`
+);
+check(
+  "mobile panels start closed",
+  mobileInfo.activeCards.length === 0,
+  `open: ${mobileInfo.activeCards.join(", ")}`
+);
+
+// Open the deploy sheet, deploy an agent, then find it and rest it.
+await mobilePage.click('[data-panel="deployPanel"]');
+await mobilePage.waitForTimeout(300);
+await mobilePage.fill("#agentName", "MobileGate");
+await mobilePage.click('button[type="submit"]');
+await mobilePage.waitForTimeout(1200);
+await mobilePage.click('[data-panel="myAgentsCard"]');
+await mobilePage.waitForTimeout(300);
+const deployedFlow = await mobilePage.evaluate(() => {
+  const list = document.getElementById("myAgentsList");
+  const items = list ? list.querySelectorAll(".my-agent-item").length : 0;
+  const deployOpen = document.getElementById("deployPanel").classList.contains("open");
+  const myAgentsOpen = document.getElementById("myAgentsCard").classList.contains("open");
+  return { items, deployOpen, myAgentsOpen };
+});
+check(
+  "mobile deploy adds an agent and switches to my agents",
+  deployedFlow.items > 0 && !deployedFlow.deployOpen && deployedFlow.myAgentsOpen,
+  `${deployedFlow.items} agents, deploy ${deployedFlow.deployOpen}, myAgents ${deployedFlow.myAgentsOpen}`
+);
+
+const findBtn = await mobilePage.locator(".find-agent").first();
+if (await findBtn.isVisible().catch(() => false)) {
+  await findBtn.click();
+  await mobilePage.waitForTimeout(800);
+  const inspectorOpen = await mobilePage.evaluate(() =>
+    document.getElementById("agentCards").classList.contains("open")
+  );
+  check("mobile find agent opens inspector", inspectorOpen);
+
+  const restBtn = await mobilePage.locator(".rest-toggle").first();
+  if (await restBtn.isVisible().catch(() => false)) {
+    const beforeText = await restBtn.textContent();
+    await restBtn.click();
+    // The server applies the toggle on the next tick; wait for the snapshot to arrive.
+    await mobilePage.waitForTimeout(2200);
+    const afterText = await mobilePage.locator(".rest-toggle").first().textContent();
+    const resting =
+      (beforeText.toLowerCase().includes("rest") && afterText.toLowerCase().includes("resume")) ||
+      (beforeText.toLowerCase().includes("resume") && afterText.toLowerCase().includes("rest"));
+    check("mobile rest toggle updates state", resting, `"${beforeText.trim()}" -> "${afterText.trim()}"`);
+  }
+}
+
+check("no mobile console errors", mobileErrors.length === 0, mobileErrors.slice(0, 3).join(" | "));
+await mobileBrowser.close();
+
+// --- 13. selection indicator appears after picking an agent ------------------
+await page.evaluate(() => {
+  window["__world"].overview();
+  window["__world"].settle();
+});
+await page.waitForTimeout(500);
+const pickingIndicator = await page.evaluate(() => {
+  const view = window["__world"];
+  // Pick any agent id from the current batches; the indicator is purely visual.
+  let id = null;
+  for (const entry of view.agentMeshes.values()) {
+    if (entry.count > 0) { id = entry.ids[0]; break; }
+  }
+  if (!id) return { selected: false, id: null };
+  const before = view.selectionIndicator.visible;
+  view.setSelected(id);
+  const after = view.selectionIndicator.visible;
+  return { selected: true, before, after, id };
+});
+check("selection indicator is hidden before picking", !pickingIndicator.before);
+check("selection indicator shows after picking", pickingIndicator.after);
+
+// Reset selection so later checks do not carry it.
+await page.evaluate(() => window["__world"].setSelected(null));
+
 check("no console errors from our code", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
 await browser.close();

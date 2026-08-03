@@ -137,7 +137,21 @@ def create_app(
     # The viewer is plain files: the focus-3d module and a vendored copy of three.js.
     # Vendored rather than fetched from a cdn so the viewer works offline, which is the
     # same rule the procedural-materials reference holds itself to.
+    # The vendored three.js library never changes, so it can be cached for a year.
+    # Other static files (world3d.js, director.js, index.html) are updated by deploys,
+    # so they get a short revalidate window rather than immutable.
+    app.mount("/static/vendor", StaticFiles(directory=VIEWER_INDEX.parent / "vendor"), name="vendor")
     app.mount("/static", StaticFiles(directory=VIEWER_INDEX.parent), name="static")
+
+    @app.middleware("http")
+    async def cache_control_header(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/static/vendor/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.startswith("/static/") or path == "/favicon.ico":
+            response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+        return response
 
     _FAVICON = (
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
@@ -148,15 +162,21 @@ def create_app(
 
     @app.get("/favicon.ico")
     async def favicon() -> Response:
-        return Response(_FAVICON, media_type="image/svg+xml")
+        return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     @app.get("/")
     async def index() -> FileResponse:
-        return FileResponse(VIEWER_INDEX)
+        return FileResponse(
+            VIEWER_INDEX,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
     @app.get("/state")
     async def state() -> JSONResponse:
-        return JSONResponse(app.state.simulation.snapshot())
+        return JSONResponse(
+            app.state.simulation.snapshot(),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
     @app.get("/health")
     async def health() -> JSONResponse:
@@ -176,6 +196,7 @@ def create_app(
                 "error": error,
             },
             status_code=200 if running else 503,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/decisions")
@@ -190,7 +211,8 @@ def create_app(
                 "advisor": type(advisor).__name__ if advisor is not None else None,
                 "pending": advisor.pending() if advisor is not None else 0,
                 "entries": list(current.entries) if current is not None else [],
-            }
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/markets")
@@ -221,7 +243,8 @@ def create_app(
                 "starting_balance": world.config.market_starting_balance,
                 "max_stake": world.config.market_max_stake,
                 "pending": len(book.pending),
-            }
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.post("/markets/{market_id}/positions", status_code=202)
@@ -262,6 +285,7 @@ def create_app(
              "side": request.side, "stake": request.stake,
              "applies_at_tick": world.tick + 1},
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/agents")
@@ -293,7 +317,8 @@ def create_app(
                 "agents": cards,
                 "pending": list(pending.pending) if pending is not None else [],
                 "limit": world.config.max_user_agents,
-            }
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.post("/agents", status_code=202)
@@ -329,6 +354,7 @@ def create_app(
                 "arrives_at_tick": world.tick + 1,
             },
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.post("/agents/{agent_id}/rest", status_code=202)
@@ -349,6 +375,7 @@ def create_app(
                 "applies_at_tick": world.tick + 1,
             },
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.post("/clans/{clan_id}/force-decision", status_code=202)
@@ -397,6 +424,7 @@ def create_app(
                 "applies_at_tick": world.tick + 1,
             },
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.websocket("/ws")

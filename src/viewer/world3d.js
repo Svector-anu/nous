@@ -724,8 +724,9 @@ export function buildHumanoid() {
 // --- the view ---------------------------------------------------------------
 
 export class WorldView {
-  constructor(container) {
+  constructor(container, options = {}) {
     this.container = container;
+    this.options = options;
     this.active = false;
     this.disposables = [];
   }
@@ -771,11 +772,27 @@ export class WorldView {
 
     const { width, height } = this._size();
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Adaptive quality: narrow viewports, coarse-pointer devices, and sustained low frame
+    // rates get a lighter path so the page stays responsive. Detection is done at mount
+    // because the window size may have changed between construction and the first snapshot.
+    this.isMobile = !!(this.options.mobile || window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 900);
+    // Pixel ratio tiers: small screens do not need 3x; desktop gets a sensible cap. The
+    // runtime FPS tracker can force this down further if the GPU is struggling.
+    this.basePixelRatio = this.isMobile
+      ? Math.min(window.devicePixelRatio, 1.25)
+      : Math.min(window.devicePixelRatio, 2);
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: !this.isMobile,
+      powerPreference: this.isMobile ? "default" : "high-performance",
+    });
+    this.renderer.setPixelRatio(this.basePixelRatio);
     this.renderer.setSize(width, height);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = !this.isMobile;
+    if (!this.isMobile) this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Frame-time history for runtime quality reduction. Kept small and bounded.
+    this.frameTimes = new Float32Array(60);
+    this.frameTimeIndex = 0;
+    this.qualityReduced = false;
     // Without tone mapping the sun clips to white and everything below it reads muddy,
     // which is what made the first render look like a night scene.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -826,6 +843,26 @@ export class WorldView {
       })),
     };
     this._own(...Object.values(this.sharedMaterials));
+
+    // Selection ring and target marker. Created once, moved to the selected agent.
+    // The ring sits on the ground so a selected person is readable at any zoom; the
+    // marker shows their destination when they have a target.
+    this.selectedId = null;
+    this.selectionIndicator = new THREE.Mesh(
+      new THREE.RingGeometry(TILE * 0.45, TILE * 0.55, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.75, side: THREE.DoubleSide })
+    );
+    this.selectionIndicator.rotation.x = -Math.PI / 2;
+    this.selectionIndicator.visible = false;
+    this.scene.add(this.selectionIndicator);
+    this.targetMarker = new THREE.Mesh(
+      new THREE.RingGeometry(TILE * 0.18, TILE * 0.26, 16),
+      new THREE.MeshBasicMaterial({ color: 0x58a6ff, transparent: true, opacity: 0.65, side: THREE.DoubleSide })
+    );
+    this.targetMarker.rotation.x = -Math.PI / 2;
+    this.targetMarker.visible = false;
+    this.scene.add(this.targetMarker);
+    this._own(this.selectionIndicator.geometry, this.selectionIndicator.material, this.targetMarker.geometry, this.targetMarker.material);
 
     this.scene.add(this._sky());
     this._light();
@@ -927,8 +964,9 @@ export class WorldView {
     // land continuing to a fogged horizon, not a tile floating in space.
     this.groundHalf = this.worldSpan * 1.3;
     // Terrain features are ~36 units across at the base octave and ~4.5 at the finest, so
-    // roughly one segment per unit resolves the relief with room to spare.
-    const segments = 220;
+    // roughly one segment per unit resolves the relief with room to spare. On mobile we
+    // halve the mesh density; the fog and small screen hide the difference.
+    const segments = this.isMobile ? 110 : 220;
     const geometry = new THREE.PlaneGeometry(this.groundHalf * 2, this.groundHalf * 2, segments, segments);
     geometry.rotateX(-Math.PI / 2);
 
@@ -1537,6 +1575,17 @@ export class WorldView {
         const was = entry.pose[i];
         let facing = was ? was.facing : 0;
         let walking = false;
+        // Capture the target for the selection indicator even when travel direction is
+        // what drives facing. The indicator is viewer-only and never affects simulation.
+        let targetWorld = null;
+        let targetX = null;
+        let targetZ = null;
+        if (agent.target) {
+          const [tx, tz] = this.local({ x: agent.target[0], y: agent.target[1] });
+          targetWorld = { x: tx, z: tz };
+          targetX = tx;
+          targetZ = tz;
+        }
         if (was) {
           const dx = x - was.x;
           const dz = z - was.z;
@@ -1547,9 +1596,8 @@ export class WorldView {
             walking = true;
           }
         } else if (agent.target) {
-          const [tx, tz] = this.local({ x: agent.target[0], y: agent.target[1] });
-          if (tx !== x || tz !== z) {
-            facing = Math.atan2(tx - x, tz - z);
+          if (targetX !== x || targetZ !== z) {
+            facing = Math.atan2(targetX - x, targetZ - z);
             walking = true;
           }
         }
@@ -1574,6 +1622,7 @@ export class WorldView {
         // agent is the same size every frame and across a reload.
         entry.pose[i] = {
           x, z, ground, facing, walking, prev, id: agent.id, ...animation,
+          target: targetWorld,
           tall: 0.88 + hash2(agent.id, agent.id * 7, 31) * 0.26,
           wide: 0.90 + hash2(agent.id * 3, agent.id, 17) * 0.22,
           // Walk rate and starting phase, both deterministic off the id so an agent keeps
@@ -1688,6 +1737,41 @@ export class WorldView {
       entry.lean.needsUpdate = true;
       entry.breath.needsUpdate = true;
     }
+
+    // Move the selection indicator to the selected agent. Doing this here keeps the ring
+    // on the ground without allocating anything per frame.
+    this._updateSelectionIndicator();
+  }
+
+  _updateSelectionIndicator() {
+    if (this.selectedId === null || !this.selectionIndicator) {
+      if (this.selectionIndicator) this.selectionIndicator.visible = false;
+      if (this.targetMarker) this.targetMarker.visible = false;
+      return;
+    }
+    let pose = null;
+    for (const entry of this.agentMeshes.values()) {
+      const idx = entry.ids.indexOf(this.selectedId);
+      if (idx >= 0) {
+        pose = entry.pose[idx];
+        break;
+      }
+    }
+    if (!pose) {
+      this.selectionIndicator.visible = false;
+      this.targetMarker.visible = false;
+      return;
+    }
+    this.selectionIndicator.visible = true;
+    this.selectionIndicator.position.set(pose.x, pose.ground + 0.04, pose.z);
+    const pulse = 1 + Math.sin(this.clock * 4) * 0.08;
+    this.selectionIndicator.scale.set(pulse, pulse, 1);
+    if (pose.target && pose.walking) {
+      this.targetMarker.visible = true;
+      this.targetMarker.position.set(pose.target.x, terrainHeight(pose.target.x, pose.target.z) + 0.04, pose.target.z);
+    } else {
+      this.targetMarker.visible = false;
+    }
   }
 
   // User-deployed agents wear a ring so they can be picked out of a crowd. One batch for
@@ -1760,6 +1844,24 @@ export class WorldView {
     this.built = null;
   }
 
+  // Runtime quality reduction. A few seconds of dropped frames lowers pixel ratio and
+  // disables shadows rather than letting the page become unusable. The history is bounded
+  // and ignores the first frame, which is dominated by warm-up.
+  _adaptiveQuality(dt) {
+    if (dt <= 0 || dt > 0.25) return;
+    this.frameTimes[this.frameTimeIndex] = dt;
+    this.frameTimeIndex = (this.frameTimeIndex + 1) % this.frameTimes.length;
+    if (this.frameTimeIndex !== 0 || this.qualityReduced) return;
+    const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
+    // Below ~45 fps for a full rolling window: reduce quality once.
+    if (avg > 0.022) {
+      this.qualityReduced = true;
+      const nextRatio = Math.max(1, this.renderer.getPixelRatio() * 0.75);
+      this.renderer.setPixelRatio(nextRatio);
+      this.renderer.shadowMap.enabled = false;
+    }
+  }
+
   _frame(now = performance.now()) {
     if (!this.active) return;
     this.frameHandle = requestAnimationFrame((next) => this._frame(next));
@@ -1769,6 +1871,7 @@ export class WorldView {
     const dt = this.lastFrameAt === null ? 0 : Math.min((now - this.lastFrameAt) / 1000, 0.25);
     this.lastFrameAt = now;
     this.clock += dt;
+    this._adaptiveQuality(dt);
     this._updateFlashes();
     if (this.onBeforeFrame) this.onBeforeFrame(dt);
     if (dt > 0) {
@@ -1812,6 +1915,13 @@ export class WorldView {
       y,
       radius: (this.orbit.distance * Math.tan(halfFov)) / TILE,
     };
+  }
+
+  setSelected(id) {
+    this.selectedId = id === undefined ? null : id;
+    if (this.selectionIndicator) this.selectionIndicator.visible = false;
+    if (this.targetMarker) this.targetMarker.visible = false;
+    if (this.selectedId !== null && this.active) this._updateSelectionIndicator();
   }
 
   // Screen position of an agent's head, for overlaying speech bubbles. The height is
@@ -1885,6 +1995,8 @@ export class WorldView {
       f.sprite.material.dispose();
     }
     this.flashSprites = [];
+    if (this.selectionIndicator) this.scene.remove(this.selectionIndicator);
+    if (this.targetMarker) this.scene.remove(this.targetMarker);
     this.agentIndex.clear();
 
     for (const item of this.disposables) {
