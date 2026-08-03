@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Neo-Civilization — live</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230d1117'/><circle cx='8' cy='8' r='4' fill='%2358a6ff'/></svg>">
+<meta name="description" content="Neo-Civilization: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid. Watch, deploy your own agent, and bet on outcomes.">
+<title>Neo-C</title>ivilization — a living world of autonomous agents</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
 <style>
   :root {
     --bg: #0a0e14;
@@ -818,6 +819,47 @@
   }
   .rest-toggle:hover {
     background: rgba(88,166,255,0.18);
+  }
+  .my-agent-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .my-agent-item:last-child { border-bottom: none; }
+  .my-agent-main { flex: 1; min-width: 0; }
+  .my-agent-name { font-weight: 600; font-size: 13px; }
+  .my-agent-status {
+    font-size: 11px; color: var(--muted);
+    margin-top: 2px;
+  }
+  .my-agent-actions {
+    display: flex; gap: 4px; flex-wrap: wrap;
+  }
+  .my-agent-actions button {
+    padding: 3px 7px; border-radius: 5px;
+    font-size: 10px; font-weight: 600;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.25);
+    color: #58a6ff;
+    cursor: pointer;
+  }
+  .my-agent-actions button:hover {
+    background: rgba(88,166,255,0.18);
+  }
+  .world-summary {
+    font-size: 13px; line-height: 1.5;
+    margin: 0 0 12px;
+    color: var(--text);
+  }
+  .copy-btn {
+    padding: 2px 6px; border-radius: 5px;
+    font-size: 10px; font-weight: 600;
+    background: rgba(139,148,158,0.1);
+    border: 1px solid rgba(139,148,158,0.25);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .copy-btn:hover { background: rgba(139,148,158,0.18); color: var(--text); }
     border-color: rgba(88,166,255,0.45);
   }
 
@@ -1039,54 +1081,52 @@
     <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
 
-  <!-- Left Controls -->
-  <div id="controlsPanel">
+  <!-- Left Controls (secondary) -->
+  <div id="controlsPanel" style="display:none;">
     <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
     <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
     <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
     <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
     <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
     <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
-    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd>kbd><kbd>5<</kbd>/kbd> <span>View Pres</span>ets</span></div>
+    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>V</span>iew Presets</span></div>
     <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
   </div>
 
   <!-- Bottom Left Agent Cards -->
-  <div id="agentCards">
+  <div id="agentCards" style="display:none;">
     <div id="inspector"><p class="hint">click an agent on the map</p></div>
   </div>
 
   <!-- Right Floating Cards -->
   <div id="rightCards">
-    <div class="floating-card" id="objectivesCard">
-      <h3 class="card-title">ACTIVE OBJECTIVES</h3>
+    <div class="floating-card" id="myAgentsCard">
+      <h3 class="card-title">MY AGENTS</h3>
       <div class="card-body">
-        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
-        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
-        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+        <p class="hint" id="myAgentsHint">You haven't deployed anyone yet.</p>
+        <ul id="myAgentsList"></ul>
+        <button id="deployFromMyAgents" class="primary" style="width:100%;margin-top:8px;">Deploy your first agent</button>
+        <button id="copyWorldStatus" class="secondary" style="width:100%;margin-top:8px;">Copy world status</button>
       </div>
     </div>
 
     <div class="floating-card" id="worldOverviewCard">
       <h3 class="card-title">WORLD OVERVIEW</h3>
       <div class="card-body">
+        <p id="worldSummary" class="world-summary">Connecting…</p>
         <dl>
-          <dt>status</dt><dd id="status">connecting</dd>
-          <dt>tick</dt><dd id="tick">—</dd>
+        </dl>  <dt>status</dt><dd id="status">connecting</dd>
           <dt>day</dt><dd id="day">—</dd>
-          <dt>agents</dt><dd id="agents">—</dd>
-          <dt>resources</dt><dd id="resources">—</dd>
-          <dt>dormant</dt><dd id="dormant">—</dd>
-          <dt>huts</dt><dd id="buildings">—</dd>
+          <dt>people</dt><dd id="agents">—</dd>
           <dt>clans</dt><dd id="clans">—</dd>
-          <dt>in a clan</dt><dd id="clanned">—</dd>
-          <dt>yours</dt><dd id="userAgents">—</dd>
+          <dt>huts</dt><dd id="buildings">—</dd>
+          <dt>food &</dt> wood</dt><dd id="resources">—</dd>
         </dl>
       </div>
     </div>
 
     <div class="floating-card" id="marketsCard">
-      <h3 class="card-title">PREDICTION MARKETS</h3>
+      <h3 class="card-title">BETS</h3>
       <div class="card-body">
         <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
         <div id="markets"></div>
@@ -1096,40 +1136,45 @@
     </div>
 
     <div class="floating-card" id="messagesCard">
-      <h3 class="card-title">CHATTER</h3>
+      <h3 class="card-title">WHAT THEY'RE SAYING</h3>
       <div class="card-body">
         <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
       </div>
     </div>
 
     <div class="floating-card" id="worldLogCard">
-      <h3 class="card-title">WORLD</h3>
+      <h3 class="card-title">WORLD LOG</h3>
       <div class="card-body">
         <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
       </div>
     </div>
-  </div>
 
-  <!-- Deploy Panel (toggled by Build dock button) -->
-  <div id="deployPanel">
-    <h3 class="card-title">DEPLOY AGENT</h3>
-    <div class="card-body">
-      <p class="hint" style="margin:0 0 10px;">Your agent spawns next tick and lives by the same rules as everyone else.</p>
-      <form id="deploy" autocomplete="off">
-        <input id="agentName" maxlength="24" placeholder="name" required style="margin-bottom:8px;">
-        <input id="agentPersonality" maxlength="140" placeholder="short personality note (optional)" style="margin-bottom:8px;">
-        <button type="submit" style="margin-bottom:8px;">Deploy</button>
-      </form>
-      <p id="deployStatus" style="min-height:1.5em;font-size:11px;color:var(--muted);margin:0;"></p>
-      <div id="deployedWrap" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px;">
-        <h3 class="card-subtitle" style="margin:0 0 8px;">YOUR AGENTS</h3>
-        <ul id="deployed"></ul>
+    <div class="floating-card" id="objectivesCard">
+</div>      <h3 class="card-title">CAMERA TOURS</h3>
+      <div class="card-body">
+        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
+        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
+        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
       </div>
     </div>
   </div>
 
+  <!-- Deploy Panel -->
+  <div id="deployPanel" style="display:none;">
+    <h3 class="card-title">DEPLOY AN AGENT</h3>
+    <div class="card-body">
+      <p class="hint" style="margin:0 0 10px;">Give them a name and they'll spawn next tick, just like everyone else.</p>
+      <form id="deploy" autocomplete="off">
+        <input id="agentName" maxlength="24" placeholder="name" required style="margin-bottom:8px;">
+        <input id="agentPersonality" maxlength="140" placeholder="short personality note (optional)" style="margin-bottom:8px;">
+        <button type="submit" style="margin-bottom:8px;width:100%;">Deploy</button>
+      </form>
+      <p id="deployStatus" style="min-height:1.5em;font-size:11px;color:var(--muted);margin:0;"></p>
+    </div>
+  </div>div>
+
   <!-- Legend Panel (toggled by Clans dock button) -->
-  <div id="legendPanel">
+  <div id="legendPanel" style="display:none;">
     <h3 class="card-title">CLANS</h3>
     <div class="card-body">
       <p style="font-size:11px;color:var(--muted);margin:0 0 10px;">Click a clan to fly to it.</p>
@@ -1146,7 +1191,7 @@
   </div>
 
   <!-- Settings Panel (toggled by Settings dock button) -->
-  <div id="settingsPanel">
+  <div id="settingsPanel" style="display:none;">
     <h3 class="card-title">SETTINGS</h3>
     <div class="card-body">
       <div style="margin-bottom:12px;">
@@ -1156,6 +1201,14 @@
       <div style="margin-bottom:12px;">
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Colour Mode</label>
         <button id="mode" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">colour: clan</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Camera tours</label>
+        <button id="settingsShowTours" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">show camera tours</button>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Controls</label>
+        <button id="settingsShowControls" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">show controls</button>
       </div>
       <div style="margin-bottom:12px;">
         <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Onboarding</label>
@@ -1169,12 +1222,13 @@
 
   <!-- Bottom Dock -->
   <div id="bottomDock">
-    <button class="dock-btn active" data-panel="agentCards"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
-    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Build</span></button>
+    <button class="dock-btn active" data-panel="myAgentsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">My Agents</span></button>
+    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
+    <button class="dock-btn" data-panel="agentCards"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="dock-label">Inspect</span></button>
+    <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">World</span></button>
     <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
-    <button class="dock-btn active" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">Resources</span></button>
-    <button class="dock-btn active" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Markets</span></button>
-    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
+    <button class="dock-btn active" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
+    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
   </div>
 
   <!-- Legacy elements still referenced by JS — kept in a hidden container so IDs remain valid. -->
@@ -1323,6 +1377,17 @@ const STATE_COLORS = {
   FLEE:      "#f85149",
 };
 
+const STATE_LABELS = {
+  IDLE:      "idle",
+  SEEK_NEED: "looking for food or wood",
+  GATHER:    "gathering",
+  BUILD:     "building",
+  REST:      "resting",
+  FLEE:      "fleeing",
+  FOLLOW:    "heading to a meeting",
+  MEET:      "meeting someone",
+};
+
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
@@ -1433,6 +1498,116 @@ function renderDeployed(snapshot) {
     deployed.appendChild(item);
   }
 }
+
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (button) {
+      const old = button.textContent;
+      button.textContent = "copied";
+      setTimeout(() => button.textContent = old, 1200);
+    }
+  } catch (err) {
+    console.warn("copy failed", err);
+  }
+}
+
+function simpleAgentStatus(agent) {
+  if (agent.rest_mode) return "resting";
+  if (agent.hunger === 0) return "starving";
+  if (agent.hunger < 30) return "hungry";
+  if (agent.energy < 30) return "tired";
+  return "doing fine";
+}
+
+function rankLabel(rank) {
+  if (rank === "officer") return "Officer";
+  if (rank === "trusted") return "Trusted";
+  return "";
+}
+
+const myAgentsList = document.getElementById("myAgentsList");
+const myAgentsHint = document.getElementById("myAgentsHint");
+const deployFromMyAgents = document.getElementById("deployFromMyAgents");
+
+function renderMyAgents(snapshot) {
+  const mine = snapshot.agents.filter((a) => a.user);
+  myAgentsList.innerHTML = "";
+  if (!mine.length) {
+    myAgentsHint.style.display = "";
+    deployFromMyAgents.textContent = "Deploy your first agent";
+    return;
+  }
+  myAgentsHint.style.display = "none";
+  deployFromMyAgents.textContent = "Deploy another agent";
+
+  for (const agent of mine) {
+    const item = document.createElement("li");
+    item.className = "my-agent-item";
+    const status = simpleAgentStatus(agent);
+    const rank = rankLabel(agent.rank);
+    const clanText = agent.clan !== null ? `Clan ${agent.clan}` : "no clan";
+    const statusLine = `${status} · ${clanText}${rank ? " · " + rank : ""}`;
+    const shareText = `${agent.name} is ${status}, ${clanText}, in Neo-Civilization day ${snapshot.day}.`;
+    item.innerHTML =
+      `<div class="my-agent-main">` +
+      `<div class="my-agent-name">${escapeHtml(agent.name)}${agent.rest_mode ? ' <span class="tag-rest">REST</span>' : ""}</div>` +
+      `<div class="my-agent-status">${escapeHtml(statusLine)}</div>` +
+      `</div>` +
+      `<div class="my-agent-actions">` +
+      `<button class="find-agent">Find</button>` +
+      `<button class="rest-agent">${agent.rest_mode ? "Resume" : "Rest"}</button>` +
+      `<button class="copy-btn copy-agent">Copy</button>` +
+      `</div>`;
+
+    item.querySelector(".find-agent").addEventListener("click", () => {
+      selectedId = agent.id;
+      flyToSim(agent.x, agent.y, `${agent.name} · ${status}`, 8);
+      document.getElementById("agentCards").style.display = "";
+      renderInspector(snapshot);
+    });
+    item.querySelector(".rest-agent").addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
+    const copyBtn = item.querySelector(".copy-agent");
+    copyBtn.addEventListener("click", () => copyText(shareText, copyBtn));
+    myAgentsList.appendChild(item);
+  }
+}
+
+const worldSummaryEl = document.getElementById("worldSummary");
+const copyWorldStatus = document.getElementById("copyWorldStatus");
+
+function renderWorldSummary(snapshot) {
+  const day = snapshot.day;
+  const population = snapshot.stats.agents;
+  const clans = snapshot.stats.clans;
+  const meanHunger = snapshot.agents.length
+    ? snapshot.agents.reduce((s, a) => s + a.hunger, 0) / snapshot.agents.length
+    : 50;
+  let foodMood = "food feels plentiful";
+  if (meanHunger < 20) foodMood = "famine is biting";
+  else if (meanHunger < 40) foodMood = "food is scarce";
+  else if (meanHunger < 60) foodMood = "meals are uneven";
+
+  let event = "";
+  const last = worldLogEntries[worldLogEntries.length - 1];
+  if (last && last.label) {
+    event = ` — ${last.label.toLowerCase()}`;
+  }
+  const text = `Day ${day}. ${population} people live here in ${clans} clan${clans === 1 ? "" : "s"}. ${foodMood}${event}.`;
+  worldSummaryEl.textContent = text;
+}
+
+copyWorldStatus.addEventListener("click", () => {
+  const text = worldSummaryEl.textContent;
+  copyText(text.startsWith("Connecting") ? "Neo-Civilization is loading…" : text, copyWorldStatus);
+});
+
+deployFromMyAgents.addEventListener("click", () => {
+  const panel = document.getElementById("deployPanel");
+  const btn = document.querySelector('[data-panel="deployPanel"]');
+  panel.style.display = panel.style.display === "none" ? "" : "none";
+  btn?.classList.toggle("active", panel.style.display !== "none");
+});
 
 // --- the 3d world view ------------------------------------------------------
 
@@ -1771,8 +1946,8 @@ function renderInspector(snapshot) {
   const clan = (snapshot.clans || []).find((c) => c.id === agent.clan);
   const isLeader = clan && clan.leader === agent.id;
   const colour = clanColour(agent.clan);
-  const stateLabel = agent.state.replace("_", " ").toLowerCase();
-  const clanLabel = clan ? `Clan ${clan.id}${isLeader ? " · Leader" : ""}` : "No Clan";
+  const stateLabel = STATE_LABELS[agent.state] || agent.state.replace("_", " ").toLowerCase();
+  const clanLabel = clan ? `Clan ${clan.id}${isLeader ? " · leader" : ""}` : "not in a clan";
   const healthy = agent.hunger > 0 && agent.energy > 20;
 
   const energyColor = agent.energy < 30 ? "#f85149" : (agent.energy < 60 ? "#d29922" : "#58a6ff");
@@ -2113,6 +2288,18 @@ document.getElementById("settingsResetIntro").addEventListener("click", () => {
   showSplash();
 });
 
+document.getElementById("settingsShowTours").addEventListener("click", () => {
+  const panel = document.getElementById("objectivesCard");
+  const isHidden = panel.style.display === "none";
+  panel.style.display = isHidden ? "" : "none";
+});
+
+document.getElementById("settingsShowControls").addEventListener("click", () => {
+  const panel = document.getElementById("controlsPanel");
+  const isHidden = panel.style.display === "none";
+  panel.style.display = isHidden ? "" : "none";
+});
+
 
 modeButton.addEventListener("click", () => {
   colourBy = colourBy === "clan" ? "state" : "clan";
@@ -2242,15 +2429,11 @@ function render(snapshot) {
   updateSplashCount(snapshot);
   updateThinking(snapshot.advisor);
 
-  setText("tick", snapshot.tick);
   setText("day", snapshot.day);
   setText("agents", snapshot.stats.agents);
   setText("resources", snapshot.stats.resources);
-  setText("dormant", snapshot.stats.dormant);
   setText("buildings", snapshot.stats.buildings);
   setText("clans", snapshot.stats.clans);
-  setText("clanned", snapshot.stats.clanned);
-  setText("userAgents", snapshot.stats.user_agents);
 
   // Top bar stats
   setText("topDay", snapshot.day);
@@ -2259,11 +2442,13 @@ function render(snapshot) {
   setText("topClans", snapshot.stats.clans);
   setText("topResources", snapshot.stats.resources);
 
+  renderMyAgents(snapshot);
   renderDeployed(snapshot);
   renderLegend(snapshot);
   renderInspector(snapshot);
   processMessages(snapshot);
   processWorldLog(snapshot);
+  renderWorldSummary(snapshot);
   if (worldView.active) {
     worldView.update(snapshot);
     // Events come from the difference between two snapshots, so the director has to see
@@ -2348,6 +2533,10 @@ worldEl.addEventListener("pointerup", (event) => {
   if (moved > 5) return;
   const hit = worldView.pick(event.clientX, event.clientY);
   selectedId = hit;
+  if (hit != null) {
+    document.getElementById("agentCards").style.display = "";
+    document.querySelector('[data-panel="agentCards"]')?.classList.add("active");
+  }
   if (lastSnapshot) {
     renderInspector(lastSnapshot);
     drawMinimap(lastSnapshot);

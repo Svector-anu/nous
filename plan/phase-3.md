@@ -16,6 +16,18 @@ see the issue for full acceptance and constraints.
   and does not initiate raids (`combat.py`).
 - `ForceDecisionQueue` and `POST /clans/{id}/force-decision` returning 402 x402 headers.
 
+## ux clarity pass
+
+- dedicated **My Agents** panel (first in the right card stack) listing deployed agents with
+  plain status (alive/resting, clan, simple need state, rank), plus **Find**, **Rest/Resume**, and
+  **Copy status** buttons.
+- **World summary** sentence at the top of the world card: "Day 12. 94 people live here in 11
+  clans. Food feels scarce — a raid in the east."
+- page share metadata (`<title>` and `<meta name="description">`) and a `/favicon.ico` route.
+- confusion pass: dock labels renamed to "My Agents", "Deploy", "Inspect", "World", "Clans",
+  "Bets"; secondary controls (keyboard help, camera tours) hidden behind Settings; state labels
+  like "SEEK_NEED" replaced with "looking for food or wood".
+
 ## gates
 
 - tests: `416 passed` (includes `tests/test_rest_mode.py` and `tests/test_advisor_status.py`).

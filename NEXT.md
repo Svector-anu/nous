@@ -19,10 +19,10 @@ Do not start until I confirm your read is right.
 
 | | |
 |---|---|
-| Tests | **416 passed in 238s** (`pytest -q`, actual output) |
+| Tests | **416 passed in 142s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
 | Commits | on branch `phase/3-soft-limits` |
-| Working tree | dirty (Phase 3: soft limits, rest mode, x402 seam) |
+| Working tree | dirty (Phase 3 + UX clarity pass: my agents, world summary, share helpers, jargon cleanup) |
 | Lint / typecheck / CI | **none exist** |
 | GitHub issues | #1–#6 filed, #5 open |
 | Open PRs | #7, #8, #10, #11, #12 merged; #9 phase 3 draft |
@@ -43,7 +43,11 @@ Phase 1b optional LLM-generated leader messages (reuses the same goal-call budge
 cooldown, falls back to local templates when disabled / over budget / timeout);
 Phase 3 soft limits (viewer "Leader thinking" indicator, non-blocking, world keeps running),
 offline rest mode for user-deployed agents (queue applied on next tick, respects hunger,
-prevents raiding), and a clean x402 seam for future pay-to-force-decision.
+prevents raiding), and a clean x402 seam for future pay-to-force-decision;
+launch-readiness / UX clarity pass: dedicated **My Agents** panel with one-click find /
+rest / copy, a plain-English **world summary** line, page share metadata, and a confusion
+pass that hides secondary controls and replaces jargon like "SEEK_NEED" with "looking for
+food or wood".
 
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.

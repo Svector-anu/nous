@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -138,6 +138,17 @@ def create_app(
     # Vendored rather than fetched from a cdn so the viewer works offline, which is the
     # same rule the procedural-materials reference holds itself to.
     app.mount("/static", StaticFiles(directory=VIEWER_INDEX.parent), name="static")
+
+    _FAVICON = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
+        "<rect width='16' height='16' fill='#0d1117'/>"
+        "<circle cx='8' cy='8' r='4' fill='#58a6ff'/>"
+        "</svg>"
+    )
+
+    @app.get("/favicon.ico")
+    async def favicon() -> Response:
+        return Response(_FAVICON, media_type="image/svg+xml")
 
     @app.get("/")
     async def index() -> FileResponse:
