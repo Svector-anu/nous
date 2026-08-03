@@ -6,7 +6,7 @@
 // browser against a running server and asserts on renderer.info and on the view's own
 // state rather than on how the picture looks.
 //
-//   1. start the sim:  .venv/bin/python -m uvicorn src.api.server:app --factory
+//   1. start the sim:  .venv/bin/python -m uvicorn src.api.server:create_app --factory
 //   2. one-time setup: npm i playwright   (dev-only; never a project dependency)
 //   3. node scripts/verify_world3d.mjs
 //
