@@ -363,6 +363,43 @@ const HUT = (() => {
   };
 })();
 
+// --- settlement props --------------------------------------------------------
+//
+// Small procedural details around hut clusters. Reuses the unit box and the same
+// material set as the huts, so a whole world of props adds only a handful of draw calls.
+// Each prop is placed deterministically from the hut IDs that form its cluster.
+
+const PROPS = (() => {
+  const piece = (material, scale, position, rotationX = 0) => ({ material, scale, position, rotationX });
+  const s = TILE * 0.25; // prop size unit
+
+  return [
+    // Tall post with a stone footing, used as a clan marker or tether point.
+    [
+      piece("stone", [s * 0.65, s * 0.25, s * 0.65], [0, s * 0.13, 0]),
+      piece("wood", [s * 0.22, s * 1.4, s * 0.22], [0, s * 0.82, 0]),
+    ],
+    // Work marker: a short stump with an angled tool handle.
+    [
+      piece("stone", [s * 0.6, s * 0.55, s * 0.6], [0, s * 0.28, 0]),
+      piece("wood", [s * 0.16, s * 0.8, s * 0.16], [0, s * 0.75, 0], Math.PI / 9),
+    ],
+    // Bench at the edge of a cluster.
+    [
+      piece("wood", [s * 1.4, s * 0.12, s * 0.45], [0, s * 0.42, 0]),
+      piece("wood", [s * 0.14, s * 0.42, s * 0.14], [-s * 0.55, s * 0.21, s * 0.16]),
+      piece("wood", [s * 0.14, s * 0.42, s * 0.14], [s * 0.55, s * 0.21, s * 0.16]),
+      piece("wood", [s * 0.14, s * 0.42, s * 0.14], [-s * 0.55, s * 0.21, -s * 0.16]),
+      piece("wood", [s * 0.14, s * 0.42, s * 0.14], [s * 0.55, s * 0.21, -s * 0.16]),
+    ],
+    // Banner pole with a small cloth rectangle.
+    [
+      piece("wood", [s * 0.18, s * 1.5, s * 0.18], [0, s * 0.9, 0]),
+      piece("roof", [s * 0.9, s * 0.35, s * 0.08], [0, s * 1.35, s * 0.08]),
+    ],
+  ];
+})();
+
 // Sky and fog share this colour at the horizon so the ground dissolves rather than
 // stopping at a visible line.
 const HORIZON = 0x9fb2c4;
@@ -1424,6 +1461,66 @@ export class WorldView {
     instanced(this.materials.wood, HUT.wood, buildings.length, placeHut);
     instanced(this.materials.roof, HUT.roof, buildings.length, placeHut);
 
+    // Place a small prop in every hut cluster (3+ huts) so settlements do not look stamped.
+    // Cluster membership and prop layout are deterministic from hut IDs; only viewer state
+    // changes, never simulation state.
+    const clusters = clusterHuts(buildings, 4);
+    if (clusters.length > 0) {
+      const placements = [];
+      for (const cluster of clusters) {
+        const propCount = cluster.count >= 5 ? 2 : 1;
+        for (let i = 0; i < propCount; i++) {
+          const seed = cluster.ids[0] + i * 97;
+          const [cx, cz] = this.local({ x: cluster.x, y: cluster.y });
+          const dist = TILE * 0.9 + hash2(cluster.x, cluster.y, seed) * TILE * 0.6;
+          const angle = hash2(cluster.x, cluster.y, seed + 1) * Math.PI * 2;
+          const px = cx + Math.cos(angle) * dist;
+          const pz = cz + Math.sin(angle) * dist;
+          const yaw = hash2(cluster.x, cluster.y, seed + 2) * Math.PI * 2;
+          const typeIndex = Math.floor(hash2(cluster.x, cluster.y, seed + 3) * PROPS.length);
+          placements.push({ x: px, y: terrainHeight(px, pz), z: pz, yaw, typeIndex });
+        }
+      }
+
+      // Count how many box instances each material needs, then build one InstancedMesh per
+      // material so props cost the same number of draw calls regardless of cluster count.
+      const counts = new Map();
+      for (const p of placements) {
+        for (const piece of PROPS[p.typeIndex]) {
+          counts.set(piece.material, (counts.get(piece.material) || 0) + 1);
+        }
+      }
+      const meshes = new Map();
+      for (const [material, count] of counts) {
+        const mesh = new THREE.InstancedMesh(this.geometries.box, this.materials[material], count);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.frustumCulled = false;
+        group.add(mesh);
+        meshes.set(material, { mesh, index: 0 });
+      }
+
+      const combined = new THREE.Matrix4();
+      for (const p of placements) {
+        euler.set(0, p.yaw, 0);
+        quaternion.setFromEuler(euler);
+        position.set(p.x, p.y, p.z);
+        scale.set(1, 1, 1);
+        matrix.compose(position, quaternion, scale);
+        for (const piece of PROPS[p.typeIndex]) {
+          euler.set(piece.rotationX, 0, 0);
+          quaternion.setFromEuler(euler);
+          position.set(...piece.position);
+          scale.set(...piece.scale);
+          local.compose(position, quaternion, scale);
+          combined.multiplyMatrices(matrix, local);
+          const entry = meshes.get(piece.material);
+          entry.mesh.setMatrixAt(entry.index++, combined);
+        }
+      }
+      for (const entry of meshes.values()) entry.mesh.instanceMatrix.needsUpdate = true;
+    }
+
     const food = resources.filter((r) => r.kind === "FOOD");
     const wood = resources.filter((r) => r.kind !== "FOOD");
 
@@ -2068,4 +2165,36 @@ export function densestCluster(snapshot, radius) {
     }
   }
   return best ? { centre: [best.x, best.y], count: bestCount } : null;
+}
+
+export function clusterHuts(buildings, radius) {
+  // Group huts into coarse spatial clusters for viewer-only settlement props. A bucket is a
+  // cluster if it holds enough huts; the returned seed is derived from the sorted hut IDs so
+  // the same settlement always gets the same prop layout.
+  if (buildings.length === 0) return [];
+
+  const buckets = new Map();
+  const keyOf = (x, y) => `${Math.floor(x / radius)},${Math.floor(y / radius)}`;
+  for (const building of buildings) {
+    const key = keyOf(building.x, building.y);
+    let bucket = buckets.get(key);
+    if (!bucket) buckets.set(key, (bucket = []));
+    bucket.push(building);
+  }
+
+  const clusters = [];
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 3) continue;
+    let cx = 0;
+    let cy = 0;
+    for (const b of bucket) {
+      cx += b.x;
+      cy += b.y;
+    }
+    cx /= bucket.length;
+    cy /= bucket.length;
+    const ids = bucket.map((b) => b.id).sort((a, b) => a - b);
+    clusters.push({ x: cx, y: cy, count: bucket.length, ids });
+  }
+  return clusters;
 }
