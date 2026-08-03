@@ -84,12 +84,27 @@ class Agent:
     user_deployed: bool = False
     raids_won: int = 0
     raids_lost: int = 0
+    spawn_tick: int = 0
 
     def clear_target(self) -> None:
         self.target_entity = None
         self.target_x = None
         self.target_y = None
         self.gather_progress = 0
+
+
+@dataclass
+class Standing:
+    """Reputation of an agent. Only real recorded actions increase this; it is never
+    granted for free. Stored as durable world state and bounded by the thresholds in
+    WorldConfig."""
+
+    value: int = 0
+    action_value: int = 0  # standing from actions, separate from time-based portion
+    rank: str = "member"  # member | trusted | officer
+    given_food: int = 0
+    given_wood: int = 0
+    join_tick: int = -1   # tick the agent joined its current clan; -1 if clanless
 
 
 @dataclass

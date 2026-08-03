@@ -35,6 +35,7 @@ from ..rng import TickRng
 from .messaging import make_message, send
 from .message_composer import compose_content
 from .needs import is_starving
+from .standing import record_resource_given
 
 
 def transfer(
@@ -66,12 +67,14 @@ def transfer(
             return 0
         donor_inventory.food -= moved
         receiver_inventory.food += moved
+        record_resource_given(world, donor, food=moved, wood=0)
     else:
         moved = min(amount, donor_inventory.wood, capacity - receiver_inventory.wood)
         if moved <= 0:
             return 0
         donor_inventory.wood -= moved
         receiver_inventory.wood += moved
+        record_resource_given(world, donor, food=0, wood=moved)
 
     return moved
 
