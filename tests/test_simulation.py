@@ -21,6 +21,7 @@ def test_systems_run_in_the_documented_order():
         "messaging",
         "needs",
         "trade",
+        "resting",
         "combat",
         "fsm",
         "movement",
@@ -90,6 +91,6 @@ def test_snapshot_shape():
     assert set(snapshot["agents"][0]) == {
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
         "user", "personality", "wants", "huts", "raids_won", "raids_lost", "received",
-        "target", "standing", "rank",
+        "target", "standing", "rank", "rest_mode",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}

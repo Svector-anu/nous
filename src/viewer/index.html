@@ -409,6 +409,15 @@
   }
   #topBar .stat-icon svg { width: 100%; height: 100%; }
   #topBar .stat-value { color: var(--accent); font-weight: 700; letter-spacing: 0.02em; font-family: var(--font-mono); }
+  #thinkingStatus {
+    margin-left: auto; margin-right: 12px;
+    padding: 4px 10px; border-radius: 12px;
+    font-size: 12px; color: var(--text);
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    display: none;
+  }
+  #thinkingStatus.show { display: inline-block; }
 
   /* Right floating cards container */
   #rightCards {
@@ -789,6 +798,26 @@
   }
   .agent-card-actions button:hover {
     background: rgba(88,166,255,0.15);
+  }
+  .tag-rest {
+    display: inline-block;
+    padding: 1px 6px; border-radius: 6px;
+    font-size: 10px; font-weight: 700;
+    background: rgba(163, 113, 247, 0.15);
+    border: 1px solid rgba(163, 113, 247, 0.35);
+    color: #a371f7;
+    margin-right: 6px;
+  }
+  .rest-toggle {
+    padding: 2px 8px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.25);
+    color: #58a6ff;
+    cursor: pointer;
+  }
+  .rest-toggle:hover {
+    background: rgba(88,166,255,0.18);
     border-color: rgba(88,166,255,0.45);
   }
 
@@ -972,6 +1001,7 @@
   <!-- Top Bar -->
   <div id="topBar">
     <span class="logo">NEO-CIVILIZATION</span>
+    <span id="thinkingStatus"></span>
     <div class="topStats">
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> Day <span class="stat-value" id="topDay">—</span></span>
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> <span class="stat-value" id="topAgents">—</span> Agents</span>
@@ -1296,6 +1326,8 @@ const STATE_COLORS = {
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
+const thinkingStatus = document.getElementById("thinkingStatus");
+let thinkingSince = null;
 
 const CLANLESS = "#484f58";
 const legend = document.getElementById("legend");
@@ -1359,6 +1391,22 @@ function escapeHtml(text) {
   return node.innerHTML;
 }
 
+async function setRest(agentId, rest) {
+  try {
+    const response = await fetch(`/agents/${agentId}/rest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rest }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      console.warn("rest toggle failed:", body.detail || response.status);
+    }
+  } catch (error) {
+    console.warn("rest toggle failed:", error);
+  }
+}
+
 function renderDeployed(snapshot) {
   const mine = snapshot.agents.filter((a) => a.user);
   deployed.innerHTML = "";
@@ -1371,10 +1419,17 @@ function renderDeployed(snapshot) {
   }
   for (const agent of mine) {
     const item = document.createElement("li");
+    item.style.display = "flex"; item.style.alignItems = "center"; item.style.flexWrap = "wrap";
     item.innerHTML =
+      `<span style="flex:1">` +
+      (agent.rest_mode ? `<span class="tag-rest">REST</span>` : "") +
       `<span class="who">${escapeHtml(agent.name)}</span> · ${agent.state}` +
       (agent.clan !== null ? ` · clan ${agent.clan}` : "") +
-      (agent.personality ? `<br><span class="note">${escapeHtml(agent.personality)}</span>` : "");
+      (agent.personality ? `<br><span class="note">${escapeHtml(agent.personality)}</span>` : "") +
+      `</span>` +
+      `<button class="rest-toggle" data-id="${agent.id}" data-rest="${agent.rest_mode ? 0 : 1}">${agent.rest_mode ? "resume" : "rest"}</button>`;
+    const btn = item.querySelector(".rest-toggle");
+    btn.addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
     deployed.appendChild(item);
   }
 }
@@ -1755,6 +1810,9 @@ function renderInspector(snapshot) {
   if (clan && clan.centre) {
     html += `<button class="follow-clan">Clan ${clan.id}</button>`;
   }
+  if (agent.user) {
+    html += `<button class="rest-toggle" data-id="${agent.id}">${agent.rest_mode ? "Resume" : "Rest"}</button>`;
+  }
   html += `</div></div>`;
 
   inspector.innerHTML = html;
@@ -1764,6 +1822,9 @@ function renderInspector(snapshot) {
   );
   inspector.querySelector(".follow-clan")?.addEventListener("click", () =>
     flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
+  );
+  inspector.querySelector(".rest-toggle")?.addEventListener("click", () =>
+    setRest(agent.id, !agent.rest_mode)
   );
 }
 
@@ -2161,10 +2222,25 @@ function drawMinimap(snapshot) {
   ctx.strokeRect(originX + 0.5, originY + 0.5, width * cell, height * cell);
 }
 
+function updateThinking(advisor) {
+  if (!advisor || !advisor.llm_enabled || advisor.pending <= 0) {
+    thinkingStatus.classList.remove("show");
+    thinkingSince = null;
+    return;
+  }
+  if (thinkingSince === null) {
+    thinkingSince = performance.now();
+  }
+  const elapsed = Math.floor((performance.now() - thinkingSince) / 1000);
+  thinkingStatus.textContent = `Leader thinking… ~${elapsed}s`;
+  thinkingStatus.classList.add("show");
+}
+
 function render(snapshot) {
   lastSnapshot = snapshot;
   ensureMounted(snapshot);
   updateSplashCount(snapshot);
+  updateThinking(snapshot.advisor);
 
   setText("tick", snapshot.tick);
   setText("day", snapshot.day);

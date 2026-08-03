@@ -8,16 +8,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..persistence.sqlite_store import SqliteWorldStore
-from ..world.components import Agent, ClanRef, Position
+from ..world.components import Agent, ClanRef, ForceDecisionQueue, Position, RestQueue
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
-from ..world.systems import leadership, markets, spawning
+from ..world.systems import leadership, markets, resting, spawning
 from ..world.tick import Simulation, create_world
 
 
@@ -35,6 +35,13 @@ class DeployRequest(BaseModel):
 
     name: str = Field(..., description="display name for the agent")
     personality: str = Field(default="", description="short personality note")
+
+
+class RestRequest(BaseModel):
+    """Toggle a user-deployed agent's rest / play-safe mode."""
+
+    rest: bool = Field(..., description="true to rest, false to resume normal behaviour")
+
 
 logger = logging.getLogger("neociv")
 
@@ -266,6 +273,7 @@ def create_app(
                     "y": position.y,
                     "clan": reference.clan_id if reference is not None else None,
                     "alive": True,
+                    "rest_mode": agent.rest_mode,
                 }
             )
         pending = spawning.queue(world)
@@ -308,6 +316,74 @@ def create_app(
                 "name": name,
                 "personality": personality,
                 "arrives_at_tick": world.tick + 1,
+            },
+            status_code=202,
+        )
+
+    @app.post("/agents/{agent_id}/rest", status_code=202)
+    async def set_rest(agent_id: int, request: RestRequest) -> JSONResponse:
+        """Queue a rest-mode toggle for a user-deployed agent. Applied on the next tick."""
+        world = app.state.simulation.world
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        if world.first(RestQueue) is None:
+            raise HTTPException(503, "world is not ready")
+        resting.enqueue(world, agent_id, request.rest)
+        return JSONResponse(
+            {
+                "queued": True,
+                "agent_id": agent_id,
+                "rest": request.rest,
+                "applies_at_tick": world.tick + 1,
+            },
+            status_code=202,
+        )
+
+    @app.post("/clans/{clan_id}/force-decision", status_code=202)
+    async def force_decision(clan_id: int, request: Request) -> JSONResponse:
+        """x402 seam: pay to force an LLM leader decision.
+
+        When payment is not verified the endpoint returns a 402 with the x402 protocol
+        headers. A verified payment is recorded as a queued force decision so the future
+        implementation does not need a world schema change.
+        """
+        world = app.state.simulation.world
+        if not world.config.llm_force_decision_enabled:
+            raise HTTPException(403, "force decision is not enabled")
+
+        if request.headers.get("X402-Payment-Verified") != "true":
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "payment": {
+                        "scheme": "x402",
+                        "network": "base",
+                        "amount": "0.10",
+                        "currency": "USD",
+                    },
+                    "clan_id": clan_id,
+                },
+                headers={
+                    "X402-Payment-Required": "true",
+                    "X402-Version": "0.1",
+                    "X402-Price": "0.10",
+                },
+            )
+
+        entity = world.first(ForceDecisionQueue)
+        if entity is None:
+            raise HTTPException(503, "world is not ready")
+        queue = world.get(entity, ForceDecisionQueue)
+        # Cap the queue so the seam cannot be used as an unbounded accumulator.
+        if len(queue.pending) >= 16:
+            queue.pending.pop(0)
+        queue.pending.append({"clan_id": clan_id, "tick": world.tick})
+        return JSONResponse(
+            {
+                "queued": True,
+                "clan_id": clan_id,
+                "applies_at_tick": world.tick + 1,
             },
             status_code=202,
         )

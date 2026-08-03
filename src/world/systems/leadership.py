@@ -47,6 +47,28 @@ def advisor_state(world: World) -> AdvisorState | None:
     return world.get(entity, AdvisorState) if entity is not None else None
 
 
+def advisor_status(world: World) -> dict:
+    """Small read-only summary for the viewer. Never calls the network."""
+    state = advisor_state(world)
+    advisor = world.advisor
+    if advisor is None:
+        # A world without an attached advisor behaves exactly like a disabled one.
+        return {
+            "llm_enabled": world.config.llm_enabled,
+            "advisor": "NullAdvisor",
+            "pending": 0,
+            "calls_made": 0,
+            "max_calls": world.config.llm_max_calls_per_session,
+        }
+    return {
+        "llm_enabled": world.config.llm_enabled,
+        "advisor": type(advisor).__name__,
+        "pending": advisor.pending(),
+        "calls_made": state.calls_made if state is not None else 0,
+        "max_calls": world.config.llm_max_calls_per_session,
+    }
+
+
 def _inflight_clans(advisor) -> set[int]:
     """What the advisor claims to be waiting on, or nothing if it cannot say.
 

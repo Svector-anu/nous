@@ -93,6 +93,8 @@ class WorldConfig:
     llm_min_ticks_between_calls: int = 300
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200
+    # Seam for future x402 / pay-to-force-decision. Disabled by default.
+    llm_force_decision_enabled: bool = False
 
     # --- prediction markets ---------------------------------------------------
     # Spectators bet on world events. Reads world state, never writes to it.

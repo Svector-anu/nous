@@ -15,17 +15,17 @@ Before writing any code, report back:
 Do not start until I confirm your read is right.
 ```
 
-## Current state — verified 2026-08-02
+## Current state — verified 2026-08-03
 
 | | |
 |---|---|
-| Tests | **399 passed in 199s** (`pytest -q`, actual output) |
+| Tests | **416 passed in 238s** (`pytest -q`, actual output) |
 | Browser checks | **39/39** (`node scripts/verify_world3d.mjs`) |
-| Commits | on branch `phase/1b-llm-leader-messages` |
-| Working tree | dirty (Phase 1b: llm-generated leader messages) |
+| Commits | on branch `phase/3-soft-limits` |
+| Working tree | dirty (Phase 3: soft limits, rest mode, x402 seam) |
 | Lint / typecheck / CI | **none exist** |
-| GitHub issues | #1–#6 filed |
-| Open PRs | #7 phase 2 ready, #8 phase 1b, #9 phase 3 (drafts) |
+| GitHub issues | #1–#6 filed, #5 open |
+| Open PRs | #7, #8, #10, #11, #12 merged; #9 phase 3 draft |
 
 **Built:** phase 0 survival skeleton; phase 1 social layer (blackboard, messaging, trade,
 clans, goals, influence, user-deployed agents, raiding, grudges, truces); chunked spatial
@@ -40,7 +40,10 @@ influenced by personality (no LLM, deterministic, bounded text length); Phase 2
 user-agent standing and progression (Member → Trusted → Officer → leader succession)
 based only on recorded actions: donations, builds, raids, survival, membership time;
 Phase 1b optional LLM-generated leader messages (reuses the same goal-call budget and
-cooldown, falls back to local templates when disabled / over budget / timeout).
+cooldown, falls back to local templates when disabled / over budget / timeout);
+Phase 3 soft limits (viewer "Leader thinking" indicator, non-blocking, world keeps running),
+offline rest mode for user-deployed agents (queue applied on next tick, respects hunger,
+prevents raiding), and a clean x402 seam for future pay-to-force-decision.
 
 **Not built:** LOD (none anywhere, and not yet justified — see below), births, economy,
 hard territory ownership, on-chain identity.

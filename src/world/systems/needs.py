@@ -82,6 +82,13 @@ def run(world: World, rng: TickRng) -> None:
                     config.need_max, needs.energy + config.rest_energy_per_tick
                 )
 
+        # Rest mode must still respect hunger: a user who told their agent to play
+        # safe does not want it to starve while napping. Hunger is the higher
+        # priority, so break rest when food is needed.
+        if agent.rest_mode and 0 < needs.hunger < config.need_threshold:
+            agent.state = AgentState.IDLE
+            agent.clear_target()
+
         if kill_if_exhausted(world, entity, needs):
             continue
 

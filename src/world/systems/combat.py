@@ -212,7 +212,7 @@ def run(world: World, rng: TickRng) -> None:
     raiders = [
         entity
         for entity in world.query(Agent, Needs, Inventory, Position)
-        if _is_raiding(world, entity)
+        if _is_raiding(world, entity) and not world.get(entity, Agent).rest_mode
     ]
     if not raiders:
         return
