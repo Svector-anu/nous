@@ -51,7 +51,7 @@ def test_build_advisor_returns_null_when_disabled():
 def test_build_advisor_goes_live_when_enabled():
     """Credentials are not gated on env vars — the sdk also resolves auth tokens and
     `ant auth login` profiles, so an env check would refuse a working setup."""
-    advisor = build_advisor(WorldConfig(llm_enabled=True))
+    advisor = build_advisor(WorldConfig(llm_enabled=True, llm_provider="anthropic"))
     assert isinstance(advisor, ClaudeAdvisor)
     advisor.close()
 

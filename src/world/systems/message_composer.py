@@ -208,6 +208,10 @@ def compose_text(
 
     The result is bounded to `MAX_TEXT_LENGTH` so it fits speech bubbles and feed cards.
     """
+    # If the caller already supplied a text (e.g., from an LLM), trust it and cap length.
+    if "text" in content:
+        return content["text"][:MAX_TEXT_LENGTH]
+
     agent, personality = _sender(world, sender)
     traits = _traits(personality)
     stable_key = f"{sender}:{message_type.value}:{tick}:{sorted(content.items())}"

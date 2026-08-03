@@ -9,7 +9,7 @@ this is the meta tracker for the current neo-civilization slice.
 - #1 phase 0: visibility/aliveness pass — completed in main
 - #2 phase 1a: readable, personality-aware leader messages without llm — completed in main
 - #3 phase 2: user-agent standing and progression — pr #7 (completed)
-- #4 phase 1b: llm-generated leader messages and reactions — pr #8
+- #4 phase 1b: llm-generated leader messages and reactions — pr #8 (completed)
 - #5 phase 3: soft llm limits, offline rest, and x402 seam — pr #9
 
 ## rules for every phase
