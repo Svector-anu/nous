@@ -32,6 +32,7 @@ from . import leadership
 from .blackboard import board
 from .messaging import make_message, send
 from .message_composer import compose_content
+from .standing import eligible_successor, record_clan_join, record_clan_leave
 
 _LOCATION_KEYS = {
     ResourceKind.FOOD: KEY_FOOD_LOCATIONS,
@@ -48,14 +49,16 @@ def find_clan(world: World, clan_id: int) -> Clan | None:
 
 
 def _prune(world: World) -> None:
-    """Drop dead members and empty clans. Leadership falls to the lowest surviving id."""
+    """Drop dead members and empty clans. Leadership falls to the lowest surviving officer,
+    or the lowest surviving id if no officer exists."""
     for entity in world.query(Clan):
         clan = world.get(entity, Clan)
         for member in list(clan.members):
             if not world.is_alive(member):
                 clan.remove(member)
         if clan.leader is not None and not world.is_alive(clan.leader):
-            clan.leader = clan.members[0] if clan.members else None
+            successor = eligible_successor(world, clan)
+            clan.leader = successor if successor is not None else (clan.members[0] if clan.members else None)
         if not clan.members:
             world.destroy_entity(entity)
 
@@ -354,6 +357,7 @@ def _form_clans(world: World, rng: TickRng) -> None:
                 continue
             clan.add(entity)
             reference.clan_id = clan.clan_id
+            record_clan_join(world, entity)
             joined = True
             break
         if joined:
@@ -370,6 +374,8 @@ def _form_clans(world: World, rng: TickRng) -> None:
             clan.add(other)
             reference.clan_id = clan.clan_id
             world.get(other, ClanRef).clan_id = clan.clan_id
+            record_clan_join(world, entity)
+            record_clan_join(world, other)
             break
 
 

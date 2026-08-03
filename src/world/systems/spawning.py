@@ -24,6 +24,7 @@ from ..components import (
     Outbox,
     Position,
     SpawnQueue,
+    Standing,
 )
 from ..ecs import Entity, World
 from ..rng import TickRng
@@ -75,8 +76,10 @@ def _spawn(world: World, request: dict, rng: TickRng) -> Entity:
             name=str(request["name"]),
             personality=str(request.get("personality", "")),
             user_deployed=True,
+            spawn_tick=world.tick,
         ),
     )
+    world.add(entity, Standing())
     return entity
 
 

@@ -28,6 +28,7 @@ def test_systems_run_in_the_documented_order():
         "regrowth",
         "leadership",
         "social",
+        "standing",
         "blackboard",
         # Last on purpose: a market resolves against the tick's final state, so it must
         # run after every system that can change the world. It only ever reads.
@@ -89,6 +90,6 @@ def test_snapshot_shape():
     assert set(snapshot["agents"][0]) == {
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
         "user", "personality", "wants", "huts", "raids_won", "raids_lost", "received",
-        "target",
+        "target", "standing", "rank",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}

@@ -38,6 +38,7 @@ from .messaging import make_message, send
 from .message_composer import compose_content
 from .needs import kill_if_exhausted
 from .social import clan_goal_key
+from .standing import record_raid_won
 from .trade import transfer
 
 
@@ -161,6 +162,7 @@ def _resolve(world: World, raider: Entity, victim: Entity, rng: TickRng) -> None
 
     world.get(winner, Agent).raids_won += 1
     world.get(loser, Agent).raids_lost += 1
+    record_raid_won(world, winner)
 
     if raider_wins:
         taken = transfer(world, victim, raider, ResourceKind.FOOD, config.raid_steal_amount)

@@ -9,6 +9,7 @@ from __future__ import annotations
 from ..components import Agent, AgentState, Building, Inventory, Position
 from ..ecs import World
 from ..rng import TickRng
+from .standing import record_hut_built
 
 HUT = "hut"
 
@@ -60,4 +61,5 @@ def run(world: World, rng: TickRng) -> None:
         world.add(hut, Building(kind=HUT, owner=entity))
         occupied.add(tile)
         agent.huts_owned += 1
+        record_hut_built(world, entity)
         agent.state = AgentState.IDLE
