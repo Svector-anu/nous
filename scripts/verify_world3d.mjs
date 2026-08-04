@@ -642,7 +642,7 @@ check(
   `leftNav=${nav.hasLeftNav}, dockButtons=${nav.dockButtons}`
 );
 
-// Top bar: stat deltas and the "Following X" chip. Both are pure derivations exposed on
+// Top bar: stat deltas and the "Following X" chip are pure derivations exposed on
 // window.__topbar, so they are asserted directly rather than raced against live snapshots.
 const topbar = await page.evaluate(() => {
   const t = window.__topbar;
@@ -654,14 +654,34 @@ const topbar = await page.evaluate(() => {
   t.setStatDelta("topAgentsDelta", 4, 4);
   const same = { text: delta.textContent, cls: delta.className };
 
+  // The day counter gained its own delta with the two-row bar; it is a distinct element
+  // from the agent counter, so it is asserted separately.
+  const dayDelta = document.getElementById("topDayDelta");
+  t.setStatDelta("topDayDelta", 251, 250);
+  const day = { text: dayDelta ? dayDelta.textContent : null, cls: dayDelta ? dayDelta.className : null };
+
   const chip = document.getElementById("followChip");
   const subject = document.getElementById("followSubject");
   const isActive = () => chip.classList.contains("active");
   t.setFollowFromLabel("Ada · foraging");
   const followed = { active: isActive(), subject: subject.textContent };
+
+  // The chip sits between the shelf status and the control hints. It overlapped both when
+  // it was absolutely centred, so its box is measured against theirs while it is showing.
+  const box = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, r: b.right, w: b.width }; };
+  const chipBox = box(chip);
+  const statusBox = box(document.querySelector("#topBar .shelf-status"));
+  const hintsBox = box(document.querySelector("#topBar .shelf-hints"));
+  const overlaps = (a, b) => a.w > 0 && b.w > 0 && a.l < b.r && b.l < a.r;
+  const layout = {
+    overlapsStatus: overlaps(chipBox, statusBox),
+    overlapsHints: overlaps(chipBox, hintsBox),
+    chipWidth: chipBox.w,
+  };
+
   t.setFollowFromLabel("whole world");
   const cleared = { active: isActive(), subject: subject.textContent };
-  return { up, down, same, followed, cleared };
+  return { up, down, same, day, followed, cleared, layout };
 });
 check(
   "a rising stat shows a green ▲delta",
@@ -679,6 +699,11 @@ check(
   `text="${topbar.same.text}" cls="${topbar.same.cls}"`
 );
 check(
+  "the day counter has its own rising delta",
+  topbar.day.text === "▲1" && topbar.day.cls.includes("up"),
+  `text="${topbar.day.text}" cls="${topbar.day.cls}"`
+);
+check(
   "following a subject shows the chip with its label",
   topbar.followed.active === true && topbar.followed.subject === "Ada · foraging",
   `active=${topbar.followed.active}, subject="${topbar.followed.subject}"`
@@ -687,6 +712,11 @@ check(
   "returning to the whole world hides the follow chip",
   topbar.cleared.active === false && topbar.cleared.subject === "",
   `active=${topbar.cleared.active}, subject="${topbar.cleared.subject}"`
+);
+check(
+  "the follow chip clears the shelf status and the control hints",
+  topbar.layout.chipWidth > 0 && !topbar.layout.overlapsStatus && !topbar.layout.overlapsHints,
+  `width=${topbar.layout.chipWidth}, status=${topbar.layout.overlapsStatus}, hints=${topbar.layout.overlapsHints}`
 );
 
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
