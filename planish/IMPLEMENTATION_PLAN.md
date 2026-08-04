@@ -114,6 +114,23 @@ silently dropped in-flight requests; both are fixed and locked down by
 **never verified against the real api** — no credentials existed on the build machine.
 `scripts/verify_llm.py` runs the whole single-clan comparison once a key is present.
 
+### phase 3 — soft limits, offline rest, x402 seam
+
+implemented on `phase/3-soft-limits`:
+
+- **soft limits with viewer feedback.** the snapshot now carries a small `advisor` block
+  (`llm_enabled`, `advisor`, `pending`, `calls_made`, `max_calls`). the viewer shows a
+  non-blocking "Leader thinking…" banner while requests are pending; the world and camera
+  keep running. `leadership.advisor_status()` never calls the network.
+- **offline rest mode.** spectators can toggle their deployed agents into a safe mode via
+  `POST /agents/{id}/rest`. the request queues on `RestQueue` and is applied at a fixed tick
+  so history stays deterministic. a resting agent still respects hunger and does not initiate
+  raids; it rests when tired. capped by `max_user_agents`.
+- **x402 seam.** `POST /clans/{clan_id}/force-decision` returns `402 Payment Required` with
+  x402 headers when `llm_force_decision_enabled` is true and no payment is verified. a verified
+  payment is recorded on `ForceDecisionQueue` so the future payment path needs no schema
+  change.
+
 ### viewer — 3d main view (this section is stale below; see planish/VISUALS_AND_PROCEDURAL.md)
 
 click-to-inspect landed before any 3d work: the simulation had grown a social layer that

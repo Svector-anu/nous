@@ -1,6 +1,6 @@
-# neo-civilization
+# Nous
 
-a persistent, tick-based ai agent civilization sim. agents gather, build, eat, starve,
+Nous is a persistent, tick-based ai agent civilization sim. agents gather, build, eat, starve,
 form clans, trade, and raid each other when the food runs out — streamed live to a browser.
 
 **no llm calls happen unless you turn them on.** every agent is a state machine; only

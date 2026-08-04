@@ -82,6 +82,7 @@ class Agent:
     received: int = 0
     personality: str = ""
     user_deployed: bool = False
+    rest_mode: bool = False
     raids_won: int = 0
     raids_lost: int = 0
     spawn_tick: int = 0
@@ -343,6 +344,28 @@ class Clan:
             self.members.remove(entity)
         if self.leader == entity:
             self.leader = self.members[0] if self.members else None
+
+
+@dataclass
+class RestQueue:
+    """User rest-mode requests waiting for a fixed tick to be applied.
+
+    A spectator toggling their agent's rest state is an input to the world, not a
+    simulation event, so it queues and is drained at a fixed point in the tick.
+    """
+
+    pending: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class ForceDecisionQueue:
+    """Placeholder for x402 / pay-to-force-decision requests.
+
+    Currently the API only records the request; the seam is here so the future
+    payment path does not need a schema change.
+    """
+
+    pending: list[dict] = field(default_factory=list)
 
 
 @dataclass

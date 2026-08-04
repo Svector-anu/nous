@@ -298,3 +298,25 @@ def test_spawn_queue_is_bounded(tmp_path):
 def test_agents_endpoint_reports_the_limit(tmp_path):
     with _client(tmp_path) as client:
         assert client.get("/agents").json()["limit"] == CONFIG.max_user_agents
+
+
+def test_delete_user_agent_removes_it_from_the_world(tmp_path):
+    with _client(tmp_path) as client:
+        client.post("/agents", json={"name": "Disposable", "personality": "brief"})
+        # Drive the simulation forward so the pending agent spawns.
+        client.app.state.simulation.step()
+        listed = client.get("/agents").json()
+        assert len(listed["agents"]) == 1
+        agent_id = listed["agents"][0]["id"]
+
+        response = client.delete(f"/agents/{agent_id}")
+        assert response.status_code == 200
+        assert response.json()["deleted"] is True
+        assert response.json()["agent_id"] == agent_id
+        after = client.get("/agents").json()
+        assert after["agents"] == []
+
+
+def test_deleting_a_non_deployed_agent_is_404(tmp_path):
+    with _client(tmp_path) as client:
+        assert client.delete("/agents/999999").status_code == 404

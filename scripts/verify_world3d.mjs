@@ -6,7 +6,7 @@
 // browser against a running server and asserts on renderer.info and on the view's own
 // state rather than on how the picture looks.
 //
-//   1. start the sim:  .venv/bin/python -m uvicorn src.api.server:app --factory
+//   1. start the sim:  .venv/bin/python -m uvicorn src.api.server:create_app --factory
 //   2. one-time setup: npm i playwright   (dev-only; never a project dependency)
 //   3. node scripts/verify_world3d.mjs
 //
@@ -23,6 +23,32 @@ function check(name, ok, detail) {
   results.push(`  ${ok ? "pass" : "FAIL"}  ${name}${detail ? `  — ${detail}` : ""}`);
   if (!ok) failures.push(name);
 }
+
+async function openCameraTours() {
+  const panel = await page.locator("#objectivesCard").first();
+  if (await panel.isVisible().catch(() => false)) return;
+  await page.click('[data-panel="settingsPanel"]');
+  await page.click("#settingsShowTours");
+  await panel.waitFor({ state: "visible" });
+}
+
+async function cleanupMobileGateAgents() {
+  // The gate deploys a "MobileGate" agent every run; remove stale ones so the
+  // world log and My Agents list do not accumulate test spam.
+  try {
+    const list = await (await fetch(`${BASE_URL}agents`)).json();
+    const ids = (list.agents || [])
+      .filter((a) => a.name === "MobileGate")
+      .map((a) => a.id);
+    for (const id of ids) {
+      await fetch(`${BASE_URL}agents/${id}`, { method: "DELETE" });
+    }
+  } catch (error) {
+    console.warn("could not clean up MobileGate agents:", error.message);
+  }
+}
+
+await cleanupMobileGateAgents();
 
 const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
@@ -297,6 +323,7 @@ check("collapsed container keeps a finite aspect", edges.collapsed);
 // Autopilot has to be off for this: projecting 40-odd agents and raycasting each takes real
 // time, and a camera gliding underneath it invalidates every projection computed before it
 // moved. That alone pushed misses from 2 to 8.
+await openCameraTours();
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyDensest");
 await page.waitForTimeout(1200);
@@ -541,6 +568,7 @@ check(
 );
 
 // --- 11. street level is low and among the huts, not an aerial -------------
+await openCameraTours();
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyStreet");
 await page.waitForTimeout(2500);
@@ -564,9 +592,262 @@ check(
     "(distance is height/cos(phi) at this angle, so a tall camera is also a distant one)"
 );
 
+// --- 11b. desktop navigation: one dock, one panel, nothing stuck open ------------
+// Guards the regression this refactor fixed: a duplicated CSS block forced every
+// overlay to display:flex on desktop, so panels clustered on top of the world and
+// their close buttons looked dead. Each dock click runs closeAllPanels(), so the
+// resulting visible set is deterministic no matter what earlier tests left open.
+const nav = await page.evaluate(() => {
+  const PANELS = [
+    "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards",
+    "deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard",
+  ];
+  const visible = () => PANELS.filter((id) => {
+    const el = document.getElementById(id);
+    return el && getComputedStyle(el).display !== "none";
+  });
+  const clickDock = (panelId) => {
+    document.querySelector(`#bottomDock .dock-btn[data-panel="${panelId}"]`).click();
+  };
+  clickDock("worldOverviewCard");
+  const afterWorld = visible();
+  clickDock("marketsCard");
+  const afterBets = visible();
+  clickDock("marketsCard"); // second click toggles it back off
+  const afterToggleOff = visible();
+  return {
+    afterWorld, afterBets, afterToggleOff,
+    dockButtons: document.querySelectorAll("#bottomDock .dock-btn").length,
+    hasLeftNav: !!document.getElementById("leftNav"),
+  };
+});
+check(
+  "opening World shows only the World panel",
+  nav.afterWorld.length === 1 && nav.afterWorld[0] === "worldOverviewCard",
+  `visible: ${nav.afterWorld.join(", ") || "none"}`
+);
+check(
+  "opening Bets replaces World — one panel at a time",
+  nav.afterBets.length === 1 && nav.afterBets[0] === "marketsCard",
+  `visible: ${nav.afterBets.join(", ") || "none"}`
+);
+check(
+  "toggling a dock button off hides its panel",
+  nav.afterToggleOff.length === 0,
+  `still visible: ${nav.afterToggleOff.join(", ") || "none"}`
+);
+check(
+  "navigation is a single 8-button dock with no left rail",
+  nav.hasLeftNav === false && nav.dockButtons === 8,
+  `leftNav=${nav.hasLeftNav}, dockButtons=${nav.dockButtons}`
+);
+
+// Top bar: stat deltas and the "Following X" chip are pure derivations exposed on
+// window.__topbar, so they are asserted directly rather than raced against live snapshots.
+const topbar = await page.evaluate(() => {
+  const t = window.__topbar;
+  const delta = document.getElementById("topAgentsDelta");
+  t.setStatDelta("topAgentsDelta", 5, 3);
+  const up = { text: delta.textContent, cls: delta.className };
+  t.setStatDelta("topAgentsDelta", 2, 6);
+  const down = { text: delta.textContent, cls: delta.className };
+  t.setStatDelta("topAgentsDelta", 4, 4);
+  const same = { text: delta.textContent, cls: delta.className };
+
+  // The day counter gained its own delta with the two-row bar; it is a distinct element
+  // from the agent counter, so it is asserted separately.
+  const dayDelta = document.getElementById("topDayDelta");
+  t.setStatDelta("topDayDelta", 251, 250);
+  const day = { text: dayDelta ? dayDelta.textContent : null, cls: dayDelta ? dayDelta.className : null };
+
+  const chip = document.getElementById("followChip");
+  const subject = document.getElementById("followSubject");
+  const isActive = () => chip.classList.contains("active");
+  t.setFollowFromLabel("vista · Ada is following food");
+  const followed = { active: isActive(), subject: subject.textContent };
+
+  // The chip sits between the shelf status and the control hints. It overlapped both when
+  // it was absolutely centred, so its box is measured against theirs while it is showing.
+  const box = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, r: b.right, w: b.width }; };
+  const chipBox = box(chip);
+  const statusBox = box(document.querySelector("#topBar .shelf-status"));
+  const hintsBox = box(document.querySelector("#topBar .shelf-hints"));
+  const overlaps = (a, b) => a.w > 0 && b.w > 0 && a.l < b.r && b.l < a.r;
+  const layout = {
+    overlapsStatus: overlaps(chipBox, statusBox),
+    overlapsHints: overlaps(chipBox, hintsBox),
+    chipWidth: chipBox.w,
+  };
+
+  t.setFollowFromLabel("whole world");
+  const cleared = { active: isActive(), subject: subject.textContent };
+  return { up, down, same, day, followed, cleared, layout };
+});
+check(
+  "a rising stat shows a green ▲delta",
+  topbar.up.text === "▲2" && topbar.up.cls.includes("up"),
+  `text="${topbar.up.text}" cls="${topbar.up.cls}"`
+);
+check(
+  "a falling stat shows a red ▼delta",
+  topbar.down.text === "▼4" && topbar.down.cls.includes("down"),
+  `text="${topbar.down.text}" cls="${topbar.down.cls}"`
+);
+check(
+  "an unchanged stat shows no delta",
+  topbar.same.text === "" && !/\b(up|down)\b/.test(topbar.same.cls),
+  `text="${topbar.same.text}" cls="${topbar.same.cls}"`
+);
+check(
+  "the day counter has its own rising delta",
+  topbar.day.text === "▲1" && topbar.day.cls.includes("up"),
+  `text="${topbar.day.text}" cls="${topbar.day.cls}"`
+);
+check(
+  "following a subject shows the chip with just the subject name",
+  topbar.followed.active === true && topbar.followed.subject === "Ada",
+  `active=${topbar.followed.active}, subject="${topbar.followed.subject}"`
+);
+check(
+  "returning to the whole world hides the follow chip",
+  topbar.cleared.active === false && topbar.cleared.subject === "",
+  `active=${topbar.cleared.active}, subject="${topbar.cleared.subject}"`
+);
+check(
+  "the follow chip clears the shelf status and the control hints",
+  topbar.layout.chipWidth > 0 && !topbar.layout.overlapsStatus && !topbar.layout.overlapsHints,
+  `width=${topbar.layout.chipWidth}, status=${topbar.layout.overlapsStatus}, hints=${topbar.layout.overlapsHints}`
+);
+
+// --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
+// The desktop floating-card layout is too wide for a phone. This checks the adaptive
+// layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find
+// → rest/resume flow can be driven with touch events.
+const mobileBrowser = await chromium.launch({ channel: "chrome" });
+const mobilePage = await mobileBrowser.newPage({
+  viewport: { width: 390, height: 844 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 2,
+});
+const mobileErrors = [];
+mobilePage.on("console", (m) => { if (m.type() === "error") mobileErrors.push(m.text()); });
+mobilePage.on("pageerror", (e) => mobileErrors.push(`pageerror: ${e.message}`));
+
+await mobilePage.goto(URL, { waitUntil: "networkidle" });
+await mobilePage.waitForFunction(
+  () => document.getElementById("status").textContent.trim() === "live",
+  { timeout: 20000 }
+);
+await mobilePage.waitForTimeout(2500);
+
+const mobileInfo = await mobilePage.evaluate(() => {
+  const view = window["__world"];
+  const docWidth = document.documentElement.scrollWidth;
+  const clientWidth = document.documentElement.clientWidth;
+  return {
+    ratio: view.renderer.getPixelRatio(),
+    docWidth,
+    clientWidth,
+    docOverflow: docWidth > clientWidth + 1,
+    activeCards: Array.from(document.querySelectorAll("#rightCards .floating-card.open, #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open")).map((el) => el.id),
+  };
+});
+check(
+  "mobile pixel ratio is capped to save GPU",
+  mobileInfo.ratio <= 1.3,
+  `ratio ${mobileInfo.ratio.toFixed(2)}`
+);
+check(
+  "mobile page has no horizontal overflow",
+  !mobileInfo.docOverflow,
+  `${mobileInfo.docWidth} vs ${mobileInfo.clientWidth}`
+);
+check(
+  "mobile panels start closed",
+  mobileInfo.activeCards.length === 0,
+  `open: ${mobileInfo.activeCards.join(", ")}`
+);
+
+// Open the deploy sheet, deploy an agent, then find it and rest it.
+await mobilePage.click('[data-panel="deployPanel"]');
+await mobilePage.waitForTimeout(300);
+await mobilePage.fill("#agentName", "MobileGate");
+await mobilePage.click('button[type="submit"]');
+await mobilePage.waitForTimeout(1200);
+await mobilePage.click('[data-agents="1"]');
+await mobilePage.waitForTimeout(300);
+const deployedFlow = await mobilePage.evaluate(() => {
+  const list = document.getElementById("myAgentsList");
+  const items = list ? list.querySelectorAll(".my-agent-item").length : 0;
+  const deployOpen = document.getElementById("deployPanel").classList.contains("open");
+  const myAgentsOpen = document.getElementById("myAgentsCard").classList.contains("open");
+  return { items, deployOpen, myAgentsOpen };
+});
+check(
+  "mobile deploy adds an agent and switches to my agents",
+  deployedFlow.items > 0 && !deployedFlow.deployOpen && deployedFlow.myAgentsOpen,
+  `${deployedFlow.items} agents, deploy ${deployedFlow.deployOpen}, myAgents ${deployedFlow.myAgentsOpen}`
+);
+
+const findBtn = await mobilePage.locator(".find-agent").first();
+if (await findBtn.isVisible().catch(() => false)) {
+  await findBtn.click();
+  await mobilePage.waitForTimeout(800);
+  const inspectorOpen = await mobilePage.evaluate(() =>
+    document.getElementById("agentCards").classList.contains("open")
+  );
+  check("mobile find agent opens inspector", inspectorOpen);
+
+  const restBtn = await mobilePage.locator(".rest-toggle").first();
+  if (await restBtn.isVisible().catch(() => false)) {
+    const beforeText = await restBtn.textContent();
+    await restBtn.click();
+    // The server applies the toggle on the next tick; wait for the snapshot to arrive.
+    await mobilePage.waitForTimeout(2200);
+    const afterText = await mobilePage.locator(".rest-toggle").first().textContent();
+    const resting =
+      (beforeText.toLowerCase().includes("rest") && afterText.toLowerCase().includes("resume")) ||
+      (beforeText.toLowerCase().includes("resume") && afterText.toLowerCase().includes("rest"));
+    check("mobile rest toggle updates state", resting, `"${beforeText.trim()}" -> "${afterText.trim()}"`);
+  }
+}
+
+check("no mobile console errors", mobileErrors.length === 0, mobileErrors.slice(0, 3).join(" | "));
+await mobileBrowser.close();
+
+// --- 13. selection indicator appears after picking an agent ------------------
+await page.evaluate(() => {
+  window["__world"].overview();
+  window["__world"].settle();
+});
+await page.waitForTimeout(500);
+const pickingIndicator = await page.evaluate(() => {
+  const view = window["__world"];
+  // Pick any agent id from the current batches; the indicator is purely visual.
+  let id = null;
+  for (const entry of view.agentMeshes.values()) {
+    if (entry.count > 0) { id = entry.ids[0]; break; }
+  }
+  if (!id) return { selected: false, id: null };
+  const before = view.selectionIndicator.visible;
+  view.setSelected(id);
+  const after = view.selectionIndicator.visible;
+  return { selected: true, before, after, id };
+});
+check("selection indicator is hidden before picking", !pickingIndicator.before);
+check("selection indicator shows after picking", pickingIndicator.after);
+
+// Reset selection so later checks do not carry it.
+await page.evaluate(() => window["__world"].setSelected(null));
+
 check("no console errors from our code", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
 await browser.close();
+
+// Clean up the test agent deployed by the mobile browser. The server persists the
+// world, so this prevents repeated gate runs from filling the log with "MobileGate".
+await cleanupMobileGateAgents();
 
 console.log(results.join("\n"));
 if (failures.length) {

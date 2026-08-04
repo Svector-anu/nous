@@ -36,6 +36,8 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.DecisionLog,
     component_module.MessageLog,
     component_module.AdvisorState,
+    component_module.RestQueue,
+    component_module.ForceDecisionQueue,
     component_module.MarketBook,
 )
 
@@ -170,5 +172,9 @@ class SqliteWorldStore:
         # Migration: MessageLog was added after some saves; older worlds resume without it.
         if world.first(component_module.MessageLog) is None:
             world.add(world.create_entity(), component_module.MessageLog())
+        if world.first(component_module.RestQueue) is None:
+            world.add(world.create_entity(), component_module.RestQueue())
+        if world.first(component_module.ForceDecisionQueue) is None:
+            world.add(world.create_entity(), component_module.ForceDecisionQueue())
 
         return world

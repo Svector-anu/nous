@@ -323,6 +323,7 @@ def run(world: World, rng: TickRng) -> None:
 
     for entity in world.query(Agent, Needs, Inventory, Position):
         agent = world.get(entity, Agent)
+        needs = world.get(entity, Needs)
 
         if agent.state is AgentState.IDLE:
             _decide_from_idle(world, entity, agent, world_has_room, rng)
@@ -331,7 +332,7 @@ def run(world: World, rng: TickRng) -> None:
         elif agent.state is AgentState.GATHER:
             _gather(world, entity, agent, world_has_room)
         elif agent.state is AgentState.REST:
-            if world.get(entity, Needs).energy >= rested_energy:
+            if needs.energy >= rested_energy:
                 agent.state = AgentState.IDLE
         elif agent.state is AgentState.FOLLOW:
             rally = _rally_point(world, entity)
@@ -361,3 +362,15 @@ def run(world: World, rng: TickRng) -> None:
             elif position.x == agent.target_x and position.y == agent.target_y:
                 agent.state = AgentState.IDLE
                 agent.clear_target()
+
+        # Rest mode is a spectator safety valve: once hunger is handled, a tired
+        # user agent should rest rather than wander into risky discretionary work.
+        # It does not override starvation or raiding by others.
+        if (
+            agent.rest_mode
+            and not is_starving(needs)
+            and needs.energy < config.need_threshold
+            and agent.state not in (AgentState.REST, AgentState.SEEK_NEED, AgentState.GATHER, AgentState.MEET)
+        ):
+            agent.state = AgentState.REST
+            agent.clear_target()

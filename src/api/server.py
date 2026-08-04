@@ -8,16 +8,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..persistence.sqlite_store import SqliteWorldStore
-from ..world.components import Agent, ClanRef, Position
+from ..world.components import Agent, Clan, ClanRef, ForceDecisionQueue, Position, RestQueue
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
-from ..world.systems import leadership, markets, spawning
+from ..world.systems import leadership, markets, resting, spawning
 from ..world.tick import Simulation, create_world
 
 
@@ -35,6 +35,13 @@ class DeployRequest(BaseModel):
 
     name: str = Field(..., description="display name for the agent")
     personality: str = Field(default="", description="short personality note")
+
+
+class RestRequest(BaseModel):
+    """Toggle a user-deployed agent's rest / play-safe mode."""
+
+    rest: bool = Field(..., description="true to rest, false to resume normal behaviour")
+
 
 logger = logging.getLogger("neociv")
 
@@ -126,19 +133,50 @@ def create_app(
             store.close()
             logger.info("saved world at tick %d on shutdown", simulation.world.tick)
 
-    app = FastAPI(title="Neo-Civilization", lifespan=lifespan)
+    app = FastAPI(title="Nous", lifespan=lifespan)
     # The viewer is plain files: the focus-3d module and a vendored copy of three.js.
     # Vendored rather than fetched from a cdn so the viewer works offline, which is the
     # same rule the procedural-materials reference holds itself to.
+    # The vendored three.js library never changes, so it can be cached for a year.
+    # Other static files (world3d.js, director.js, index.html) are updated by deploys,
+    # so they get a short revalidate window rather than immutable.
+    app.mount("/static/vendor", StaticFiles(directory=VIEWER_INDEX.parent / "vendor"), name="vendor")
     app.mount("/static", StaticFiles(directory=VIEWER_INDEX.parent), name="static")
+
+    @app.middleware("http")
+    async def cache_control_header(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/static/vendor/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif path.startswith("/static/") or path == "/favicon.ico":
+            response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+        return response
+
+    _FAVICON = (
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
+        "<rect width='16' height='16' fill='#0d1117'/>"
+        "<circle cx='8' cy='8' r='4' fill='#58a6ff'/>"
+        "</svg>"
+    )
+
+    @app.get("/favicon.ico")
+    async def favicon() -> Response:
+        return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     @app.get("/")
     async def index() -> FileResponse:
-        return FileResponse(VIEWER_INDEX)
+        return FileResponse(
+            VIEWER_INDEX,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
     @app.get("/state")
     async def state() -> JSONResponse:
-        return JSONResponse(app.state.simulation.snapshot())
+        return JSONResponse(
+            app.state.simulation.snapshot(),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
 
     @app.get("/health")
     async def health() -> JSONResponse:
@@ -158,6 +196,7 @@ def create_app(
                 "error": error,
             },
             status_code=200 if running else 503,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/decisions")
@@ -172,7 +211,8 @@ def create_app(
                 "advisor": type(advisor).__name__ if advisor is not None else None,
                 "pending": advisor.pending() if advisor is not None else 0,
                 "entries": list(current.entries) if current is not None else [],
-            }
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/markets")
@@ -203,7 +243,8 @@ def create_app(
                 "starting_balance": world.config.market_starting_balance,
                 "max_stake": world.config.market_max_stake,
                 "pending": len(book.pending),
-            }
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.post("/markets/{market_id}/positions", status_code=202)
@@ -244,6 +285,7 @@ def create_app(
              "side": request.side, "stake": request.stake,
              "applies_at_tick": world.tick + 1},
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/agents")
@@ -266,6 +308,7 @@ def create_app(
                     "y": position.y,
                     "clan": reference.clan_id if reference is not None else None,
                     "alive": True,
+                    "rest_mode": agent.rest_mode,
                 }
             )
         pending = spawning.queue(world)
@@ -274,7 +317,8 @@ def create_app(
                 "agents": cards,
                 "pending": list(pending.pending) if pending is not None else [],
                 "limit": world.config.max_user_agents,
-            }
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.post("/agents", status_code=202)
@@ -310,6 +354,97 @@ def create_app(
                 "arrives_at_tick": world.tick + 1,
             },
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.post("/agents/{agent_id}/rest", status_code=202)
+    async def set_rest(agent_id: int, request: RestRequest) -> JSONResponse:
+        """Queue a rest-mode toggle for a user-deployed agent. Applied on the next tick."""
+        world = app.state.simulation.world
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        if world.first(RestQueue) is None:
+            raise HTTPException(503, "world is not ready")
+        resting.enqueue(world, agent_id, request.rest)
+        return JSONResponse(
+            {
+                "queued": True,
+                "agent_id": agent_id,
+                "rest": request.rest,
+                "applies_at_tick": world.tick + 1,
+            },
+            status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.delete("/agents/{agent_id}", status_code=200)
+    async def delete_agent(agent_id: int) -> JSONResponse:
+        """Remove a user-deployed agent from the world.
+
+        This is an administrative seam for cleaning up test agents; it does not
+        represent a simulation event. The agent is removed from any clan and then
+        destroyed. Markets opened on the agent's survival resolve as NO.
+        """
+        world = app.state.simulation.world
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        for entity, clan in world.store(Clan):
+            clan.remove(agent_id)
+        world.destroy_entity(agent_id)
+        return JSONResponse(
+            {"deleted": True, "agent_id": agent_id},
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.post("/clans/{clan_id}/force-decision", status_code=202)
+    async def force_decision(clan_id: int, request: Request) -> JSONResponse:
+        """x402 seam: pay to force an LLM leader decision.
+
+        When payment is not verified the endpoint returns a 402 with the x402 protocol
+        headers. A verified payment is recorded as a queued force decision so the future
+        implementation does not need a world schema change.
+        """
+        world = app.state.simulation.world
+        if not world.config.llm_force_decision_enabled:
+            raise HTTPException(403, "force decision is not enabled")
+
+        if request.headers.get("X402-Payment-Verified") != "true":
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "payment": {
+                        "scheme": "x402",
+                        "network": "base",
+                        "amount": "0.10",
+                        "currency": "USD",
+                    },
+                    "clan_id": clan_id,
+                },
+                headers={
+                    "X402-Payment-Required": "true",
+                    "X402-Version": "0.1",
+                    "X402-Price": "0.10",
+                },
+            )
+
+        entity = world.first(ForceDecisionQueue)
+        if entity is None:
+            raise HTTPException(503, "world is not ready")
+        queue = world.get(entity, ForceDecisionQueue)
+        # Cap the queue so the seam cannot be used as an unbounded accumulator.
+        if len(queue.pending) >= 16:
+            queue.pending.pop(0)
+        queue.pending.append({"clan_id": clan_id, "tick": world.tick})
+        return JSONResponse(
+            {
+                "queued": True,
+                "clan_id": clan_id,
+                "applies_at_tick": world.tick + 1,
+            },
+            status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.websocket("/ws")

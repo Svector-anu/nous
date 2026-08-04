@@ -3,19 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Neo-Civilization — live</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%230d1117'/><circle cx='8' cy='8' r='4' fill='%2358a6ff'/></svg>">
+<meta name="description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid. Watch, deploy your own agent, and bet on outcomes.">
+<meta property="og:title" content="Nous — a living world of autonomous agents">
+<meta property="og:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nous.city">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Nous — a living world of autonomous agents">
+<meta name="twitter:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
+<title>Nous — a living world of autonomous agents</title>
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
 <style>
+  /* Palette sampled from the design reference (nav.png). Every panel, card and dock
+     button reads these, so the top bar and the rest of the UI share one brand rather
+     than the bar looking like a different app. */
   :root {
-    --bg: #0a0e14;
-    --panel: rgba(16, 22, 32, 0.92);
-    --line: rgba(48, 56, 72, 0.6);
-    --text: #e6edf3;
-    --muted: #7d8590;
-    --accent: #3fb950;
-    --accent-dim: rgba(63,185,80,0.15);
-    --shadow: 0 12px 40px rgba(0,0,0,0.45);
-    --radius: 12px;
+    --bg: #080c10;
+    --panel: rgba(12, 17, 22, 0.94);
+    --line: rgba(48, 58, 50, 0.7);
+    --text: #f2f4f5;
+    --muted: #7d8186;
+    --accent: #6ee274;
+    --accent-dim: rgba(110,226,116,0.14);
+    --shadow: 0 18px 44px rgba(0,0,0,0.55);
+    --radius: 16px;
+    /* Height of the two-row top bar card. Everything that clears the bar reads this,
+       so the number lives in exactly one place. --topbar-clear adds the card's own top
+       inset and a breathing gap below it. */
+    --topbar-h: 104px;
+    --topbar-clear: calc(var(--topbar-h) + 24px);
+    /* The bottom dock mirrors the top bar: a floating card inset from the window edges.
+       Its height lives here once, and --dock-clear is the room every panel leaves below
+       itself so it never slides under the dock (inset + height + a breathing gap). */
+    --dock-h: 62px;
+    --dock-clear: calc(var(--dock-h) + 26px);
     --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-bubble: ui-rounded, "Comic Sans MS", "Chalkboard SE", "Chalkboard", "Marker Felt", sans-serif;
@@ -45,7 +66,7 @@
   li { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
   .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
   #status { color: var(--muted); }
-  #status.live { color: #3fb950; }
+  #status.live { color: #6ee274; }
   button {
     width: 100%;
     margin-bottom: 16px;
@@ -71,7 +92,7 @@
   #deploy button { margin-bottom: 6px; }
   #deployStatus { margin: 0 0 16px; min-height: 1.5em; color: var(--muted); font-size: 11px; }
   #deployStatus.bad { color: #f85149; }
-  #deployStatus.good { color: #3fb950; }
+  #deployStatus.good { color: #6ee274; }
   #deployed li { display: block; margin-bottom: 8px; }
   #deployed .who { color: var(--text); }
   #deployed .note { color: var(--muted); font-size: 11px; }
@@ -102,7 +123,7 @@
     font-size: 11px; margin: 0 4px 4px 0;
   }
   #inspector .tag.foe { border-color: #f85149; color: #f85149; }
-  #inspector .tag.ally { border-color: #3fb950; color: #3fb950; }
+  #inspector .tag.ally { border-color: #6ee274; color: #6ee274; }
   #inspector h3 {
     font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
     color: var(--muted); margin: 10px 0 5px;
@@ -140,21 +161,21 @@
     color: var(--muted); font-size: 10px; text-align: right;
     text-shadow: 0 1px 3px #000; pointer-events: none;
   }
-  #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
+  #autoCamera[data-on="1"] { border-color: #6ee274; color: #6ee274; }
   #markets .market {
     border: 1px solid var(--line); border-radius: 8px;
-    padding: 10px; margin-bottom: 10px; background: rgba(10, 14, 20, 0.5);
+    padding: 10px; margin-bottom: 10px; background: rgba(10, 14, 12, 0.5);
   }
   #markets .q { color: var(--text); font-weight: 600; }
   #markets .meta { color: var(--muted); font-size: 10px; margin-bottom: 6px; }
   #markets .sides { display: flex; gap: 6px; }
   #markets .sides button { margin: 0; padding: 5px 10px; font-size: 11px; border-radius: 6px; }
-  #markets .sides button.yes:hover { border-color: #3fb950; color: #3fb950; }
+  #markets .sides button.yes:hover { border-color: #6ee274; color: #6ee274; }
   #markets .sides button.no:hover  { border-color: #f85149; color: #f85149; }
   #markets .held { color: var(--muted); font-size: 10px; margin-top: 5px; }
   #markets .settled { opacity: .65; }
   #markets .out { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); font-weight: 600; font-family: var(--font-mono); }
-  #markets .out.yes  { border-color: #3fb950; color: #3fb950; }
+  #markets .out.yes  { border-color: #6ee274; color: #6ee274; }
   #markets .out.no   { border-color: #f85149; color: #f85149; }
   #markets .out.void { border-color: var(--muted); color: var(--muted); }
   #whoami { margin-bottom: 8px; }
@@ -187,8 +208,8 @@
 
   /* Wide cinematic panels */
   #onboarding .panel {
-    background: rgba(10, 14, 20, 0.94);
-    border: 1px solid rgba(48, 56, 72, 0.5);
+    background: rgba(10, 14, 12, 0.94);
+    border: 1px solid rgba(48, 58, 50, 0.5);
     border-radius: 14px;
     padding: 40px 48px;
     max-width: 780px;
@@ -273,7 +294,7 @@
   .ctrl-item kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 28px; padding: 3px 6px;
-    background: rgba(22, 28, 38, 0.9); border: 1px solid var(--line);
+    background: rgba(18, 24, 18, 0.9); border: 1px solid var(--line);
     border-radius: 5px; font-size: 11px; color: var(--text);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     box-shadow: 0 1px 0 rgba(0,0,0,0.3);
@@ -283,17 +304,17 @@
   /* Begin button — the big green CTA */
   .begin-btn {
     background: linear-gradient(180deg, #2d7a3a, #1e5a2a) !important;
-    border-color: rgba(63,185,80,0.5) !important;
+    border-color: rgba(110,226,116,0.5) !important;
     color: #fff !important;
     font-size: 14px !important;
     font-weight: 600 !important;
     padding: 10px 28px !important;
     letter-spacing: 0.04em !important;
-    box-shadow: 0 0 20px rgba(63,185,80,0.15) !important;
+    box-shadow: 0 0 20px rgba(110,226,116,0.15) !important;
   }
   .begin-btn:hover {
-    border-color: #3fb950 !important;
-    box-shadow: 0 0 28px rgba(63,185,80,0.25) !important;
+    border-color: #6ee274 !important;
+    box-shadow: 0 0 28px rgba(110,226,116,0.25) !important;
   }
 
   /* Brand mark */
@@ -350,7 +371,7 @@
     gap: 10px; pointer-events: none;
   }
   .gameplay-hint {
-    background: rgba(10, 14, 20, 0.95); border: 1px solid var(--line);
+    background: rgba(10, 14, 12, 0.95); border: 1px solid var(--line);
     border-radius: 10px; padding: 12px 22px;
     font-size: 14px; color: var(--text);
     box-shadow: var(--shadow);
@@ -364,59 +385,319 @@
   .gameplay-hint { background: rgba(13,17,23,0.95); border: 1px solid var(--line); border-radius: 8px; padding: 10px 18px; font-size: 13px; color: var(--text); box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.5s ease, transform 0.5s ease; }
   .gameplay-hint.show { opacity: 1; transform: translateY(0); }
 
-  /* New floating panels */
-  #deployPanel { position: fixed; left: 14px; bottom: 76px; z-index: 40; width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); }
+  /* New floating panels — positions/visibility defined once in the
+     "Overlay panel visibility" block below; only per-panel body padding here. */
   #deployPanel .card-body { padding: 12px 16px 14px; }
-  #legendPanel { position: fixed; left: 14px; bottom: 76px; z-index: 40; width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); max-height: 340px; overflow-y: auto; }
   #legendPanel .card-body { padding: 12px 16px 14px; }
-  #settingsPanel { position: fixed; right: 12px; top: 48px; z-index: 40; width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); }
   #settingsPanel .card-body { padding: 12px 16px 14px; }
   #settingsPanel button { margin: 0; }
-
-  /* === NEW AAA LAYOUT — floating panels ================================ */
-
-  /* Top bar */
-  #topBar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 50;
-    display: flex; align-items: center; gap: 16px;
-    padding: 10px 18px;
-    background: linear-gradient(180deg, rgba(10,14,20,0.95) 0%, rgba(10,14,20,0.82) 100%);
-    border-bottom: 1px solid var(--line);
-    backdrop-filter: blur(12px) saturate(1.2);
+  .settings-group {
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
+    margin: 4px 0 6px; padding-top: 8px;
+    border-top: 1px solid var(--line);
   }
+  .settings-group:first-child { border-top: none; padding-top: 0; }
+  .settings-item {
+    display: block; width: 100%; text-align: left;
+    margin: 0 0 6px; padding: 7px 10px; font-size: 12px;
+  }
+
+  /* === DASHBOARD LAYOUT — world is the hero, UI is the frame ============= */
+
+  /* Top bar — a floating two-row card, inset from the window edges the way the design
+     reference frames it. The main row carries the brand and the headline numbers; the
+     shelf below it says what the camera is doing. Palette and metrics are sampled from
+     the reference (nav.png) rather than guessed, so the greens match across the app. */
+  #topBar {
+    position: fixed; top: 12px; left: 12px; right: 12px; z-index: 50;
+    display: flex; flex-direction: column;
+    height: var(--topbar-h);
+    background: linear-gradient(180deg, rgba(12,17,22,0.96) 0%, rgba(10,14,18,0.94) 100%);
+    border: 1px solid rgba(48, 58, 50, 0.75);
+    border-radius: 16px;
+    /* A faint green bloom off the top-left corner, as in the reference. */
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 40px 26px 60px -46px rgba(110,226,116,0.30);
+    backdrop-filter: blur(14px) saturate(1.1);
+  }
+  #topBar .topRow { display: flex; align-items: center; }
+  #topBar .topRow--main { gap: 26px; padding: 0 20px; height: 60px; }
+  #topBar .topRow--shelf {
+    gap: 16px; padding: 0 20px; height: 44px;
+    border-top: 1px solid rgba(64, 78, 68, 0.6);
+  }
+  #topBar .brandMark {
+    display: inline-flex; align-items: center; gap: 13px;
+    color: var(--accent); flex: 0 0 auto;
+    padding-right: 24px;
+    border-right: 1px solid rgba(48, 58, 50, 0.6);
+  }
+  #topBar .brandMark svg { width: 40px; height: 40px; }
   #topBar .logo {
-    font-size: 13px; font-weight: 800; letter-spacing: .14em;
-    text-transform: uppercase; color: #fff;
-    text-shadow: 0 0 14px rgba(88,166,255,0.4);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 21px; font-weight: 600; letter-spacing: .30em;
+    text-transform: uppercase; color: #f2f4f5;
+    font-family: var(--font-mono);
   }
   #topBar .topStats {
-    display: flex; align-items: center; gap: 10px;
-    margin-left: auto;
+    display: flex; align-items: center; gap: 0;
+    margin-left: 0;
   }
+  /* Label above, number below — the reference stacks them so the numbers line up as a
+     row of headlines and the labels stay out of the way. Each is a column in a ruled
+     strip, so the separators come from the stats themselves. */
   #topBar .stat {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 12px; border-radius: 8px;
-    background: rgba(22, 28, 38, 0.7);
-    border: 1px solid var(--line);
-    font-size: 12px; color: var(--text);
+    display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+    padding: 0 22px;
+    border-right: 1px solid rgba(48, 58, 50, 0.45);
+  }
+  #topBar .stat:last-child { border-right: none; }
+  #topBar .stat-label {
+    font-size: 11px; font-weight: 500; letter-spacing: .13em;
+    text-transform: uppercase; color: #7d8186;
+  }
+  #topBar .stat-row {
+    display: inline-flex; align-items: center; gap: 8px;
     font-variant-numeric: tabular-nums;
   }
   #topBar .stat-icon {
-    width: 14px; height: 14px;
+    width: 18px; height: 18px; color: #9aa1a8;
     display: inline-flex; align-items: center; justify-content: center;
-    opacity: 0.85;
   }
   #topBar .stat-icon svg { width: 100%; height: 100%; }
-  #topBar .stat-value { color: var(--accent); font-weight: 700; letter-spacing: 0.02em; font-family: var(--font-mono); }
+  #topBar .stat-value {
+    color: #f2f4f5; font-weight: 500; font-size: 23px; line-height: 1;
+    letter-spacing: 0.01em; font-family: var(--font-mono);
+  }
+  /* Day is the world's own clock rather than a population count, so it leads in the
+     accent colour the way the reference does. */
+  #topBar .stat:first-child .stat-value { color: var(--accent); }
+  /* Change since the previous snapshot. Empty (opacity 0) when unchanged so the row stays
+     calm and the numbers do not jump; only movement draws the eye. */
+  #topBar .stat-delta {
+    font-size: 13px; font-weight: 500;
+    font-variant-numeric: tabular-nums; letter-spacing: 0;
+    opacity: 0; transition: opacity 0.3s ease;
+  }
+  #topBar .stat-delta.up { color: #6ee274; opacity: 1; }
+  #topBar .stat-delta.down { color: #f0836a; opacity: 1; }
+  #topBar .topActions { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+  .icon-btn {
+    position: relative;
+    width: 44px; height: 44px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 12px;
+    background: #12171b;
+    border: 1px solid rgba(48, 58, 50, 0.7);
+    color: #b9c0c6; cursor: pointer;
+    transition: color .18s ease, border-color .18s ease, background .18s ease;
+  }
+  .icon-btn svg { width: 20px; height: 20px; }
+  .icon-btn:hover { color: var(--accent); border-color: rgba(110,226,116,0.4); background: #171d21; }
+  .icon-btn .dot {
+    position: absolute; top: 9px; right: 10px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 7px rgba(110,226,116,0.95);
+  }
+  #thinkingStatus {
+    padding: 4px 10px; border-radius: 12px;
+    font-size: 12px; color: var(--text);
+    background: rgba(110, 226, 116, 0.12);
+    border: 1px solid rgba(110, 226, 116, 0.35);
+    display: none;
+  }
+  #thinkingStatus.show { display: inline-block; }
 
-  /* Right floating cards container */
-  #rightCards {
-    position: fixed; top: 48px; right: 12px; bottom: 80px; z-index: 40;
-    display: flex; flex-direction: column; gap: 12px;
-    width: 260px;
+  /* Shelf: three zones. The status and the hints each take an equal flexible share and
+     the chip sits between them at its natural width, so the centre element can never
+     land on top of either side — an absolutely-centred chip did exactly that. */
+  #topBar .shelf-status { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: 9px; }
+  #topBar .shelf-count {
+    display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+    font-size: 11.5px; color: #7d858c; font-variant-numeric: tabular-nums;
+  }
+  #topBar .shelf-count svg { width: 13px; height: 13px; }
+  #topBar .live-dot {
+    width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
+    background: var(--accent); box-shadow: 0 0 8px rgba(110,226,116,0.9);
+  }
+  #topBar .shelf-shot {
+    min-width: 0;
+    font-size: 13.5px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--accent);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #topBar .shelf-hints {
+    flex: 1 1 0; min-width: 0; text-align: right;
+    font-size: 12px; letter-spacing: .11em; text-transform: uppercase;
+    color: #8c948a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #topBar .shelf-hints i { font-style: normal; opacity: 0.5; margin: 0 3px; }
+
+  /* The follow notch. The divider between the two rows is drawn as a border-top on the
+     status and hints zones (the left and right of the shelf); the centre notch bridges
+     them with a single SVG stroke that dips down into a cradle. Because the side borders
+     and the SVG ends sit at the same y and colour, the eye reads one unbroken line that
+     simply dips around the followed subject — exactly the reference. */
+  #topBar .topRow--shelf { gap: 0; border-top: none; }
+  #topBar .shelf-status,
+  #topBar .shelf-hints { align-self: stretch; }
+  #topBar .shelf-status { border-top: 1px solid rgba(64, 78, 68, 0.6); padding-right: 8px; }
+  #topBar .shelf-hints  { border-top: 1px solid rgba(64, 78, 68, 0.6); padding-left: 8px; }
+  #topBar .follow-notch {
+    flex: 0 0 auto; align-self: stretch; position: relative;
+    width: 340px; display: flex; align-items: center; justify-content: center;
+  }
+  /* When nothing is followed the notch collapses so the two side borders meet and the
+     divider reads as one straight line. */
+  #topBar .follow-notch:not(:has(.active)) { width: 0; }
+  #topBar .follow-notch:not(:has(.active)) .notch-line { display: none; }
+  /* The dipping line, sitting behind the chip. Its straight ends align with the side
+     divider borders; the stroke curves down into the cradle and back up. */
+  #topBar .notch-line {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; overflow: visible;
+  }
+  #followChip {
+    display: none; align-items: center; gap: 13px;
+    position: relative; z-index: 1;
+    padding: 0 4px; margin-top: -5px;
+  }
+  #followChip.active { display: inline-flex; }
+  #followChip .follow-icon { color: var(--accent); display: inline-flex; }
+  #followChip .follow-icon svg { width: 24px; height: 24px; filter: drop-shadow(0 0 6px rgba(110,226,116,0.5)); }
+  #followChip .follow-text { display: flex; flex-direction: column; gap: 2px; line-height: 1.12; }
+  #followChip .follow-eyebrow {
+    font-size: 11px; font-weight: 500; letter-spacing: .19em;
+    text-transform: uppercase; color: #8b9298;
+  }
+  #followChip .follow-subject {
+    font-size: 18px; color: #f2f4f5; white-space: nowrap;
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   }
 
+  /* Dashboard layout: world is the hero, UI is the overlay */
+  #dashboard {
+    position: fixed;
+    top: var(--topbar-clear); left: 0; right: 0; bottom: var(--dock-clear);
+    pointer-events: none;
+    overflow: hidden;
+  }
+  #dashboard > * { pointer-events: auto; }
+
+  /* Navigation lives in the single bottom dock (#bottomDock). No left rail. */
+
+  /* Stage / world */
+  #stage {
+    position: fixed;
+    top: var(--topbar-clear); left: 0; right: 0; bottom: var(--dock-clear);
+    overflow: hidden;
+    transition: right 0.3s ease;
+  }
+  body.agents-open #stage { right: 320px; }
+  #world { position: absolute; inset: 0; }
+  #world canvas { display: block; width: 100%; height: 100%; border: 0; border-radius: 0; }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; pointer-events: none;
+    background: linear-gradient(#0a0e14cc, #0a0e1400);
+  }
+  #hud .title { color: #fff; text-shadow: 0 1px 3px #000; font-weight: 700; }
+  #hud .meta { color: #c9d1d9; font-size: 11px; text-shadow: 0 1px 3px #000; }
+  #hud .spacer { flex: 1; }
+  /* The top bar now carries the framing, the counts and the control hints, so the HUD
+     would just repeat them under the bar. It stays in the DOM — setLabel and updateHud
+     still write to it — and the mobile layout, which drops the shelf, shows it again. */
+  #hud { display: none; }
+
+  /* Minimap — inside the world area so sidebars never overlap it */
+  #minimap {
+    position: absolute; right: 14px; bottom: 14px; z-index: 40;
+    width: 220px; height: 220px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: rgba(1, 4, 9, 0.85); overflow: hidden;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(4px);
+  }
+  #minimap canvas {
+    display: block; width: 100%; height: 100%;
+    image-rendering: pixelated; cursor: crosshair; border: 0; border-radius: 0;
+  }
+  #minimapHint {
+    position: absolute; right: 14px; bottom: 242px; z-index: 40;
+    color: var(--muted); font-size: 10px; text-align: right;
+    text-shadow: 0 1px 3px #000; pointer-events: none;
+  }
+  #autoCamera[data-on="1"] { border-color: #6ee274; color: #6ee274; }
+
+  /* Right sidebar — agents panel, slides in/out */
+  #rightCards {
+    position: fixed;
+    top: var(--topbar-clear); right: 0; bottom: var(--dock-clear); width: 320px;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    overflow-y: auto;
+    background: rgba(10, 14, 12, 0.95);
+    border-left: 1px solid var(--line);
+    z-index: 40;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+  }
+  body.agents-open #rightCards { transform: translateX(0); }
+  .sidebar-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 800;
+    padding: 4px 6px;
+    flex-shrink: 0;
+  }
+  .sidebar-header .card-close {
+    width: auto; padding: 2px 6px; font-size: 14px; margin: 0;
+    background: transparent; border: none; color: var(--muted);
+  }
+  .sidebar-header .card-close:hover { color: var(--text); }
+
+  /* Bottom panel strip — reference panels, translucent */
+  #bottomStrip {
+    position: fixed;
+    left: 0; right: 0; bottom: var(--dock-clear); height: 140px;
+    display: none; gap: 10px;
+    padding: 10px;
+    overflow-x: auto;
+    background: rgba(10, 14, 12, 0.35);
+    border-top: 1px solid rgba(48, 58, 50, 0.35);
+    z-index: 40;
+  }
+  #bottomStrip.open { display: flex; }
+  body.agents-open #bottomStrip { right: 320px; }
+  #bottomStrip .floating-card {
+    flex: 1 1 220px;
+    min-width: 220px;
+    max-height: 100%;
+    background: rgba(13, 19, 15, 0.78);
+    border-color: rgba(48, 58, 50, 0.45);
+    backdrop-filter: blur(8px) saturate(1.1);
+  }
+  /* Each strip card is gated by .open so opening one (e.g. World) never
+     reveals its neighbours. The strip container is shown by syncBottomStrip(). */
+  #bottomStrip .floating-card { display: none; }
+  #bottomStrip .floating-card.open { display: flex; }
+  #bottomStrip .floating-card.collapsed .card-body { display: none; }
+  .card-tools {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: auto;
+  }
+  .card-tools button {
+    width: auto; padding: 2px 6px; font-size: 14px; margin: 0;
+    background: transparent; border: none; color: var(--muted);
+  }
+  .card-tools button:hover { color: var(--text); }
+
+  /* Common card */
   .floating-card {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -424,28 +705,30 @@
     box-shadow: var(--shadow);
     overflow: hidden;
     display: flex; flex-direction: column;
-    max-height: 42vh;
     backdrop-filter: blur(10px) saturate(1.1);
   }
   .floating-card .card-title {
     font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
     color: var(--muted); margin: 0;
-    padding: 12px 16px 10px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--line);
-    background: rgba(22, 28, 38, 0.5);
+    background: rgba(18, 24, 18, 0.5);
     font-weight: 600;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
   .floating-card .card-body {
-    padding: 12px 16px 14px;
+    padding: 10px 14px;
     overflow-y: auto;
+    flex: 1;
   }
   .floating-card .card-subtitle {
     font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--muted); margin: 14px 0 8px;
+    color: var(--muted); margin: 12px 0 6px;
     font-weight: 600;
   }
 
-  /* Objectives card */
+  /* Objectives */
   .objective-btn {
     width: 100%; margin-bottom: 6px; padding: 9px 12px;
     background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.2);
@@ -479,22 +762,18 @@
   /* Markets card */
   #marketsCard input {
     width: 100%; margin-bottom: 10px; padding: 6px 10px;
-    background: rgba(10, 14, 20, 0.6); color: var(--text);
+    background: rgba(10, 14, 12, 0.6); color: var(--text);
     border: 1px solid var(--line); border-radius: 6px; font: inherit;
     font-size: 12px;
   }
   #marketsCard input:focus {
     outline: none;
     border-color: rgba(88,166,255,0.5);
-    background: rgba(10, 14, 20, 0.8);
+    background: rgba(10, 14, 12, 0.8);
   }
 
-  /* Speech bubble overlay — comic-style captions above agents */
-  #speechBubbles {
-    position: fixed; inset: 0; z-index: 35;
-    pointer-events: none;
-    overflow: hidden;
-  }
+  /* Speech bubbles — unchanged */
+  #speechBubbles { position: fixed; inset: 0; z-index: 35; pointer-events: none; overflow: hidden; }
   .speech-bubble {
     position: absolute;
     transform: translate(-50%, -100%) scale(1);
@@ -518,55 +797,28 @@
     100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
   }
   .speech-bubble::after {
-    content: "";
-    position: absolute;
-    bottom: -12px;
-    left: 18px;
-    width: 0;
-    height: 0;
-    border-left: 10px solid transparent;
-    border-right: 10px solid transparent;
+    content: ""; position: absolute; bottom: -12px; left: 18px;
+    width: 0; height: 0;
+    border-left: 10px solid transparent; border-right: 10px solid transparent;
     border-top: 14px solid #000;
   }
   .speech-bubble::before {
-    content: "";
-    position: absolute;
-    bottom: -8px;
-    left: 20px;
-    width: 0;
-    height: 0;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
+    content: ""; position: absolute; bottom: -8px; left: 20px;
+    width: 0; height: 0;
+    border-left: 8px solid transparent; border-right: 8px solid transparent;
     border-top: 11px solid #fff;
     z-index: 1;
   }
-  .speech-bubble .speaker {
-    font-weight: 800;
-    margin-bottom: 3px;
-    color: #111;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .speech-bubble .text {
-    color: #111;
-    font-family: var(--font-bubble);
-    font-size: 14px;
-    line-height: 1.25;
-  }
-  .speech-bubble .speaker svg {
-    width: 14px;
-    height: 14px;
-    margin-right: 6px;
-    vertical-align: -2px;
-  }
+  .speech-bubble .speaker { font-weight: 800; margin-bottom: 3px; color: #111; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .speech-bubble .text { color: #111; font-family: var(--font-bubble); font-size: 14px; line-height: 1.25; }
+  .speech-bubble .speaker svg { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
   .speech-bubble.type-info { border-color: #000; box-shadow: 4px 4px 0 #58a6ff; }
   .speech-bubble.type-info::after { border-top-color: #000; }
   .speech-bubble.type-info::before { border-top-color: #fff; }
   .speech-bubble.type-request { border-color: #000; box-shadow: 4px 4px 0 #f0883e; }
   .speech-bubble.type-request::after { border-top-color: #000; }
   .speech-bubble.type-request::before { border-top-color: #fff; }
-  .speech-bubble.type-offer { border-color: #000; box-shadow: 4px 4px 0 #3fb950; }
+  .speech-bubble.type-offer { border-color: #000; box-shadow: 4px 4px 0 #6ee274; }
   .speech-bubble.type-offer::after { border-top-color: #000; }
   .speech-bubble.type-offer::before { border-top-color: #fff; }
   .speech-bubble.type-alert { border-color: #000; box-shadow: 4px 4px 0 #f85149; }
@@ -574,132 +826,44 @@
   .speech-bubble.type-alert::before { border-top-color: #fff; }
   .speech-bubble.fading { opacity: 0; transform: translate(-50%, -90%) scale(0.92); }
 
-  /* Social feed card */
-  #messagesCard {
-    max-height: 34vh;
-  }
-  #messagesCard .card-title {
-    font-size: 11px; letter-spacing: 0.14em;
-  }
-  #messagesCard .card-body {
-    padding: 0;
-  }
-  #messagesCard .feed-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  #messagesCard .feed-item {
-    padding: 10px 14px;
-    border-bottom: 1px solid rgba(48,56,72,0.35);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-  #messagesCard .feed-item:last-child { border-bottom: none; }
-  #messagesCard .feed-meta {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-bottom: 4px;
-    font-weight: 700;
-  }
-  #messagesCard .feed-icon {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-  }
-  #messagesCard .feed-type {
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 9px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    background: rgba(255,255,255,0.08);
-    color: var(--muted);
-  }
+  /* Social feed / world log cards */
+  #messagesCard, #worldLogCard { max-height: none; }
+  #messagesCard .card-title, #worldLogCard .card-title { font-size: 11px; letter-spacing: 0.14em; }
+  #messagesCard .card-body, #worldLogCard .card-body { padding: 0; }
+  #messagesCard .feed-list, #worldLogCard .feed-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+  #messagesCard .feed-item { padding: 10px 14px; border-bottom: 1px solid rgba(48, 58, 50,0.35); font-size: 12px; line-height: 1.4; }
+  #messagesCard .feed-item:last-child, #worldLogCard .feed-item:last-child { border-bottom: none; }
+  #messagesCard .feed-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-weight: 700; }
+  #messagesCard .feed-icon { width: 15px; height: 15px; flex-shrink: 0; }
+  #messagesCard .feed-type { padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(255,255,255,0.08); color: var(--muted); }
   #messagesCard .feed-type.info { color: #58a6ff; background: rgba(88,166,255,0.1); }
   #messagesCard .feed-type.request { color: #f0883e; background: rgba(240,136,62,0.1); }
-  #messagesCard .feed-type.offer { color: #3fb950; background: rgba(63,185,80,0.1); }
+  #messagesCard .feed-type.offer { color: #6ee274; background: rgba(110,226,116,0.1); }
   #messagesCard .feed-type.alert { color: #f85149; background: rgba(248,81,73,0.1); }
-  #messagesCard .feed-text {
-    color: #c9d1d9;
-  }
-  #messagesCard .feed-empty {
-    color: var(--muted);
-    padding: 14px;
-  }
-
-  /* World activity log — recent events the camera might miss. */
-  #worldLogCard {
-    max-height: 34vh;
-  }
-  #worldLogCard .card-title {
-    font-size: 11px; letter-spacing: 0.14em;
-  }
-  #worldLogCard .card-body {
-    padding: 0;
-  }
-  #worldLogCard .feed-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  #worldLogCard .feed-item {
-    padding: 8px 14px;
-    border-bottom: 1px solid rgba(48,56,72,0.35);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: #c9d1d9;
-    line-height: 1.4;
-  }
-  #worldLogCard .feed-item:last-child { border-bottom: none; }
-  #worldLogCard .feed-icon {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-  }
-  #worldLogCard .feed-icon svg {
-    width: 100%; height: 100%; display: block;
-  }
-  #worldLogCard .feed-empty {
-    color: var(--muted);
-    padding: 14px;
-  }
-  #worldLogCard .feed-kind {
-    text-transform: uppercase;
-    font-size: 9px;
-    letter-spacing: 0.06em;
-    font-weight: 700;
-    color: var(--muted);
-    margin-left: auto;
-    flex-shrink: 0;
-  }
+  #messagesCard .feed-text { color: #c9d1d9; }
+  #messagesCard .feed-empty, #worldLogCard .feed-empty { color: var(--muted); padding: 14px; }
+  #worldLogCard .feed-item { padding: 8px 14px; border-bottom: 1px solid rgba(48, 58, 50,0.35); display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c9d1d9; line-height: 1.4; }
+  #worldLogCard .feed-icon { width: 15px; height: 15px; flex-shrink: 0; }
+  #worldLogCard .feed-icon svg { width: 100%; height: 100%; display: block; }
+  #worldLogCard .feed-kind { text-transform: uppercase; font-size: 9px; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); margin-left: auto; flex-shrink: 0; }
   #worldLogCard .feed-kind.build { color: #d29922; }
   #worldLogCard .feed-kind.raid { color: #f85149; }
   #worldLogCard .feed-kind.death { color: #8b949e; }
   #worldLogCard .feed-kind.goalChange { color: #a371f7; }
-  #worldLogCard .feed-kind.arrival { color: #3fb950; }
+  #worldLogCard .feed-kind.arrival { color: #6ee274; }
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
 
-  /* Agent card — match the reference: header, avatar, stats, bar */
-  #agentCards {
-    width: 300px;
-  }
-  #inspector {
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
+  /* Agent inspector card (a #bottomStrip card; visibility gated by .open there) */
+  #agentCards { width: auto; flex-direction: column; }
+  #agentCards .card-body { padding: 0; overflow: hidden; }
+  #agentCards #inspector {
+    background: transparent;
+    border: none;
+    border-radius: 0;
     padding: 0;
-    background: rgba(13, 17, 23, 0.95);
-    backdrop-filter: blur(12px) saturate(1.1);
-    box-shadow: var(--shadow);
-    overflow: hidden;
+    margin: 0;
+    max-height: 100%;
+    overflow-y: auto;
   }
   .agent-card-empty {
     padding: 18px;
@@ -710,35 +874,16 @@
   .agent-card-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 16px;
-    background: rgba(22, 28, 38, 0.6);
+    background: rgba(18, 24, 18, 0.6);
     border-bottom: 1px solid var(--line);
   }
-  .agent-card-name {
-    font-size: 15px; font-weight: 800;
-    color: #fff; letter-spacing: 0.01em;
-  }
-  .agent-card-dots {
-    display: flex; gap: 5px;
-  }
-  .agent-card-dot {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
-  }
-  .agent-card-body {
-    padding: 14px 16px 16px;
-  }
-  .agent-card-state {
-    font-size: 13px; color: var(--text); margin-bottom: 2px;
-    font-weight: 600;
-  }
-  .agent-card-clan {
-    font-size: 12px; color: var(--muted); margin-bottom: 12px;
-  }
-  .agent-card-main {
-    display: flex; gap: 14px;
-    margin-bottom: 14px;
-  }
+  .agent-card-name { font-size: 15px; font-weight: 800; color: #fff; letter-spacing: 0.01em; }
+  .agent-card-dots { display: flex; gap: 5px; }
+  .agent-card-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2); }
+  .agent-card-body { padding: 14px 16px 16px; }
+  .agent-card-state { font-size: 13px; color: var(--text); margin-bottom: 2px; font-weight: 600; }
+  .agent-card-clan { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .agent-card-main { display: flex; gap: 14px; margin-bottom: 14px; }
   .agent-card-avatar {
     width: 72px; height: 72px;
     border-radius: 12px;
@@ -747,37 +892,13 @@
     display: flex; align-items: center; justify-content: center;
   }
   .agent-card-avatar svg { width: 56px; height: 56px; }
-  .agent-card-stats {
-    display: flex; flex-direction: column; justify-content: center;
-    gap: 8px;
-    flex: 1;
-  }
-  .agent-card-stat {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--text);
-  }
-  .agent-card-stat svg {
-    width: 16px; height: 16px; flex-shrink: 0;
-    color: var(--muted);
-  }
-  .agent-card-stat .value {
-    margin-left: auto;
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-  .agent-card-bar {
-    height: 6px; border-radius: 3px;
-    background: rgba(255,255,255,0.1);
-    overflow: hidden;
-  }
-  .agent-card-bar span {
-    display: block; height: 100%; border-radius: 3px;
-    transition: width 0.2s ease;
-  }
-  .agent-card-actions {
-    display: flex; gap: 8px;
-    margin-top: 14px;
-  }
+  .agent-card-stats { display: flex; flex-direction: column; justify-content: center; gap: 8px; flex: 1; }
+  .agent-card-stat { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); }
+  .agent-card-stat svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
+  .agent-card-stat .value { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .agent-card-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .agent-card-bar span { display: block; height: 100%; border-radius: 3px; transition: width 0.2s ease; }
+  .agent-card-actions { display: flex; gap: 8px; margin-top: 14px; }
   .agent-card-actions button {
     flex: 1; margin: 0;
     padding: 8px 10px;
@@ -787,173 +908,215 @@
     border-radius: 8px;
     color: #58a6ff;
   }
-  .agent-card-actions button:hover {
-    background: rgba(88,166,255,0.15);
-    border-color: rgba(88,166,255,0.45);
+  .agent-card-actions button:hover { background: rgba(88,166,255,0.15); }
+  .tag-rest {
+    display: inline-block;
+    padding: 1px 6px; border-radius: 6px;
+    font-size: 10px; font-weight: 700;
+    background: rgba(163, 113, 247, 0.15);
+    border: 1px solid rgba(163, 113, 247, 0.35);
+    color: #a371f7;
+    margin-right: 6px;
   }
+  .rest-toggle {
+    padding: 2px 8px; border-radius: 6px;
+    font-size: 11px; font-weight: 600;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.25);
+    color: #58a6ff;
+    cursor: pointer;
+  }
+  .rest-toggle:hover { background: rgba(88,166,255,0.18); }
 
-  /* Market card — match the reference: icon, question, status line */
-  #marketsCard {
-    max-height: 42vh;
-  }
-  #marketsCard .card-title {
-    font-size: 11px; letter-spacing: 0.14em;
-  }
-  .market {
-    display: flex; gap: 12px;
-    padding: 12px;
-    margin-bottom: 10px;
+  /* My Agents — reference card style */
+  #myAgentsList { list-style: none; padding: 0; margin: 0; }
+  .my-agent-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px;
     border-radius: 10px;
-    background: rgba(10, 14, 20, 0.55);
+    background: rgba(255,255,255,0.03);
     border: 1px solid var(--line);
-  }
-  .market-icon {
-    width: 32px; height: 32px;
-    flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.06);
-  }
-  .market-icon svg { width: 18px; height: 18px; }
-  .market-main { flex: 1; min-width: 0; }
-  .market-q {
-    font-size: 13px; font-weight: 600;
-    color: var(--text); line-height: 1.4;
-    margin-bottom: 6px;
-  }
-  .market-meta {
-    font-size: 11px; color: var(--muted);
     margin-bottom: 8px;
   }
-  .market-meta strong { color: var(--text); font-weight: 600; }
-  .market-status {
-    font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--muted);
+  .my-agent-item:last-child { margin-bottom: 0; }
+  .my-agent-avatar {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.06);
   }
-  .market-status.open { color: #3fb950; }
+  .my-agent-avatar svg { width: 34px; height: 34px; }
+  .my-agent-main { flex: 1; min-width: 0; }
+  .my-agent-name {
+    font-weight: 700; font-size: 13px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .my-agent-line { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .my-agent-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .my-agent-chip {
+    display: inline-flex; align-items: center;
+    padding: 2px 6px; border-radius: 4px;
+    font-size: 9px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    background: rgba(255,255,255,0.04);
+  }
+  .my-agent-chip.rest { color: #a371f7; border-color: rgba(163,113,247,0.35); background: rgba(163,113,247,0.1); }
+  .my-agent-chip.danger { color: #f85149; border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.1); }
+  .my-agent-chip.warn { color: #d29922; border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.1); }
+  .my-agent-chip.fine { color: #6ee274; border-color: rgba(110,226,116,0.35); background: rgba(110,226,116,0.1); }
+  .my-agent-actions {
+    display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
+  }
+  .my-agent-actions button {
+    width: 56px; height: 46px;
+    padding: 0; margin: 0;
+    border-radius: 8px;
+    background: rgba(88,166,255,0.08);
+    border: 1px solid rgba(88,166,255,0.25);
+    color: #58a6ff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    font-size: 9px; font-weight: 600;
+    cursor: pointer;
+  }
+  .my-agent-actions button svg { width: 14px; height: 14px; display: block; }
+  .my-agent-actions button:hover { background: rgba(88,166,255,0.16); border-color: rgba(88,166,255,0.45); }
+  .new-agent-btn {
+    width: 100%; margin: 12px 0 0; padding: 10px;
+    border-radius: 8px;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.25);
+    color: #58a6ff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .new-agent-btn svg { width: 14px; height: 14px; }
+  .new-agent-btn:hover { background: rgba(88,166,255,0.18); }
+  .copy-btn {
+    padding: 2px 6px; border-radius: 5px;
+    font-size: 10px; font-weight: 600;
+    background: rgba(139,148,158,0.1);
+    border: 1px solid rgba(139,148,158,0.25);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .copy-btn:hover { background: rgba(139,148,158,0.18); color: var(--text); }
+  .world-summary {
+    font-size: 13px; line-height: 1.5;
+    margin: 0 0 12px;
+    color: var(--text);
+  }
+  #settingsPanel .secondary:hover { border-color: rgba(88,166,255,0.45); }
+
+  /* Market card */
+  #marketsCard { max-height: none; }
+  #marketsCard .card-title { font-size: 11px; letter-spacing: 0.14em; }
+  .market { display: flex; gap: 12px; padding: 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(10, 14, 12, 0.55); border: 1px solid var(--line); }
+  .market-icon { width: 32px; height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255,255,255,0.06); }
+  .market-icon svg { width: 18px; height: 18px; }
+  .market-main { flex: 1; min-width: 0; }
+  .market-q { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; margin-bottom: 6px; }
+  .market-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .market-meta strong { color: var(--text); font-weight: 600; }
+  .market-status { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .market-status.open { color: #6ee274; }
   .market-status.closed { color: #d29922; }
   .market-status.settled { color: var(--muted); }
-  .market-actions {
-    display: flex; gap: 6px; margin-top: 8px;
-  }
-  .market-actions button {
-    flex: 1; margin: 0;
-    padding: 6px 8px;
-    font-size: 11px; font-weight: 700;
-    border-radius: 6px;
-  }
-  .market-actions button.yes {
-    background: rgba(63,185,80,0.1);
-    border-color: rgba(63,185,80,0.35);
-    color: #3fb950;
-  }
-  .market-actions button.no {
-    background: rgba(248,81,73,0.1);
-    border-color: rgba(248,81,73,0.35);
-    color: #f85149;
-  }
-  .market-actions button.yes:hover {
-    background: rgba(63,185,80,0.18);
-    border-color: rgba(63,185,80,0.55);
-  }
-  .market-actions button.no:hover {
-    background: rgba(248,81,73,0.18);
-    border-color: rgba(248,81,73,0.55);
-  }
-  .market-held {
-    font-size: 10px; color: var(--muted); margin-top: 6px;
-  }
+  .market-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .market-actions button { flex: 1; margin: 0; padding: 6px 8px; font-size: 11px; font-weight: 700; border-radius: 6px; }
+  .market-actions button.yes { background: rgba(110,226,116,0.1); border-color: rgba(110,226,116,0.35); color: #6ee274; }
+  .market-actions button.no { background: rgba(248,81,73,0.1); border-color: rgba(248,81,73,0.35); color: #f85149; }
+  .market-actions button.yes:hover { background: rgba(110,226,116,0.18); border-color: rgba(110,226,116,0.55); }
+  .market-actions button.no:hover { background: rgba(248,81,73,0.18); border-color: rgba(248,81,73,0.55); }
+  .market-held { font-size: 10px; color: var(--muted); margin-top: 6px; }
   .market-settled { opacity: 0.75; }
 
   /* Bottom dock */
   #bottomDock {
-    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-    z-index: 50;
-    display: flex; align-items: center; gap: 4px;
-    padding: 6px 8px;
-    background: rgba(13, 17, 23, 0.92);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
-    backdrop-filter: blur(12px) saturate(1.1);
+    position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 50;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: var(--dock-h);
+    padding: 0 12px;
+    background: linear-gradient(180deg, rgba(12,17,22,0.96) 0%, rgba(10,14,18,0.94) 100%);
+    border: 1px solid rgba(48, 58, 50, 0.75);
+    border-radius: var(--radius);
+    /* Mirror of the top bar's corner bloom — a faint green glow, this time off the
+       bottom-left corner so the two cards frame the world symmetrically. */
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 40px -26px 60px -46px rgba(110,226,116,0.30);
+    backdrop-filter: blur(14px) saturate(1.1);
   }
   .dock-btn {
     display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 7px 14px; margin: 0; width: auto;
+    padding: 8px 18px; margin: 0; width: auto;
     background: transparent; border: 1px solid transparent;
     border-radius: 10px; color: var(--muted); font: inherit;
     cursor: pointer; font-size: 10px;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
   }
-  .dock-btn:hover {
-    color: var(--text);
-    background: rgba(255,255,255,0.05);
-    border-color: var(--line);
-  }
-  .dock-btn.active {
-    color: var(--accent);
-    background: var(--accent-dim);
-    border-color: rgba(63,185,80,0.35);
-  }
-  .dock-icon {
-    width: 20px; height: 20px;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
+  .dock-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); border-color: var(--line); }
+  .dock-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(110,226,116,0.35); }
+  .dock-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .dock-icon svg { width: 100%; height: 100%; }
   .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
+  .dock-divider { width: 1px; height: 34px; margin: 0 6px; background: var(--line); flex-shrink: 0; }
 
-  /* Left controls */
-  #controlsPanel {
-    position: fixed; left: 14px; top: 50%; transform: translateY(-50%);
-    z-index: 40;
-    display: flex; flex-direction: column; gap: 9px;
-    padding: 14px;
-    background: rgba(13, 17, 23, 0.55);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    opacity: 0.5;
-    pointer-events: none;
-    backdrop-filter: blur(4px);
-  }
-  .control-row {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; color: var(--muted);
-  }
+  /* Controls panel rows (panel box defined once in the overlay-visibility block) */
+  #controlsPanel .card-body { display: flex; flex-direction: column; gap: 9px; }
+  .control-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
   .control-row kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 22px; padding: 2px 5px;
-    background: rgba(22, 28, 38, 0.8);
+    background: rgba(18, 24, 18, 0.8);
     border: 1px solid var(--line); border-radius: 4px;
     font-size: 10px; color: var(--text);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }
 
-  /* Agent cards (bottom-left inspector) */
-  #agentCards {
-    position: fixed; left: 14px; bottom: 76px; z-index: 40;
-    width: 300px; max-height: 340px;
-    display: flex; flex-direction: column; gap: 10px;
+  /* Overlay panel visibility — single source of truth. Hidden by default,
+     shown only with .open. (agentCards lives in #bottomStrip and is gated there.) */
+  #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { display: none; }
+  #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; }
+
+  #deployPanel {
+    position: fixed; left: 78px; bottom: 78px; width: 280px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
   }
-  #agentCards #inspector {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 14px;
-    margin: 0;
-    max-height: 300px;
-    overflow-y: auto;
-    backdrop-filter: blur(10px) saturate(1.1);
+  #legendPanel {
+    position: fixed; left: 78px; bottom: 78px; width: 240px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #settingsPanel {
+    position: fixed; right: 14px; bottom: 78px; width: 240px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #objectivesCard {
+    position: fixed; right: 14px; bottom: 78px; width: 280px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #controlsPanel {
+    position: fixed; left: 78px; top: 50%; transform: translateY(-50%); width: 240px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #deployPanel .card-body, #legendPanel .card-body, #settingsPanel .card-body, #controlsPanel .card-body, #objectivesCard .card-body { max-height: 60vh; overflow-y: auto; }
+  #deployPanel .card-title, #legendPanel .card-title, #settingsPanel .card-title, #controlsPanel .card-title, #objectivesCard .card-title {
+    display: flex; align-items: center; justify-content: space-between;
   }
 
   /* Hide UI mode */
   body.ui-hidden #topBar,
-  body.ui-hidden #rightCards,
+  body.ui-hidden #dashboard,
   body.ui-hidden #bottomDock,
-  body.ui-hidden #controlsPanel,
-  body.ui-hidden #agentCards,
   body.ui-hidden #hud,
   body.ui-hidden #minimap,
   body.ui-hidden #minimapHint {
@@ -961,24 +1124,270 @@
     transition: opacity 0.35s ease;
   }
 
+  /* Cinema / full-world mode: collapse all chrome so the world fills the screen.
+     The top bar becomes a small floating restore button in the bottom-right. */
+  body.cinema #dashboard {
+    top: 0; left: 0; right: 0; bottom: 0;
+  }
+  body.cinema #stage { left: 0; right: 0; bottom: 0; top: 0; }
+  body.cinema #rightCards,
+  body.cinema #bottomStrip,
+  body.cinema #bottomDock,
+  body.cinema #hud,
+  body.cinema #minimapHint,
+  body.cinema #minimap,
+  body.cinema #topBar .topRow--main,
+  body.cinema #topBar .topRow--shelf,
+  body.cinema #deployPanel.open,
+  body.cinema #legendPanel.open,
+  body.cinema #settingsPanel.open,
+  body.cinema #controlsPanel.open,
+  body.cinema #objectivesCard.open,
+  body.cinema #agentCards.open {
+    display: none !important;
+  }
+  body.cinema #topBar {
+    position: fixed;
+    top: auto; left: auto; right: 14px; bottom: 14px;
+    width: auto; height: auto;
+    padding: 0;
+    background: transparent; border: none; backdrop-filter: none;
+    z-index: 50;
+  }
+  body.cinema #topBar .cinema-exit {
+    display: inline-flex;
+  }
+  .cinema-exit {
+    display: none;
+    align-items: center; justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(10, 14, 12,0.85);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  .cinema-exit:hover { background: rgba(18, 24, 18,0.95); border-color: var(--muted); }
+
   /* Legacy hidden elements (still referenced by JS) */
   #legacyHidden { display: none; }
 
-  /* === end new layout ================================================ */
+  /* === MOBILE RESPONSIVENESS ========================================= */
+  @media (max-width: 900px) {
+    body { font-size: 14px; }
+    /* One compact full-bleed row on a phone: the shelf's hints are mouse-only anyway,
+       and the corner HUD still names the followed subject. */
+    /* Mobile bars are full-bleed and flush to the edges, so the clear is just the bar
+       height (no floating inset or gap to account for). */
+    :root { --topbar-h: 52px; --topbar-clear: 52px; --dock-h: 56px; --dock-clear: 56px; }
+    #topBar {
+      top: 0; left: 0; right: 0;
+      border-radius: 0; border-left: none; border-right: none; border-top: none;
+      box-shadow: none;
+    }
+    #topBar .topRow--shelf { display: none; }
+    #topBar .topRow--main { gap: 10px; padding: 0 10px; height: 52px; min-width: 0; }
+    #topBar .brandMark { padding-right: 10px; gap: 8px; }
+    #topBar .brandMark svg { width: 24px; height: 24px; }
+    #topBar .logo { font-size: 12px; letter-spacing: .18em; }
+    #topBar .topStats { gap: 0; margin-left: 0; min-width: 0; overflow: hidden; }
+    #topBar .stat { padding: 0 10px; gap: 3px; }
+    #topBar .stat-label { font-size: 9px; letter-spacing: .1em; }
+    #topBar .stat-value { font-size: 16px; }
+    #topBar .stat-icon { width: 13px; height: 13px; }
+    #topBar .stat-delta { font-size: 11px; }
+    /* Only the first two numbers survive a phone's width; the rest live in the panels. */
+    #topBar .stat:nth-child(n+3) { display: none; }
+    .icon-btn { width: 34px; height: 34px; border-radius: 9px; }
+    .icon-btn svg { width: 16px; height: 16px; }
+    #topBar .topActions { gap: 6px; }
+    /* No shelf on a phone, so the HUD carries the framing and the hints again. */
+    #hud { display: flex; }
+    #hud .title, #hud .hud-hints { display: inline; }
 
+    #dashboard {
+      top: var(--topbar-clear); left: 0; right: 0; bottom: var(--dock-clear);
+    }
+    #stage { left: 0; right: 0; }
+    #rightCards {
+      position: fixed;
+      top: auto; right: 0; left: 0; bottom: var(--dock-clear);
+      width: 100%; height: auto;
+      overflow-y: visible;
+      padding: 0 10px;
+      gap: 0;
+      pointer-events: none;
+      align-items: center;
+      background: transparent;
+      border: none;
+    }
+    body.agents-open #rightCards { transform: none; }
+    #rightCards .floating-card {
+      width: 100%; max-width: 100%; max-height: 50vh;
+      border-radius: 16px 16px 0 0;
+      display: none; pointer-events: auto;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
+    }
+    #rightCards .floating-card.open { display: flex; }
+
+    #bottomStrip {
+      position: fixed;
+      top: auto; left: 0; right: 0; bottom: var(--dock-clear);
+      height: auto; max-height: 50vh;
+      flex-direction: column;
+      padding: 0 10px;
+      background: transparent;
+      border: none;
+      pointer-events: none;
+      overflow-y: auto;
+      display: none;
+    }
+    body.agents-open #bottomStrip { right: 0; }
+    #bottomStrip.open { display: flex; pointer-events: auto; }
+    #bottomStrip .floating-card {
+      flex: 0 0 auto;
+      width: 100%; max-height: 50vh;
+      border-radius: 16px 16px 0 0;
+      display: none;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
+    }
+    #bottomStrip .floating-card.open { display: flex; }
+
+    #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard {
+      position: fixed; top: auto; left: 0; right: 0; bottom: var(--dock-clear);
+      width: 100%; max-height: 50vh;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
+      display: none; z-index: 60;
+    }
+    #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; flex-direction: column; }
+
+    #agentCards { padding: 0; gap: 0; }
+    #agentCards #inspector { border-radius: 16px 16px 0 0; max-height: 50vh; }
+    #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { width: 100%; }
+    #deployPanel .card-body, #legendPanel .card-body { padding: 14px 16px 18px; }
+
+    #minimap { width: 120px; height: 120px; right: 10px; top: 50px; bottom: auto; border-radius: 10px; z-index: 45; }
+    #minimapHint { right: 10px; top: 176px; bottom: auto; font-size: 9px; z-index: 45; }
+
+    #hud { top: 0; padding: 8px 10px; gap: 6px; }
+    #hud .title { font-size: 12px; }
+    #hud .meta { font-size: 10px; }
+    #hud .meta:last-child { display: none; }
+
+    #bottomDock {
+      left: 0; right: 0; bottom: 0; transform: none;
+      padding: 6px 4px; gap: 2px;
+      border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
+      border-top: 1px solid var(--line);
+      box-shadow: none;
+    }
+    .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; }
+    .dock-divider { display: none; }
+    .dock-icon { width: 22px; height: 22px; }
+    .dock-label { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+
+    .my-agent-actions button, .agent-card-actions button, .market-actions button { min-height: 40px; min-width: 40px; font-size: 13px; }
+    .my-agent-actions button svg { width: 18px; height: 18px; }
+    .objective-btn { padding: 12px 14px; min-height: 44px; }
+    #marketsCard input, #deployPanel input, #deployPanel button { min-height: 40px; font-size: 14px; }
+
+    .gameplay-hint { bottom: 80px; font-size: 12px; padding: 10px 16px; max-width: 90vw; }
+
+    #onboarding .panel { padding: 28px 22px; width: 92%; max-width: none; }
+    .splash-panel { padding: 36px 28px; }
+    .splash-panel .hero { font-size: 28px; }
+    .menu-panel { margin: auto; align-self: center; width: 92%; max-width: none; }
+    .slide-features { grid-template-columns: 1fr; gap: 8px; }
+    .controls-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .speech-bubble { font-size: 12px; padding: 6px 10px 8px; max-width: 180px; }
+    .speech-bubble .text { font-size: 12px; }
+  }
+
+  @media (max-width: 420px) {
+    .dock-label { display: none; }
+    .dock-btn { padding: 9px 2px; }
+  }
 </style>
 </head>
 <body>
   <!-- Top Bar -->
   <div id="topBar">
-    <span class="logo">NEO-CIVILIZATION</span>
-    <div class="topStats">
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> Day <span class="stat-value" id="topDay">—</span></span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> <span class="stat-value" id="topAgents">—</span> Agents</span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> <span class="stat-value" id="topHuts">—</span> Huts</span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> <span class="stat-value" id="topClans">—</span> Clans</span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 8.5l-9 9-5-5L2 17.5"/><path d="M15.5 2.5l6 6"/></svg></span> <span class="stat-value" id="topResources">—</span> Resources</span>
+    <!-- Row 1: brand, the five headline stats, and the action buttons. -->
+    <div class="topRow topRow--main">
+      <span class="brandMark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><line x1="12" y1="1.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.5"/><line x1="1.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.5" y2="12"/></svg>
+        <span class="logo">NOUS</span>
+      </span>
+      <span id="thinkingStatus"></span>
+      <div class="topStats">
+        <div class="stat">
+          <span class="stat-label">Day</span>
+          <span class="stat-row"><span class="stat-value" id="topDay">—</span><span class="stat-delta" id="topDayDelta"></span></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Agents</span>
+          <span class="stat-row"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="stat-value" id="topAgents">—</span><span class="stat-delta" id="topAgentsDelta"></span></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Huts</span>
+          <span class="stat-row"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span class="stat-value" id="topHuts">—</span><span class="stat-delta" id="topHutsDelta"></span></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Clans</span>
+          <span class="stat-row"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="stat-value" id="topClans">—</span><span class="stat-delta" id="topClansDelta"></span></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Resources</span>
+          <span class="stat-row"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8l-9-5-9 5v8l9 5 9-5z"/><polyline points="3.3 8 12 13 20.7 8"/><line x1="12" y1="13" x2="12" y2="21"/></svg></span><span class="stat-value" id="topResources">—</span><span class="stat-delta" id="topResourcesDelta"></span></span>
+        </div>
+      </div>
+      <div class="topActions">
+        <button id="cinemaToggle" class="icon-btn" title="Full world view (C)" aria-label="Full world view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg></button>
+        <button id="alertsToggle" class="icon-btn has-dot" title="Recent events" aria-label="Recent events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
+        <button id="panelsToggle" class="icon-btn" title="Panels" aria-label="Panels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="15" y2="12"/><line x1="4" y1="17" x2="18" y2="17"/></svg></button>
+      </div>
     </div>
+    <!-- Row 2: what the camera is doing, the followed subject, and the controls. -->
+    <div class="topRow topRow--shelf">
+      <div class="shelf-status">
+        <span class="live-dot"></span>
+        <span class="shelf-shot" id="shelfShot">—</span>
+        <span class="shelf-count">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span id="shelfCount">—</span>
+        </span>
+      </div>
+      <div class="follow-notch">
+        <svg class="notch-line" viewBox="0 0 340 44" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="notchStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0"    stop-color="rgba(64,78,68,0.6)"/>
+              <stop offset="0.22" stop-color="rgba(110,226,116,0.55)"/>
+              <stop offset="0.5"  stop-color="rgba(110,226,116,0.85)"/>
+              <stop offset="0.78" stop-color="rgba(110,226,116,0.55)"/>
+              <stop offset="1"    stop-color="rgba(64,78,68,0.6)"/>
+            </linearGradient>
+          </defs>
+          <path d="M0 1.5 L50 1.5 C80 1.5 65 41 95 41 L245 41 C275 41 260 1.5 290 1.5 L340 1.5"
+                fill="none" stroke="url(#notchStroke)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+          <circle cx="170" cy="41" r="2.6" fill="#6ee274"/>
+        </svg>
+        <div id="followChip">
+          <span class="follow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg></span>
+          <span class="follow-text">
+            <span class="follow-eyebrow">Following</span>
+            <span class="follow-subject" id="followSubject"></span>
+          </span>
+        </div>
+      </div>
+      <div class="shelf-hints">Drag orbit <i>·</i> Shift + drag pan <i>·</i> Wheel zoom <i>·</i> Click an agent</div>
+    </div>
+    <button id="cinemaExit" class="cinema-exit" title="Restore UI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M16 3v3a2 2 0 0 0 2 2h3"/><path d="M8 21v-3a2 2 0 0 0-2-2H3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg><span>Exit full world</span></button>
   </div>
 
   <!-- Pause Overlay -->
@@ -987,7 +1396,7 @@
       <div class="brand" style="margin:0 auto 16px;width:40px;height:40px;"></div>
       <h1>PAUSED</h1>
       <p class="subtitle">The world waits. Press Space to resume.</p>
-      <nav class="menu-nav" style="gap</h1>:8px;margin-top:4px;">
+      <nav class="menu-nav" style="gap:8px;margin-top:4px;">
         <button id="pause-resume" class="primary">Resume Simulation</button>
         <button id="pause-settings" class="secondary">Settings</button>
         <button id="pause-exit" class="secondary">Hide UI</button>
@@ -995,112 +1404,132 @@
     </div>
   </div>
 
-  <!-- 3D Stage -->
-  <div id="stage">
+  <!-- Main Dashboard -->
+  <div id="dashboard">
+    <div id="stage">
     <div id="world"></div>
     <div id="speechBubbles"></div>
     <div id="hud">
       <span class="title" id="hudTitle">world</span>
       <span class="meta" id="hudMeta"></span>
       <span class="spacer"></span>
-      <span class="meta">drag orbit · shift-drag pan · wheel zoom · click an agent</span>
+      <span class="meta hud-hints">drag orbit · shift-drag pan · wheel zoom · click an agent</span>
     </div>
     <p id="minimapHint">click the minimap to travel</p>
     <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
 
-  <!-- Left Controls -->
-  <div id="controlsPanel">
-    <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
-    <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
-    <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
-    <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
-    <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
-    <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
-    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd>kbd><kbd>5<</kbd>/kbd> <span>View Pres</span>ets</span></div>
-    <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
-  </div>
-
-  <!-- Bottom Left Agent Cards -->
-  <div id="agentCards">
-    <div id="inspector"><p class="hint">click an agent on the map</p></div>
-  </div>
-
-  <!-- Right Floating Cards -->
-  <div id="rightCards">
-    <div class="floating-card" id="objectivesCard">
-      <h3 class="card-title">ACTIVE OBJECTIVES</h3>
-      <div class="card-body">
-        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
-        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
-        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+    <!-- Right Sidebar — My Agents only -->
+    <div id="rightCards">
+      <div class="sidebar-header">
+        <span></span>AGENTS</span>
+        <button class="card-close" id="rightCardsClose" title="Close" aria-label="Close">×</button>
+      </div>
+      <div class="floating-card" id="myAgentsCard">
+        <h3 class="card-title">MY AGENTS
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <p class="hint" id="myAgentsHint">You haven't deployed anyone yet.</p>
+          <ul id="myAgentsList"></ul>
+          <button id="deployFromMyAgents" class="primary" style="width:100%;margin-top:8px;">Deploy your first agent</button>
+          <button id="copyWorldStatus" class="secondary" style="width:100%;margin-top:8px;">Copy world status</button>
+        </div>
       </div>
     </div>
 
-    <div class="floating-card" id="worldOverviewCard">
-      <h3 class="card-title">WORLD OVERVIEW</h3>
-      <div class="card-body">
-        <dl>
-          <dt>status</dt><dd id="status">connecting</dd>
-          <dt>tick</dt><dd id="tick">—</dd>
-          <dt>day</dt><dd id="day">—</dd>
-          <dt>agents</dt><dd id="agents">—</dd>
-          <dt>resources</dt><dd id="resources">—</dd>
-          <dt>dormant</dt><dd id="dormant">—</dd>
-          <dt>huts</dt><dd id="buildings">—</dd>
-          <dt>clans</dt><dd id="clans">—</dd>
-          <dt>in a clan</dt><dd id="clanned">—</dd>
-          <dt>yours</dt><dd id="userAgents">—</dd>
-        </dl>
+    <!-- Bottom Panel Strip — reference panels -->
+    <div id="bottomStrip">
+      <div class="floating-card" id="worldOverviewCard">
+        <h3 class="card-title">WORLD OVERVIEW
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <p id="worldSummary" class="world-summary">Connecting…</p>
+          <dl>
+            <dt>status</dt><dd id="status">connecting</dd>
+            <dt>day</dt><dd id="day">—</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="floating-card" id="marketsCard">
+        <h3 class="card-title">BETS
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+          <div id="markets"></div>
+          <h3 class="card-subtitle">LEADERBOARD</h3>
+          <ul id="leaderboard"></ul>
+        </div>
+      </div>
+      <div class="floating-card" id="messagesCard">
+        <h3 class="card-title">CHAT
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
+        </div>
+      </div>
+      <div class="floating-card" id="worldLogCard">
+        <h3 class="card-title">WORLD LOG
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
+        </div>
+      </div>
+      <div class="floating-card" id="agentCards">
+        <h3 class="card-title">INSPECTOR
+          <span class="card-tools">
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <div id="inspector"><p class="hint">click an agent on the map</p></div>
+        </div>
       </div>
     </div>
-
-    <div class="floating-card" id="marketsCard">
-      <h3 class="card-title">PREDICTION MARKETS</h3>
-      <div class="card-body">
-        <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
-        <div id="markets"></div>
-        <h3 class="card-subtitle">LEADERBOARD</h3>
-        <ul id="leaderboard"></ul>
-      </div>
-    </div>
-
-    <div class="floating-card" id="messagesCard">
-      <h3 class="card-title">CHATTER</h3>
-      <div class="card-body">
-        <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
-      </div>
-    </div>
-
-    <div class="floating-card" id="worldLogCard">
-      <h3 class="card-title">WORLD</h3>
-      <div class="card-body">
-        <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
-      </div>
-    </div>
-  </div>
-
-  <!-- Deploy Panel (toggled by Build dock button) -->
-  <div id="deployPanel">
-    <h3 class="card-title">DEPLOY AGENT</h3>
+  </div><!-- Deploy Panel -->
+  <!-- Deploy Panel -->
+  <div id="deployPanel" class="floating-card">
+    <h3 class="card-title">DEPLOY AN AGENT
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
     <div class="card-body">
-      <p class="hint" style="margin:0 0 10px;">Your agent spawns next tick and lives by the same rules as everyone else.</p>
+      <p class="hint" style="margin:0 0 10px;">Give them a name and they'll spawn next tick, just like everyone else.</p>
       <form id="deploy" autocomplete="off">
         <input id="agentName" maxlength="24" placeholder="name" required style="margin-bottom:8px;">
         <input id="agentPersonality" maxlength="140" placeholder="short personality note (optional)" style="margin-bottom:8px;">
-        <button type="submit" style="margin-bottom:8px;">Deploy</button>
+        <button type="submit" style="margin-bottom:8px;width:100%;">Deploy</button>
       </form>
       <p id="deployStatus" style="min-height:1.5em;font-size:11px;color:var(--muted);margin:0;"></p>
-      <div id="deployedWrap" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px;">
-        <h3 class="card-subtitle" style="margin:0 0 8px;">YOUR AGENTS</h3>
-        <ul id="deployed"></ul>
-      </div>
     </div>
   </div>
 
   <!-- Legend Panel (toggled by Clans dock button) -->
-  <div id="legendPanel">
-    <h3 class="card-title">CLANS</h3>
+  <div id="legendPanel" class="floating-card">
+    <h3 class="card-title">CLANS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
     <div class="card-body">
       <p style="font-size:11px;color:var(--muted);margin:0 0 10px;">Click a clan to fly to it.</p>
       <h2 id="legend-title" style="margin:0 0 8px;">clans</h2>
@@ -1116,57 +1545,79 @@
   </div>
 
   <!-- Settings Panel (toggled by Settings dock button) -->
-  <div id="settingsPanel">
-    <h3 class="card-title">SETTINGS</h3>
+  <div id="settingsPanel" class="floating-card">
+    <h3 class="card-title">SETTINGS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
     <div class="card-body">
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Camera</label>
-        <button id="autoCamera" data-on="1" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">camera: cinematic</button>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Colour Mode</label>
-        <button id="mode" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">colour: clan</button>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Onboarding</label>
-        <button id="settingsResetIntro" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">Reset Intro</button>
-      </div>
+      <p class="settings-group">Display</p>
+      <button id="autoCamera" data-on="1" class="secondary settings-item">camera: cinematic</button>
+      <button id="mode" class="secondary settings-item">colour: clan</button>
+
+      <p class="settings-group">Help</p>
+      <button id="settingsShowTours" class="secondary settings-item">Camera tours</button>
+      <button id="settingsShowControls" class="secondary settings-item">Keyboard controls</button>
+
+      <p class="settings-group">Reset</p>
+      <button id="settingsResetIntro" class="secondary settings-item">Replay intro</button>
+    </div>
+  </div>
+
+  <!-- Camera Tours (opened from Settings) -->
+  <div id="objectivesCard" class="floating-card">
+    <h3 class="card-title">CAMERA TOURS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
+    <div class="card-body">
+      <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
+      <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
+      <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+    </div>
+  </div>
+
+  <!-- Left Controls (secondary, opened from Settings) -->
+  <div id="controlsPanel" class="floating-card">
+    <h3 class="card-title">CONTROLS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
+    <div class="card-body">
+      <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
+      <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
+      <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
+      <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
+      <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
+      <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
+      <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>View Presets</span></div>
+      <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
     </div>
   </div>
 
   <!-- Gameplay hints -->
   <div id="gameplayHints"></div>
 
-  <!-- Bottom Dock -->
+  <!-- Bottom Dock — single navigation bar (views + actions) -->
   <div id="bottomDock">
-    <button class="dock-btn active" data-panel="agentCards"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
-    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Build</span></button>
+    <button class="dock-btn" data-agents="1"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
+    <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">World</span></button>
+    <button class="dock-btn" data-panel="messagesCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span class="dock-label">Chat</span></button>
+    <button class="dock-btn" data-panel="worldLogCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span class="dock-label">Log</span></button>
+    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
+    <span class="dock-divider" aria-hidden="true"></span>
+    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
     <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
-    <button class="dock-btn active" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">Resources</span></button>
-    <button class="dock-btn active" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Markets</span></button>
-    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
+    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
   </div>
 
-  <!-- Legacy elements still referenced by JS — kept in a hidden container so IDs remain valid. -->
+  <!-- Legacy render target still written by JS (renderDeployed). Kept hidden so
+       its ID stays valid; all other duplicate IDs were removed with the left rail. -->
   <div id="legacyHidden">
-    <button id="autoCamera" data-on="1">camera: cinematic</button>
-    <button id="mode">colour: clan</button>
-    <button id="dashboardToggle" class="secondary">show more</button>
-    <h2 id="legend-title">clans</h2>
-    <ul id="legend"></ul>
-    <form id="deploy" autocomplete="off">
-      <input id="agentName" maxlength="24" placeholder="name" required>
-      <input id="agentPersonality" maxlength="140" placeholder="short personality note">
-      <button type="submit">deploy</button>
-      <p id="deployStatus"></p>
-    </form>
     <ul id="deployed"></ul>
-    <ul>
-      <li><span class="swatch" style="background:#1a7f37"></span>food</li>
-      <li><span class="swatch" style="background:#6b5210"></span>wood</li>
-      <li><span class="swatch" style="background:#c9d1d9"></span>hut</li>
-      <li><span class="swatch" style="background:#1a7f37;opacity:.18"></span>dormant (regrowing)</li>
-    </ul>
   </div>
 
   <div id="onboarding">
@@ -1174,7 +1625,7 @@
     <div id="onboarding-splash" class="screen active">
       <div class="panel splash-panel">
         <div class="brand"></div>
-        <h1 class="hero">NEO-CIVILIZATION</h1>
+        <h1 class="hero">NOUS</h1>
         <p class="subtitle" id="splash-subtitle">A Living AI Civilization</p>
         <p class="press-hint">Press Any Key to Begin</p>
       </div>
@@ -1183,7 +1634,7 @@
     <!-- Main Menu -->
     <div id="onboarding-menu" class="screen">
       <div class="panel menu-panel">
-        <h1>NEO-CIVILIZATION</h1>
+        <h1>NOUS</h1>
         <p class="subtitle">A persistent world running in real time.</p>
         <nav class="menu-nav">
           <button id="menu-continue" class="primary">Continue Simulation</button>
@@ -1198,14 +1649,14 @@
     <div id="onboarding-slide-1" class="screen">
       <div class="panel slide-panel">
         <p class="slide-number">1 / 3</p>
-        <h1>Welcome to Neo-Civilization</h1>
+        <h1>Welcome to Nous</h1>
         <p class="subtitle">
           Every person has needs, goals, and relationships.
           This is a living civilization — not scripted gameplay.
         </p>
         <div class="slide-features">
           <div class="feature"><span class="feature-dot" style="background:#58a6ff;"></span>Needs &amp; survival</div>
-          <div class="feature"><span class="feature-dot" style="background:#3fb950;"></span>Goals &amp; purpose</div>
+          <div class="feature"><span class="feature-dot" style="background:#6ee274;"></span>Goals &amp; purpose</div>
           <div class="feature"><span class="feature-dot" style="background:#a371f7;"></span>Relationships</div>
           <div class="feature"><span class="feature-dot" style="background:#d29922;"></span>Emergent clans</div>
         </div>
@@ -1228,7 +1679,7 @@
         <div class="slide-features">
           <div class="feature"><span class="feature-dot" style="background:#58a6ff;"></span>Naturally forming villages</div>
           <div class="feature"><span class="feature-dot" style="background:#f85149;"></span>Raids &amp; conflicts</div>
-          <div class="feature"><span class="feature-dot" style="background:#3fb950;"></span>Truces &amp; alliances</div>
+          <div class="feature"><span class="feature-dot" style="background:#6ee274;"></span>Truces &amp; alliances</div>
           <div class="feature"><span class="feature-dot" style="background:#a371f7;"></span>Evolving economies</div>
         </div>
         <div class="slide-nav">
@@ -1293,9 +1744,22 @@ const STATE_COLORS = {
   FLEE:      "#f85149",
 };
 
+const STATE_LABELS = {
+  IDLE:      "idle",
+  SEEK_NEED: "looking for food or wood",
+  GATHER:    "gathering",
+  BUILD:     "building",
+  REST:      "resting",
+  FLEE:      "fleeing",
+  FOLLOW:    "heading to a meeting",
+  MEET:      "meeting someone",
+};
+
 const canvas = document.getElementById("map");
 const ctx = canvas.getContext("2d");
 const statusEl = document.getElementById("status");
+const thinkingStatus = document.getElementById("thinkingStatus");
+let thinkingSince = null;
 
 const CLANLESS = "#484f58";
 const legend = document.getElementById("legend");
@@ -1304,6 +1768,64 @@ const modeButton = document.getElementById("mode");
 
 let colourBy = "clan";
 let lastSnapshot = null;
+
+// Panel visibility is class-driven so the same code works for desktop floating
+// cards and mobile bottom sheets.
+function panelOpen(id) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  return el && el.classList.contains("open");
+}
+function setPanelOpen(id, open) {
+  const el = typeof id === "string" ? document.getElementById(id) : id;
+  if (!el) return;
+  el.classList.toggle("open", open);
+  const btn = document.querySelector(`[data-panel="${el.id}"]`);
+  if (btn) btn.classList.toggle("active", open);
+  syncBottomStrip();
+}
+function togglePanel(id) {
+  setPanelOpen(id, !panelOpen(id));
+}
+function isMobileLayout() {
+  return window.innerWidth <= 900 || document.body.classList.contains("mobile");
+}
+
+function setAgentsOpen(open) {
+  document.body.classList.toggle("agents-open", open);
+  const btn = document.querySelector('#bottomDock .dock-btn[data-agents="1"]');
+  if (btn) btn.classList.toggle("active", open);
+  const card = document.getElementById("myAgentsCard");
+  if (card) card.classList.toggle("open", open);
+}
+
+function bottomStripOpen() {
+  const strip = document.getElementById("bottomStrip");
+  const bottomCards = ["worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards"];
+  if (!strip) return false;
+  return bottomCards.some((id) => {
+    const el = document.getElementById(id);
+    return el && el.classList.contains("open") && !el.classList.contains("collapsed");
+  });
+}
+function syncBottomStrip() {
+  const strip = document.getElementById("bottomStrip");
+  if (strip) strip.classList.toggle("open", bottomStripOpen());
+}
+
+function closeAllPanels(exceptId = null) {
+  // Single navigation model: exactly one panel is visible at a time, on every
+  // viewport. Opening any dock target closes every other overlay, strip card,
+  // and the agents sidebar, so the world stays the focus.
+  const panels = [
+    "deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard",
+    "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards",
+  ];
+  for (const id of panels) {
+    if (id !== exceptId) setPanelOpen(id, false);
+  }
+  if (exceptId !== "myAgentsCard") setAgentsOpen(false);
+  syncBottomStrip();
+}
 
 // Golden-angle hue steps keep adjacent clan ids visually far apart.
 function clanColour(id) {
@@ -1359,6 +1881,22 @@ function escapeHtml(text) {
   return node.innerHTML;
 }
 
+async function setRest(agentId, rest) {
+  try {
+    const response = await fetch(`/agents/${agentId}/rest`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rest }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      console.warn("rest toggle failed:", body.detail || response.status);
+    }
+  } catch (error) {
+    console.warn("rest toggle failed:", error);
+  }
+}
+
 function renderDeployed(snapshot) {
   const mine = snapshot.agents.filter((a) => a.user);
   deployed.innerHTML = "";
@@ -1371,17 +1909,161 @@ function renderDeployed(snapshot) {
   }
   for (const agent of mine) {
     const item = document.createElement("li");
+    item.style.display = "flex"; item.style.alignItems = "center"; item.style.flexWrap = "wrap";
     item.innerHTML =
+      `<span style="flex:1">` +
+      (agent.rest_mode ? `<span class="tag-rest">REST</span>` : "") +
       `<span class="who">${escapeHtml(agent.name)}</span> · ${agent.state}` +
       (agent.clan !== null ? ` · clan ${agent.clan}` : "") +
-      (agent.personality ? `<br><span class="note">${escapeHtml(agent.personality)}</span>` : "");
+      (agent.personality ? `<br><span class="note">${escapeHtml(agent.personality)}</span>` : "") +
+      `</span>` +
+      `<button class="rest-toggle" data-id="${agent.id}" data-rest="${agent.rest_mode ? 0 : 1}">${agent.rest_mode ? "resume" : "rest"}</button>`;
+    const btn = item.querySelector(".rest-toggle");
+    btn.addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
     deployed.appendChild(item);
   }
 }
 
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (button) {
+      const old = button.textContent;
+      button.textContent = "copied";
+      setTimeout(() => button.textContent = old, 1200);
+    }
+  } catch (err) {
+    console.warn("copy failed", err);
+  }
+}
+
+function simpleAgentStatus(agent) {
+  if (agent.rest_mode) return "resting";
+  if (agent.hunger === 0) return "starving";
+  if (agent.hunger < 30) return "hungry";
+  if (agent.energy < 30) return "tired";
+  return "doing fine";
+}
+
+function rankLabel(rank) {
+  if (rank === "officer") return "Officer";
+  if (rank === "trusted") return "Trusted";
+  return "";
+}
+
+const myAgentsList = document.getElementById("myAgentsList");
+const myAgentsHint = document.getElementById("myAgentsHint");
+const deployFromMyAgents = document.getElementById("deployFromMyAgents");
+
+const AGENT_ICONS = {
+  locate: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>`,
+  rest: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  resume: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+  copy: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
+};
+
+function statusChipClass(status) {
+  if (status === "resting") return "rest";
+  if (status === "starving") return "danger";
+  if (status === "hungry" || status === "tired") return "warn";
+  return "fine";
+}
+
+function renderMyAgents(snapshot) {
+  const mine = snapshot.agents.filter((a) => a.user);
+  myAgentsList.innerHTML = "";
+  if (!mine.length) {
+    myAgentsHint.style.display = "";
+    deployFromMyAgents.textContent = "Deploy your first agent";
+    return;
+  }
+  myAgentsHint.style.display = "none";
+  deployFromMyAgents.textContent = "Deploy another agent";
+
+  for (const agent of mine) {
+    const item = document.createElement("li");
+    item.className = "my-agent-item";
+    const status = simpleAgentStatus(agent);
+    const rank = rankLabel(agent.rank);
+    const clanText = agent.clan !== null ? `Clan ${agent.clan}` : "no clan";
+    const shareText = `${agent.name} is ${status}, ${clanText}, in Nous day ${snapshot.day}.`;
+    const restIcon = agent.rest_mode ? AGENT_ICONS.resume : AGENT_ICONS.rest;
+    const restLabel = agent.rest_mode ? "Resume" : "Rest";
+    const colour = agentColour(agent);
+    const line = rank ? `${escapeHtml(rank)} · ${escapeHtml(clanText)}` : escapeHtml(clanText);
+    item.innerHTML =
+      `<div class="my-agent-avatar" style="background:${colour}22">${agentAvatar(agent, colour)}</div>` +
+      `<div class="my-agent-main">` +
+      `<div class="my-agent-name">${escapeHtml(agent.name)}</div>` +
+      `<div class="my-agent-line">${line}</div>` +
+      `<div class="my-agent-chips">` +
+      `<span class="my-agent-chip ${statusChipClass(status)}">${escapeHtml(status)}</span>` +
+      `</div>` +
+      `</div>` +
+      `<div class="my-agent-actions">` +
+      `<button class="find-agent" aria-label="Locate" title="Locate">${AGENT_ICONS.locate}<span>Locate</span></button>` +
+      `<button class="rest-agent" aria-label="${restLabel}" title="${restLabel}">${restIcon}<span>${restLabel}</span></button>` +
+      `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
+      `</div>`;
+
+    item.querySelector(".find-agent").addEventListener("click", () => {
+      selectedId = agent.id;
+      worldView.setSelected(selectedId);
+      flyToSim(agent.x, agent.y, `${agent.name} · ${status}`, 8);
+      closeAllPanels("agentCards");
+      setPanelOpen("agentCards", true);
+      renderInspector(snapshot);
+    });
+    item.querySelector(".rest-agent").addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
+    const copyBtn = item.querySelector(".copy-agent");
+    copyBtn.addEventListener("click", () => copyText(shareText, copyBtn));
+    myAgentsList.appendChild(item);
+  }
+}
+
+const worldSummaryEl = document.getElementById("worldSummary");
+const copyWorldStatus = document.getElementById("copyWorldStatus");
+
+function renderWorldSummary(snapshot) {
+  const day = snapshot.day;
+  const population = snapshot.stats.agents;
+  const clans = snapshot.stats.clans;
+  const meanHunger = snapshot.agents.length
+    ? snapshot.agents.reduce((s, a) => s + a.hunger, 0) / snapshot.agents.length
+    : 50;
+  let foodMood = "food feels plentiful";
+  if (meanHunger < 20) foodMood = "famine is biting";
+  else if (meanHunger < 40) foodMood = "food is scarce";
+  else if (meanHunger < 60) foodMood = "meals are uneven";
+
+  let event = "";
+  const last = worldLogEntries[worldLogEntries.length - 1];
+  if (last && last.label) {
+    event = ` — ${last.label.toLowerCase()}`;
+  }
+  const text = `Day ${day}. ${population} people live here in ${clans} clan${clans === 1 ? "" : "s"}. ${foodMood}${event}.`;
+  worldSummaryEl.textContent = text;
+}
+
+copyWorldStatus.addEventListener("click", () => {
+  const text = worldSummaryEl.textContent;
+  copyText(text.startsWith("Connecting") ? "Nous is loading…" : text, copyWorldStatus);
+});
+
+deployFromMyAgents.addEventListener("click", () => {
+  closeAllPanels("deployPanel");
+  togglePanel("deployPanel");
+});
+
 // --- the 3d world view ------------------------------------------------------
 
-const worldView = new WorldView(document.getElementById("world"));
+const isMobileNow = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 900;
+if (isMobileNow) document.body.classList.add("mobile");
+window.addEventListener("resize", () => {
+  const now = window.matchMedia("(pointer: coarse)").matches || window.innerWidth <= 900;
+  document.body.classList.toggle("mobile", now);
+});
+const worldView = new WorldView(document.getElementById("world"), { mobile: isMobileNow });
 // Test hook: the lifecycle tests drive mount/unmount and read renderer.info from here.
 // Read-only by convention — nothing in the viewer reads it back.
 window.__world = worldView;
@@ -1552,6 +2234,41 @@ function processWorldLog(snapshot) {
 
 const hudTitle = document.getElementById("hudTitle");
 const hudMeta = document.getElementById("hudMeta");
+const followChip = document.getElementById("followChip");
+const followSubject = document.getElementById("followSubject");
+const shelfShot = document.getElementById("shelfShot");
+
+// The top-bar "Following X" chip mirrors whatever the camera is locked to. `setLabel` is the
+// single funnel every subject flows through — director shots, fly-tos, overview, mount — so
+// deriving the chip here keeps it in lockstep with the corner HUD without a second source of
+// truth. The generic framings ("whole world", "finding a shot") are not a subject, so the
+// chip hides for them and the world stays the focus.
+//
+// The camera label is a full framing — "vista · Ashsha-056 is following food" — where the
+// shelf status to the left already carries the "kind · activity" part. The chip names only
+// the *subject*: drop the leading "kind ·" and the trailing "is <activity>" so it reads as a
+// clean entity ("Ashsha-056"), the way the reference shows "vista settlement". Verbatim was
+// too long — it truncated mid-word and the notch line cut through it.
+const FOLLOW_NONE = new Set(["whole world", "finding a shot", "world", "the world"]);
+function chipSubject(text) {
+  let s = (text || "").trim();
+  const dot = s.indexOf(" · ");
+  if (dot !== -1) s = s.slice(dot + 3);     // drop the "kind ·" framing the shelf already shows
+  const isIdx = s.indexOf(" is ");
+  if (isIdx !== -1) s = s.slice(0, isIdx);  // drop the "is <activity>" tail
+  return s.trim();
+}
+function setFollowFromLabel(text) {
+  const raw = (text || "").trim();
+  const label = chipSubject(raw);
+  if (!label || FOLLOW_NONE.has(raw) || FOLLOW_NONE.has(label)) {
+    followChip.classList.remove("active");
+    followSubject.textContent = "";
+    return;
+  }
+  followSubject.textContent = label;
+  followChip.classList.add("active");
+}
 
 // The view is mounted once, on the first snapshot that arrives, and then lives for the
 // session. A remount would throw away every texture and rebuild the whole scene.
@@ -1565,6 +2282,10 @@ function ensureMounted(snapshot) {
 
 function setLabel(text) {
   hudTitle.textContent = text;
+  setFollowFromLabel(text);
+  // The shelf names the current framing ("vista · 7 gathered"); the chip beside it names
+  // the subject. Both come from this one funnel so they cannot disagree.
+  if (shelfShot.textContent !== text) shelfShot.textContent = text;
 }
 
 function updateHud() {
@@ -1716,12 +2437,12 @@ function renderInspector(snapshot) {
   const clan = (snapshot.clans || []).find((c) => c.id === agent.clan);
   const isLeader = clan && clan.leader === agent.id;
   const colour = clanColour(agent.clan);
-  const stateLabel = agent.state.replace("_", " ").toLowerCase();
-  const clanLabel = clan ? `Clan ${clan.id}${isLeader ? " · Leader" : ""}` : "No Clan";
+  const stateLabel = STATE_LABELS[agent.state] || agent.state.replace("_", " ").toLowerCase();
+  const clanLabel = clan ? `Clan ${clan.id}${isLeader ? " · leader" : ""}` : "not in a clan";
   const healthy = agent.hunger > 0 && agent.energy > 20;
 
   const energyColor = agent.energy < 30 ? "#f85149" : (agent.energy < 60 ? "#d29922" : "#58a6ff");
-  const hungerColor = agent.hunger === 0 ? "#f85149" : "#3fb950";
+  const hungerColor = agent.hunger === 0 ? "#f85149" : "#6ee274";
   const foodPercent = Math.min(100, (agent.food / 5) * 100);
 
   let html =
@@ -1729,7 +2450,7 @@ function renderInspector(snapshot) {
     `<div class="agent-card-name">${escapeHtml(agent.name)}</div>` +
     `<div class="agent-card-dots">` +
     `<span class="agent-card-dot" style="background:${colour}"></span>` +
-    `<span class="agent-card-dot" style="background:${healthy ? '#3fb950' : '#f85149'}"></span>` +
+    `<span class="agent-card-dot" style="background:${healthy ? '#6ee274' : '#f85149'}"></span>` +
     `</div>` +
     `</div>` +
     `<div class="agent-card-body">` +
@@ -1744,7 +2465,7 @@ function renderInspector(snapshot) {
     `<div class="agent-card-stat"><span style="font-size:14px">★</span><span>Standing</span><span class="value">${agent.standing || 0} · ${agent.rank || 'member'}</span></div>` +
     `</div>` +
     `</div>` +
-    `<div class="agent-card-bar"><span style="width:${foodPercent}%;background:#3fb950"></span></div>`;
+    `<div class="agent-card-bar"><span style="width:${foodPercent}%;background:#6ee274"></span></div>`;
 
   if (agent.user && agent.personality) {
     html += `<p class="note" style="margin:12px 0 0;border-left:2px solid ${colour};padding-left:8px">${escapeHtml(agent.personality)}</p>`;
@@ -1755,6 +2476,9 @@ function renderInspector(snapshot) {
   if (clan && clan.centre) {
     html += `<button class="follow-clan">Clan ${clan.id}</button>`;
   }
+  if (agent.user) {
+    html += `<button class="rest-toggle" data-id="${agent.id}">${agent.rest_mode ? "Resume" : "Rest"}</button>`;
+  }
   html += `</div></div>`;
 
   inspector.innerHTML = html;
@@ -1764,6 +2488,9 @@ function renderInspector(snapshot) {
   );
   inspector.querySelector(".follow-clan")?.addEventListener("click", () =>
     flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
+  );
+  inspector.querySelector(".rest-toggle")?.addEventListener("click", () =>
+    setRest(agent.id, !agent.rest_mode)
   );
 }
 
@@ -1997,9 +2724,8 @@ document.getElementById("menu-continue").addEventListener("click", () => {
 });
 
 document.getElementById("menu-settings").addEventListener("click", () => {
-  const panel = document.getElementById("settingsPanel");
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
-  document.querySelector('[data-panel="settingsPanel"]')?.classList.toggle("active", panel.style.display !== "none");
+  closeAllPanels("settingsPanel");
+  togglePanel("settingsPanel");
   onboardingEl.classList.add("hidden");
 });
 
@@ -2021,9 +2747,10 @@ if (introDone) {
 }
 
 // Hide new panels by default so dock toggles work correctly
+// Ensure panels start closed; the class rules handle display.
 for (const id of ["deployPanel", "legendPanel", "settingsPanel"]) {
   const el = document.getElementById(id);
-  if (el) el.style.display = "none";
+  if (el) el.classList.remove("open");
 }
 
 // --- gameplay hints ---------------------------------------------------------
@@ -2052,6 +2779,16 @@ document.getElementById("settingsResetIntro").addEventListener("click", () => {
   showSplash();
 });
 
+document.getElementById("settingsShowTours").addEventListener("click", () => {
+  closeAllPanels("objectivesCard");
+  togglePanel("objectivesCard");
+});
+
+document.getElementById("settingsShowControls").addEventListener("click", () => {
+  closeAllPanels("controlsPanel");
+  togglePanel("controlsPanel");
+});
+
 
 modeButton.addEventListener("click", () => {
   colourBy = colourBy === "clan" ? "state" : "clan";
@@ -2062,6 +2799,29 @@ modeButton.addEventListener("click", () => {
 function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
+
+// Change since the previous snapshot, shown as a small ▲/▼ next to the value. Derived, never
+// stored: it is the difference between two snapshots the viewer already has, so it costs the
+// sim nothing and resets cleanly on reload. Unchanged → blank (the CSS fades it to nothing)
+// so a steady world reads as calm rather than a wall of "0"s.
+let prevTopStats = null;
+function setStatDelta(id, current, previous) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (previous == null || current == null || current === previous) {
+    el.textContent = "";
+    el.className = "stat-delta";
+    return;
+  }
+  const diff = current - previous;
+  const up = diff > 0;
+  el.textContent = `${up ? "▲" : "▼"}${Math.abs(diff)}`;
+  el.className = `stat-delta ${up ? "up" : "down"}`;
+}
+
+// Debug seam for the browser gate (like window.__director): lets verify_world3d.mjs assert the
+// top-bar derivations deterministically without waiting on live snapshots.
+window.__topbar = { setStatDelta, setFollowFromLabel };
 
 function dayNumber(tick) {
   // The simulation counts 200 ticks per day; the sidebar already shows "day".
@@ -2161,20 +2921,27 @@ function drawMinimap(snapshot) {
   ctx.strokeRect(originX + 0.5, originY + 0.5, width * cell, height * cell);
 }
 
+function updateThinking(advisor) {
+  if (!advisor || !advisor.llm_enabled || advisor.pending <= 0) {
+    thinkingStatus.classList.remove("show");
+    thinkingSince = null;
+    return;
+  }
+  if (thinkingSince === null) {
+    thinkingSince = performance.now();
+  }
+  const elapsed = Math.floor((performance.now() - thinkingSince) / 1000);
+  thinkingStatus.textContent = `Leader thinking… ~${elapsed}s`;
+  thinkingStatus.classList.add("show");
+}
+
 function render(snapshot) {
   lastSnapshot = snapshot;
   ensureMounted(snapshot);
   updateSplashCount(snapshot);
+  updateThinking(snapshot.advisor);
 
-  setText("tick", snapshot.tick);
   setText("day", snapshot.day);
-  setText("agents", snapshot.stats.agents);
-  setText("resources", snapshot.stats.resources);
-  setText("dormant", snapshot.stats.dormant);
-  setText("buildings", snapshot.stats.buildings);
-  setText("clans", snapshot.stats.clans);
-  setText("clanned", snapshot.stats.clanned);
-  setText("userAgents", snapshot.stats.user_agents);
 
   // Top bar stats
   setText("topDay", snapshot.day);
@@ -2183,11 +2950,22 @@ function render(snapshot) {
   setText("topClans", snapshot.stats.clans);
   setText("topResources", snapshot.stats.resources);
 
+  const s = snapshot.stats;
+  setText("shelfCount", `${s.agents} active`);
+  setStatDelta("topDayDelta", snapshot.day, prevTopStats?.day);
+  setStatDelta("topAgentsDelta", s.agents, prevTopStats?.agents);
+  setStatDelta("topHutsDelta", s.buildings, prevTopStats?.buildings);
+  setStatDelta("topClansDelta", s.clans, prevTopStats?.clans);
+  setStatDelta("topResourcesDelta", s.resources, prevTopStats?.resources);
+  prevTopStats = { day: snapshot.day, agents: s.agents, buildings: s.buildings, clans: s.clans, resources: s.resources };
+
+  renderMyAgents(snapshot);
   renderDeployed(snapshot);
   renderLegend(snapshot);
   renderInspector(snapshot);
   processMessages(snapshot);
   processWorldLog(snapshot);
+  renderWorldSummary(snapshot);
   if (worldView.active) {
     worldView.update(snapshot);
     // Events come from the difference between two snapshots, so the director has to see
@@ -2272,6 +3050,11 @@ worldEl.addEventListener("pointerup", (event) => {
   if (moved > 5) return;
   const hit = worldView.pick(event.clientX, event.clientY);
   selectedId = hit;
+  worldView.setSelected(selectedId);
+  if (hit != null) {
+    closeAllPanels("agentCards");
+    setPanelOpen("agentCards", true);
+  }
   if (lastSnapshot) {
     renderInspector(lastSnapshot);
     drawMinimap(lastSnapshot);
@@ -2304,13 +3087,29 @@ function resumePause() {
   worldStage.classList.remove("blur");
 }
 
+function setCinema(on) {
+  document.body.classList.toggle("cinema", on);
+  if (on) worldView.resize();
+}
+
+document.getElementById("cinemaToggle").addEventListener("click", () => setCinema(true));
+// The two remaining bar buttons open existing panels rather than introducing new ones:
+// recent events is the world log, and the list icon is the controls/help sheet.
+document.getElementById("alertsToggle").addEventListener("click", () => togglePanel("worldLogCard"));
+document.getElementById("panelsToggle").addEventListener("click", () => togglePanel("controlsPanel"));
+document.getElementById("cinemaExit").addEventListener("click", () => setCinema(false));
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && selectedId !== null) {
     selectedId = null;
+    worldView.setSelected(null);
     if (lastSnapshot) {
       renderInspector(lastSnapshot);
       drawMinimap(lastSnapshot);
     }
+  }
+  if (event.key.toLowerCase() === "c") {
+    setCinema(!document.body.classList.contains("cinema"));
   }
   if (event.key.toLowerCase() === "h") {
     document.body.classList.toggle("ui-hidden");
@@ -2324,26 +3123,55 @@ document.addEventListener("keydown", (event) => {
 
 document.getElementById("pause-resume").addEventListener("click", resumePause);
 document.getElementById("pause-settings").addEventListener("click", () => {
-  const panel = document.getElementById("settingsPanel");
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
-  document.querySelector('[data-panel="settingsPanel"]')?.classList.toggle("active", panel.style.display !== "none");
+  closeAllPanels("settingsPanel");
+  togglePanel("settingsPanel");
 });
 document.getElementById("pause-exit").addEventListener("click", () => {
   resumePause();
   document.body.classList.toggle("ui-hidden");
 });
 
-// Dock button toggles
+// Dock button toggles — one bar drives every view and action. Each click opens
+// exactly one panel (or the agents sidebar) and closes whatever else was open.
 for (const btn of document.querySelectorAll("#bottomDock .dock-btn")) {
   btn.addEventListener("click", () => {
+    if (btn.dataset.agents === "1") {
+      const willOpen = !document.body.classList.contains("agents-open");
+      closeAllPanels("myAgentsCard");
+      setAgentsOpen(willOpen);
+      return;
+    }
     const panelId = btn.dataset.panel;
     const panel = document.getElementById(panelId);
     if (!panel) return;
-    const isHidden = panel.style.display === "none";
-    panel.style.display = isHidden ? "" : "none";
-    btn.classList.toggle("active", isHidden);
+    const willOpen = !panel.classList.contains("open");
+    closeAllPanels(panelId);
+    setPanelOpen(panelId, willOpen);
   });
 }
+
+// Panel header tools: collapse and close
+document.querySelectorAll(".card-tools button").forEach((btn) => {
+  const card = btn.closest(".floating-card, #rightCards");
+  const isCollapse = btn.classList.contains("card-collapse");
+  const isClose = btn.classList.contains("card-close");
+  btn.addEventListener("click", () => {
+    if (!card) return;
+    const id = card.id;
+    if (isCollapse) {
+      card.classList.toggle("collapsed");
+      syncBottomStrip();
+    } else if (isClose) {
+      if (id === "rightCards" || card.closest("#rightCards")) {
+        setAgentsOpen(false);
+      } else if (id) {
+        setPanelOpen(id, false);
+        syncBottomStrip();
+      }
+    }
+  });
+});
+document.getElementById("rightCardsClose")?.addEventListener("click", () => setAgentsOpen(false));
 
 // The camera moves between ticks, so the viewport ring would lag a second behind the
 // scene if it only redrew on a snapshot.

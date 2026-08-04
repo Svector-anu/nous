@@ -13,6 +13,7 @@ from .components import (
     Clan,
     ClanRef,
     DecisionLog,
+    ForceDecisionQueue,
     Inbox,
     Inventory,
     MarketBook,
@@ -22,6 +23,7 @@ from .components import (
     Position,
     ResourceKind,
     ResourceNode,
+    RestQueue,
     SpawnQueue,
     Standing,
 )
@@ -39,6 +41,7 @@ from .systems import (
     movement,
     needs,
     regrowth,
+    resting,
     social,
     spawning,
     standing,
@@ -62,6 +65,7 @@ def build_registry() -> SystemRegistry:
     registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
     registry.register("trade", trade.run)
+    registry.register("resting", resting.run)
     registry.register("combat", combat.run)
     registry.register("fsm", fsm.run)
     registry.register("movement", movement.run)
@@ -93,6 +97,8 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), DecisionLog())
     world.add(world.create_entity(), MessageLog())
     world.add(world.create_entity(), AdvisorState())
+    world.add(world.create_entity(), RestQueue())
+    world.add(world.create_entity(), ForceDecisionQueue())
     world.add(world.create_entity(), MarketBook())
 
     for _ in range(config.resource_count):
@@ -215,6 +221,7 @@ class Simulation:
                         if world.has(entity, Standing)
                         else "member"
                     ),
+                    "rest_mode": agent.rest_mode,
                 }
             )
 
@@ -293,4 +300,5 @@ class Simulation:
                 "clanned": sum(1 for a in agents if a["clan"] is not None),
                 "user_agents": sum(1 for a in agents if a["user"]),
             },
+            "advisor": leadership.advisor_status(world),
         }
