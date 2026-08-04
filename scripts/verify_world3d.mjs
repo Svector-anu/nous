@@ -642,6 +642,53 @@ check(
   `leftNav=${nav.hasLeftNav}, dockButtons=${nav.dockButtons}`
 );
 
+// Top bar: stat deltas and the "Following X" chip. Both are pure derivations exposed on
+// window.__topbar, so they are asserted directly rather than raced against live snapshots.
+const topbar = await page.evaluate(() => {
+  const t = window.__topbar;
+  const delta = document.getElementById("topAgentsDelta");
+  t.setStatDelta("topAgentsDelta", 5, 3);
+  const up = { text: delta.textContent, cls: delta.className };
+  t.setStatDelta("topAgentsDelta", 2, 6);
+  const down = { text: delta.textContent, cls: delta.className };
+  t.setStatDelta("topAgentsDelta", 4, 4);
+  const same = { text: delta.textContent, cls: delta.className };
+
+  const chip = document.getElementById("followChip");
+  const subject = document.getElementById("followSubject");
+  const isActive = () => chip.classList.contains("active");
+  t.setFollowFromLabel("Ada · foraging");
+  const followed = { active: isActive(), subject: subject.textContent };
+  t.setFollowFromLabel("whole world");
+  const cleared = { active: isActive(), subject: subject.textContent };
+  return { up, down, same, followed, cleared };
+});
+check(
+  "a rising stat shows a green ▲delta",
+  topbar.up.text === "▲2" && topbar.up.cls.includes("up"),
+  `text="${topbar.up.text}" cls="${topbar.up.cls}"`
+);
+check(
+  "a falling stat shows a red ▼delta",
+  topbar.down.text === "▼4" && topbar.down.cls.includes("down"),
+  `text="${topbar.down.text}" cls="${topbar.down.cls}"`
+);
+check(
+  "an unchanged stat shows no delta",
+  topbar.same.text === "" && !/\b(up|down)\b/.test(topbar.same.cls),
+  `text="${topbar.same.text}" cls="${topbar.same.cls}"`
+);
+check(
+  "following a subject shows the chip with its label",
+  topbar.followed.active === true && topbar.followed.subject === "Ada · foraging",
+  `active=${topbar.followed.active}, subject="${topbar.followed.subject}"`
+);
+check(
+  "returning to the whole world hides the follow chip",
+  topbar.cleared.active === false && topbar.cleared.subject === "",
+  `active=${topbar.cleared.active}, subject="${topbar.cleared.subject}"`
+);
+
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
 // The desktop floating-card layout is too wide for a phone. This checks the adaptive
 // layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find

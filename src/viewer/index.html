@@ -427,6 +427,33 @@
   }
   #topBar .stat-icon svg { width: 100%; height: 100%; }
   #topBar .stat-value { color: var(--accent); font-weight: 700; letter-spacing: 0.02em; font-family: var(--font-mono); }
+  /* Change since the previous snapshot. Empty (opacity 0) when unchanged so the row stays
+     calm and the numbers do not jump; only movement draws the eye. */
+  #topBar .stat-delta {
+    margin-left: 3px; font-size: 10px; font-weight: 700;
+    font-variant-numeric: tabular-nums; letter-spacing: 0;
+    opacity: 0; transition: opacity 0.3s ease;
+  }
+  #topBar .stat-delta.up { color: #3fb950; opacity: 1; }
+  #topBar .stat-delta.down { color: #f0836a; opacity: 1; }
+  /* "Following X" — the camera's current subject, mirrored from the corner HUD. Absolutely
+     centred so it never disturbs the logo (left) or stats (right) flow. Hidden until active. */
+  #followChip {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    display: none; align-items: center; gap: 7px;
+    max-width: 42vw; padding: 4px 13px; border-radius: 999px;
+    background: rgba(88, 166, 255, 0.10);
+    border: 1px solid rgba(88, 166, 255, 0.26);
+    font-size: 11px; white-space: nowrap; pointer-events: none;
+  }
+  #followChip.active { display: inline-flex; }
+  #followChip .follow-icon { width: 12px; height: 12px; color: var(--accent); opacity: 0.9; display: inline-flex; flex: none; }
+  #followChip .follow-icon svg { width: 100%; height: 100%; }
+  #followChip .follow-eyebrow {
+    text-transform: uppercase; font-weight: 700; font-size: 9px;
+    letter-spacing: 0.14em; color: var(--accent); opacity: 0.9; flex: none;
+  }
+  #followChip .follow-subject { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #thinkingStatus {
     margin-left: auto; margin-right: 12px;
     padding: 4px 10px; border-radius: 12px;
@@ -992,6 +1019,7 @@
   body.cinema #minimap,
   body.cinema #topBar .logo,
   body.cinema #topBar .topStats,
+  body.cinema #topBar #followChip,
   body.cinema #topBar .cinema-btn,
   body.cinema #deployPanel.open,
   body.cinema #legendPanel.open,
@@ -1053,6 +1081,9 @@
     #topBar .stat { padding: 3px 8px; font-size: 11px; gap: 4px; }
     #topBar .stat-icon { width: 12px; height: 12px; }
     #topBar .stat:nth-child(n+3) { display: none; }
+    /* The absolutely-centred follow chip would collide with the wrapped stat chips on a
+       narrow bar, so drop it here; the corner HUD still names the subject. */
+    #topBar #followChip, #topBar #followChip.active { display: none; }
 
     #dashboard {
       top: 44px; left: 0; right: 0; bottom: 64px;
@@ -1164,12 +1195,17 @@
   <div id="topBar">
     <span class="logo">NOUS</span>
     <span id="thinkingStatus"></span>
+    <div id="followChip">
+      <span class="follow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg></span>
+      <span class="follow-eyebrow">Following</span>
+      <span class="follow-subject" id="followSubject"></span>
+    </div>
     <div class="topStats">
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> Day <span class="stat-value" id="topDay">—</span></span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> <span class="stat-value" id="topAgents">—</span> Agents</span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> <span class="stat-value" id="topHuts">—</span> Huts</span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> <span class="stat-value" id="topClans">—</span> Clans</span>
-      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 8.5l-9 9-5-5L2 17.5"/><path d="M15.5 2.5l6 6"/></svg></span> <span class="stat-value" id="topResources">—</span> Resources</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> <span class="stat-value" id="topAgents">—</span><span class="stat-delta" id="topAgentsDelta"></span> Agents</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span> <span class="stat-value" id="topHuts">—</span><span class="stat-delta" id="topHutsDelta"></span> Huts</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> <span class="stat-value" id="topClans">—</span><span class="stat-delta" id="topClansDelta"></span> Clans</span>
+      <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 8.5l-9 9-5-5L2 17.5"/><path d="M15.5 2.5l6 6"/></svg></span> <span class="stat-value" id="topResources">—</span><span class="stat-delta" id="topResourcesDelta"></span> Resources</span>
     </div>
     <button id="cinemaToggle" class="cinema-btn" title="Full world view (C)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span>World</span></button>
     <button id="cinemaExit" class="cinema-exit" title="Restore UI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M16 3v3a2 2 0 0 0 2 2h3"/><path d="M8 21v-3a2 2 0 0 0-2-2H3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg><span>Exit full world</span></button>
@@ -2023,6 +2059,27 @@ function processWorldLog(snapshot) {
 
 const hudTitle = document.getElementById("hudTitle");
 const hudMeta = document.getElementById("hudMeta");
+const followChip = document.getElementById("followChip");
+const followSubject = document.getElementById("followSubject");
+
+// The top-bar "Following X" chip mirrors whatever the camera is locked to. `setLabel` is the
+// single funnel every subject flows through — director shots, fly-tos, overview, mount — so
+// deriving the chip here keeps it in lockstep with the corner HUD without a second source of
+// truth. The generic framings ("whole world", "finding a shot") are not a subject, so the
+// chip hides for them and the world stays the focus. The label is shown verbatim: fly-tos and
+// director shots order their "subject · qualifier" differently, so any split would mislabel
+// half of them — the whole phrase is the honest, HUD-matching thing to show.
+const FOLLOW_NONE = new Set(["whole world", "finding a shot", "world"]);
+function setFollowFromLabel(text) {
+  const label = (text || "").trim();
+  if (!label || FOLLOW_NONE.has(label)) {
+    followChip.classList.remove("active");
+    followSubject.textContent = "";
+    return;
+  }
+  followSubject.textContent = label;
+  followChip.classList.add("active");
+}
 
 // The view is mounted once, on the first snapshot that arrives, and then lives for the
 // session. A remount would throw away every texture and rebuild the whole scene.
@@ -2036,6 +2093,7 @@ function ensureMounted(snapshot) {
 
 function setLabel(text) {
   hudTitle.textContent = text;
+  setFollowFromLabel(text);
 }
 
 function updateHud() {
@@ -2550,6 +2608,29 @@ function setText(id, value) {
   document.getElementById(id).textContent = value;
 }
 
+// Change since the previous snapshot, shown as a small ▲/▼ next to the value. Derived, never
+// stored: it is the difference between two snapshots the viewer already has, so it costs the
+// sim nothing and resets cleanly on reload. Unchanged → blank (the CSS fades it to nothing)
+// so a steady world reads as calm rather than a wall of "0"s.
+let prevTopStats = null;
+function setStatDelta(id, current, previous) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (previous == null || current == null || current === previous) {
+    el.textContent = "";
+    el.className = "stat-delta";
+    return;
+  }
+  const diff = current - previous;
+  const up = diff > 0;
+  el.textContent = `${up ? "▲" : "▼"}${Math.abs(diff)}`;
+  el.className = `stat-delta ${up ? "up" : "down"}`;
+}
+
+// Debug seam for the browser gate (like window.__director): lets verify_world3d.mjs assert the
+// top-bar derivations deterministically without waiting on live snapshots.
+window.__topbar = { setStatDelta, setFollowFromLabel };
+
 function dayNumber(tick) {
   // The simulation counts 200 ticks per day; the sidebar already shows "day".
   return Math.floor(tick / 200);
@@ -2680,6 +2761,13 @@ function render(snapshot) {
   setText("topHuts", snapshot.stats.buildings);
   setText("topClans", snapshot.stats.clans);
   setText("topResources", snapshot.stats.resources);
+
+  const s = snapshot.stats;
+  setStatDelta("topAgentsDelta", s.agents, prevTopStats?.agents);
+  setStatDelta("topHutsDelta", s.buildings, prevTopStats?.buildings);
+  setStatDelta("topClansDelta", s.clans, prevTopStats?.clans);
+  setStatDelta("topResourcesDelta", s.resources, prevTopStats?.resources);
+  prevTopStats = { agents: s.agents, buildings: s.buildings, clans: s.clans, resources: s.resources };
 
   renderMyAgents(snapshot);
   renderDeployed(snapshot);
