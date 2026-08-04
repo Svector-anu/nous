@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from ..persistence.sqlite_store import SqliteWorldStore
-from ..world.components import Agent, ClanRef, ForceDecisionQueue, Position, RestQueue
+from ..world.components import Agent, Clan, ClanRef, ForceDecisionQueue, Position, RestQueue
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
 from ..world.systems import leadership, markets, resting, spawning
@@ -133,7 +133,7 @@ def create_app(
             store.close()
             logger.info("saved world at tick %d on shutdown", simulation.world.tick)
 
-    app = FastAPI(title="Neo-Civilization", lifespan=lifespan)
+    app = FastAPI(title="Nous", lifespan=lifespan)
     # The viewer is plain files: the focus-3d module and a vendored copy of three.js.
     # Vendored rather than fetched from a cdn so the viewer works offline, which is the
     # same rule the procedural-materials reference holds itself to.
@@ -375,6 +375,26 @@ def create_app(
                 "applies_at_tick": world.tick + 1,
             },
             status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.delete("/agents/{agent_id}", status_code=200)
+    async def delete_agent(agent_id: int) -> JSONResponse:
+        """Remove a user-deployed agent from the world.
+
+        This is an administrative seam for cleaning up test agents; it does not
+        represent a simulation event. The agent is removed from any clan and then
+        destroyed. Markets opened on the agent's survival resolve as NO.
+        """
+        world = app.state.simulation.world
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        for entity, clan in world.store(Clan):
+            clan.remove(agent_id)
+        world.destroy_entity(agent_id)
+        return JSONResponse(
+            {"deleted": True, "agent_id": agent_id},
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 

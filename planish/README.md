@@ -1,4 +1,4 @@
-# neo-civilization — design docs
+# Nous — design docs
 
 hybrid ai civilization simulation, agentcraft-inspired.
 

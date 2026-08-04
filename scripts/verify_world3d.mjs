@@ -32,6 +32,24 @@ async function openCameraTours() {
   await panel.waitFor({ state: "visible" });
 }
 
+async function cleanupMobileGateAgents() {
+  // The gate deploys a "MobileGate" agent every run; remove stale ones so the
+  // world log and My Agents list do not accumulate test spam.
+  try {
+    const list = await (await fetch(`${BASE_URL}agents`)).json();
+    const ids = (list.agents || [])
+      .filter((a) => a.name === "MobileGate")
+      .map((a) => a.id);
+    for (const id of ids) {
+      await fetch(`${BASE_URL}agents/${id}`, { method: "DELETE" });
+    }
+  } catch (error) {
+    console.warn("could not clean up MobileGate agents:", error.message);
+  }
+}
+
+await cleanupMobileGateAgents();
+
 const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
 
@@ -574,6 +592,56 @@ check(
     "(distance is height/cos(phi) at this angle, so a tall camera is also a distant one)"
 );
 
+// --- 11b. desktop navigation: one dock, one panel, nothing stuck open ------------
+// Guards the regression this refactor fixed: a duplicated CSS block forced every
+// overlay to display:flex on desktop, so panels clustered on top of the world and
+// their close buttons looked dead. Each dock click runs closeAllPanels(), so the
+// resulting visible set is deterministic no matter what earlier tests left open.
+const nav = await page.evaluate(() => {
+  const PANELS = [
+    "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards",
+    "deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard",
+  ];
+  const visible = () => PANELS.filter((id) => {
+    const el = document.getElementById(id);
+    return el && getComputedStyle(el).display !== "none";
+  });
+  const clickDock = (panelId) => {
+    document.querySelector(`#bottomDock .dock-btn[data-panel="${panelId}"]`).click();
+  };
+  clickDock("worldOverviewCard");
+  const afterWorld = visible();
+  clickDock("marketsCard");
+  const afterBets = visible();
+  clickDock("marketsCard"); // second click toggles it back off
+  const afterToggleOff = visible();
+  return {
+    afterWorld, afterBets, afterToggleOff,
+    dockButtons: document.querySelectorAll("#bottomDock .dock-btn").length,
+    hasLeftNav: !!document.getElementById("leftNav"),
+  };
+});
+check(
+  "opening World shows only the World panel",
+  nav.afterWorld.length === 1 && nav.afterWorld[0] === "worldOverviewCard",
+  `visible: ${nav.afterWorld.join(", ") || "none"}`
+);
+check(
+  "opening Bets replaces World — one panel at a time",
+  nav.afterBets.length === 1 && nav.afterBets[0] === "marketsCard",
+  `visible: ${nav.afterBets.join(", ") || "none"}`
+);
+check(
+  "toggling a dock button off hides its panel",
+  nav.afterToggleOff.length === 0,
+  `still visible: ${nav.afterToggleOff.join(", ") || "none"}`
+);
+check(
+  "navigation is a single 8-button dock with no left rail",
+  nav.hasLeftNav === false && nav.dockButtons === 8,
+  `leftNav=${nav.hasLeftNav}, dockButtons=${nav.dockButtons}`
+);
+
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
 // The desktop floating-card layout is too wide for a phone. This checks the adaptive
 // layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find
@@ -630,7 +698,7 @@ await mobilePage.waitForTimeout(300);
 await mobilePage.fill("#agentName", "MobileGate");
 await mobilePage.click('button[type="submit"]');
 await mobilePage.waitForTimeout(1200);
-await mobilePage.click('[data-panel="myAgentsCard"]');
+await mobilePage.click('[data-agents="1"]');
 await mobilePage.waitForTimeout(300);
 const deployedFlow = await mobilePage.evaluate(() => {
   const list = document.getElementById("myAgentsList");
@@ -699,6 +767,10 @@ await page.evaluate(() => window["__world"].setSelected(null));
 check("no console errors from our code", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
 await browser.close();
+
+// Clean up the test agent deployed by the mobile browser. The server persists the
+// world, so this prevents repeated gate runs from filling the log with "MobileGate".
+await cleanupMobileGateAgents();
 
 console.log(results.join("\n"));
 if (failures.length) {

@@ -108,7 +108,7 @@ pauses.
 - One primary button: **“Put yourself in this world.”**
 - One first-class escape: **“Just watch.”** Most visitors are spectators, not players.
 
-> Neo-Civilization  
+> Nous  
 > 112 people are alive in here. Nobody is controlling them.  
 > [ Put yourself in this world ] · just watch
 

@@ -2,7 +2,7 @@
 
 issue: #6
 
-this is the meta tracker for the current neo-civilization slice.
+this is the meta tracker for the current Nous slice.
 
 ## phases
 

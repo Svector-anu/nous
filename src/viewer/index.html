@@ -3,8 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Neo-Civilization: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid. Watch, deploy your own agent, and bet on outcomes.">
-<title>Neo-Civilization — a living world of autonomous agents</title>
+<meta name="description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid. Watch, deploy your own agent, and bet on outcomes.">
+<meta property="og:title" content="Nous — a living world of autonomous agents">
+<meta property="og:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nous.city">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Nous — a living world of autonomous agents">
+<meta name="twitter:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
+<title>Nous — a living world of autonomous agents</title>
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
 <style>
   :root {
@@ -365,14 +372,23 @@
   .gameplay-hint { background: rgba(13,17,23,0.95); border: 1px solid var(--line); border-radius: 8px; padding: 10px 18px; font-size: 13px; color: var(--text); box-shadow: var(--shadow); opacity: 0; transform: translateY(8px); transition: opacity 0.5s ease, transform 0.5s ease; }
   .gameplay-hint.show { opacity: 1; transform: translateY(0); }
 
-  /* New floating panels */
-  #deployPanel { position: fixed; left: 14px; bottom: 76px; z-index: 40; width: 300px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); }
+  /* New floating panels — positions/visibility defined once in the
+     "Overlay panel visibility" block below; only per-panel body padding here. */
   #deployPanel .card-body { padding: 12px 16px 14px; }
-  #legendPanel { position: fixed; left: 14px; bottom: 76px; z-index: 40; width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); max-height: 340px; overflow-y: auto; }
   #legendPanel .card-body { padding: 12px 16px 14px; }
-  #settingsPanel { position: fixed; right: 12px; top: 48px; z-index: 40; width: 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1); }
   #settingsPanel .card-body { padding: 12px 16px 14px; }
   #settingsPanel button { margin: 0; }
+  .settings-group {
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
+    margin: 4px 0 6px; padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+  .settings-group:first-child { border-top: none; padding-top: 0; }
+  .settings-item {
+    display: block; width: 100%; text-align: left;
+    margin: 0 0 6px; padding: 7px 10px; font-size: 12px;
+  }
 
   /* === DASHBOARD LAYOUT — world is the hero, UI is the frame ============= */
 
@@ -380,11 +396,11 @@
   #topBar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 50;
     display: flex; align-items: center; gap: 16px;
-    padding: 10px 18px;
-    height: 48px;
-    background: linear-gradient(180deg, rgba(10,14,20,0.95) 0%, rgba(10,14,20,0.82) 100%);
-    border-bottom: 1px solid var(--line);
-    backdrop-filter: blur(12px) saturate(1.2);
+    padding: 8px 18px;
+    height: 40px;
+    background: linear-gradient(180deg, rgba(10,14,20,0.88) 0%, rgba(10,14,20,0.72) 100%);
+    border-bottom: 1px solid rgba(48, 56, 72, 0.45);
+    backdrop-filter: blur(12px) saturate(1.1);
   }
   #topBar .logo {
     font-size: 13px; font-weight: 800; letter-spacing: .14em;
@@ -393,14 +409,14 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
   #topBar .topStats {
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 18px;
     margin-left: auto;
   }
   #topBar .stat {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 12px; border-radius: 8px;
     background: rgba(22, 28, 38, 0.7);
-    border: 1px solid var(--line);
+    border: 1px solid rgba(48, 56, 72, 0.45);
     font-size: 12px; color: var(--text);
     font-variant-numeric: tabular-nums;
   }
@@ -421,59 +437,25 @@
   }
   #thinkingStatus.show { display: inline-block; }
 
-  /* Dashboard grid */
+  /* Dashboard layout: world is the hero, UI is the overlay */
   #dashboard {
     position: fixed;
-    top: 48px; left: 0; right: 0; bottom: 64px;
-    display: grid;
-    grid-template-areas:
-      "left world right"
-      "left bottom right";
-    grid-template-columns: 64px 1fr 320px;
-    grid-template-rows: 1fr 210px;
+    top: 40px; left: 0; right: 0; bottom: 64px;
+    pointer-events: none;
     overflow: hidden;
   }
+  #dashboard > * { pointer-events: auto; }
 
-  /* Left navigation rail */
-  #leftNav {
-    grid-area: left;
-    display: flex; flex-direction: column; align-items: center;
-    gap: 8px;
-    padding: 14px 6px;
-    background: rgba(10, 14, 20, 0.85);
-    border-right: 1px solid var(--line);
-    overflow-y: auto;
-    z-index: 40;
-  }
-  .nav-btn {
-    display: flex; flex-direction: column; align-items: center; gap: 4px;
-    width: 52px;
-    padding: 8px 4px;
-    margin: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    color: var(--muted);
-    font: inherit;
-    font-size: 9px;
-    cursor: pointer;
-    transition: color 0.15s, background 0.15s, border-color 0.15s;
-  }
-  .nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
-  .nav-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(63,185,80,0.35); }
-  .nav-icon {
-    width: 22px; height: 22px;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
-  .nav-icon svg { width: 100%; height: 100%; }
+  /* Navigation lives in the single bottom dock (#bottomDock). No left rail. */
 
   /* Stage / world */
   #stage {
-    grid-area: world;
-    position: relative;
-    min-width: 0;
+    position: fixed;
+    top: 40px; left: 0; right: 0; bottom: 64px;
     overflow: hidden;
+    transition: right 0.3s ease;
   }
+  body.agents-open #stage { right: 320px; }
   #world { position: absolute; inset: 0; }
   #world canvas { display: block; width: 100%; height: 100%; border: 0; border-radius: 0; }
 
@@ -508,38 +490,70 @@
   }
   #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
 
-  /* Right sidebar — agents only */
+  /* Right sidebar — agents panel, slides in/out */
   #rightCards {
-    grid-area: right;
+    position: fixed;
+    top: 40px; right: 0; bottom: 64px; width: 320px;
     display: flex; flex-direction: column;
     gap: 10px;
     padding: 12px;
     overflow-y: auto;
-    background: rgba(10, 14, 20, 0.4);
+    background: rgba(10, 14, 20, 0.95);
     border-left: 1px solid var(--line);
+    z-index: 40;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
   }
+  body.agents-open #rightCards { transform: translateX(0); }
   .sidebar-header {
+    display: flex; align-items: center; justify-content: space-between;
     font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
     color: var(--muted);
     font-weight: 800;
     padding: 4px 6px;
     flex-shrink: 0;
   }
+  .sidebar-header .card-close {
+    width: auto; padding: 2px 6px; font-size: 14px; margin: 0;
+    background: transparent; border: none; color: var(--muted);
+  }
+  .sidebar-header .card-close:hover { color: var(--text); }
 
-  /* Bottom panel strip — bets, chat, log, inspector */
+  /* Bottom panel strip — reference panels, translucent */
   #bottomStrip {
-    grid-area: bottom;
-    display: flex; gap: 10px;
+    position: fixed;
+    left: 0; right: 0; bottom: 64px; height: 140px;
+    display: none; gap: 10px;
     padding: 10px;
     overflow-x: auto;
-    background: rgba(10, 14, 20, 0.4);
-    border-top: 1px solid var(--line);
+    background: rgba(10, 14, 20, 0.35);
+    border-top: 1px solid rgba(48, 56, 72, 0.35);
+    z-index: 40;
   }
+  #bottomStrip.open { display: flex; }
+  body.agents-open #bottomStrip { right: 320px; }
   #bottomStrip .floating-card {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 1 1 220px;
+    min-width: 220px;
     max-height: 100%;
+    background: rgba(16, 22, 32, 0.78);
+    border-color: rgba(48, 56, 72, 0.45);
+    backdrop-filter: blur(8px) saturate(1.1);
   }
+  /* Each strip card is gated by .open so opening one (e.g. World) never
+     reveals its neighbours. The strip container is shown by syncBottomStrip(). */
+  #bottomStrip .floating-card { display: none; }
+  #bottomStrip .floating-card.open { display: flex; }
+  #bottomStrip .floating-card.collapsed .card-body { display: none; }
+  .card-tools {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: auto;
+  }
+  .card-tools button {
+    width: auto; padding: 2px 6px; font-size: 14px; margin: 0;
+    background: transparent; border: none; color: var(--muted);
+  }
+  .card-tools button:hover { color: var(--text); }
 
   /* Common card */
   .floating-card {
@@ -559,6 +573,7 @@
     background: rgba(22, 28, 38, 0.5);
     font-weight: 600;
     flex-shrink: 0;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
   .floating-card .card-body {
     padding: 10px 14px;
@@ -696,17 +711,17 @@
   #worldLogCard .feed-kind.arrival { color: #3fb950; }
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
 
-  /* Agent inspector card */
-  #agentCards { width: auto; }
+  /* Agent inspector card (a #bottomStrip card; visibility gated by .open there) */
+  #agentCards { width: auto; flex-direction: column; }
+  #agentCards .card-body { padding: 0; overflow: hidden; }
   #agentCards #inspector {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
+    background: transparent;
+    border: none;
+    border-radius: 0;
     padding: 0;
     margin: 0;
     max-height: 100%;
     overflow-y: auto;
-    backdrop-filter: blur(10px) saturate(1.1);
   }
   .agent-card-empty {
     padding: 18px;
@@ -902,20 +917,10 @@
   .dock-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .dock-icon svg { width: 100%; height: 100%; }
   .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
+  .dock-divider { width: 1px; height: 34px; margin: 0 6px; background: var(--line); flex-shrink: 0; }
 
-  /* Left controls */
-  #controlsPanel {
-    position: fixed; left: 78px; top: 50%; transform: translateY(-50%);
-    z-index: 40;
-    display: flex; flex-direction: column; gap: 9px;
-    padding: 14px;
-    background: rgba(13, 17, 23, 0.55);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    opacity: 0.5;
-    pointer-events: none;
-    backdrop-filter: blur(4px);
-  }
+  /* Controls panel rows (panel box defined once in the overlay-visibility block) */
+  #controlsPanel .card-body { display: flex; flex-direction: column; gap: 9px; }
   .control-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
   .control-row kbd {
     display: inline-flex; align-items: center; justify-content: center;
@@ -927,10 +932,40 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }
 
-  /* Overlay panel visibility */
-  #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { display: none; }
-  #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; }
-  #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open { display: block; }
+  /* Overlay panel visibility — single source of truth. Hidden by default,
+     shown only with .open. (agentCards lives in #bottomStrip and is gated there.) */
+  #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { display: none; }
+  #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; }
+
+  #deployPanel {
+    position: fixed; left: 78px; bottom: 78px; width: 280px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #legendPanel {
+    position: fixed; left: 78px; bottom: 78px; width: 240px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #settingsPanel {
+    position: fixed; right: 14px; bottom: 78px; width: 240px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #objectivesCard {
+    position: fixed; right: 14px; bottom: 78px; width: 280px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #controlsPanel {
+    position: fixed; left: 78px; top: 50%; transform: translateY(-50%); width: 240px; z-index: 40;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
+  }
+  #deployPanel .card-body, #legendPanel .card-body, #settingsPanel .card-body, #controlsPanel .card-body, #objectivesCard .card-body { max-height: 60vh; overflow-y: auto; }
+  #deployPanel .card-title, #legendPanel .card-title, #settingsPanel .card-title, #controlsPanel .card-title, #objectivesCard .card-title {
+    display: flex; align-items: center; justify-content: space-between;
+  }
 
   /* Hide UI mode */
   body.ui-hidden #topBar,
@@ -947,10 +982,8 @@
      The top bar becomes a small floating restore button in the bottom-right. */
   body.cinema #dashboard {
     top: 0; left: 0; right: 0; bottom: 0;
-    grid-template-columns: 0 1fr 0;
-    grid-template-rows: 1fr 0;
   }
-  body.cinema #leftNav,
+  body.cinema #stage { left: 0; right: 0; bottom: 0; top: 0; }
   body.cinema #rightCards,
   body.cinema #bottomStrip,
   body.cinema #bottomDock,
@@ -959,7 +992,13 @@
   body.cinema #minimap,
   body.cinema #topBar .logo,
   body.cinema #topBar .topStats,
-  body.cinema #topBar .cinema-btn {
+  body.cinema #topBar .cinema-btn,
+  body.cinema #deployPanel.open,
+  body.cinema #legendPanel.open,
+  body.cinema #settingsPanel.open,
+  body.cinema #controlsPanel.open,
+  body.cinema #objectivesCard.open,
+  body.cinema #agentCards.open {
     display: none !important;
   }
   body.cinema #topBar {
@@ -1016,12 +1055,9 @@
     #topBar .stat:nth-child(n+3) { display: none; }
 
     #dashboard {
-      top: 44px;
-      grid-template-areas: "world" "bottom";
-      grid-template-columns: 1fr;
-      grid-template-rows: 1fr auto;
+      top: 44px; left: 0; right: 0; bottom: 64px;
     }
-    #leftNav { display: none; }
+    #stage { left: 0; right: 0; }
     #rightCards {
       position: fixed;
       top: auto; right: 0; left: 0; bottom: 64px;
@@ -1034,6 +1070,7 @@
       background: transparent;
       border: none;
     }
+    body.agents-open #rightCards { transform: none; }
     #rightCards .floating-card {
       width: 100%; max-width: 100%; max-height: 50vh;
       border-radius: 16px 16px 0 0;
@@ -1054,6 +1091,7 @@
       overflow-y: auto;
       display: none;
     }
+    body.agents-open #bottomStrip { right: 0; }
     #bottomStrip.open { display: flex; pointer-events: auto; }
     #bottomStrip .floating-card {
       flex: 0 0 auto;
@@ -1071,8 +1109,7 @@
       box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
       display: none; z-index: 60;
     }
-    #agentCards.open { display: flex; flex-direction: column; }
-    #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: block; }
+    #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; flex-direction: column; }
 
     #agentCards { padding: 0; gap: 0; }
     #agentCards #inspector { border-radius: 16px 16px 0 0; max-height: 50vh; }
@@ -1094,6 +1131,7 @@
       border-top: 1px solid var(--line);
     }
     .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; }
+    .dock-divider { display: none; }
     .dock-icon { width: 22px; height: 22px; }
     .dock-label { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
@@ -1124,7 +1162,7 @@
 <body>
   <!-- Top Bar -->
   <div id="topBar">
-    <span class="logo">NEO-CIVILIZATION</span>
+    <span class="logo">NOUS</span>
     <span id="thinkingStatus"></span>
     <div class="topStats">
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span> Day <span class="stat-value" id="topDay">—</span></span>
@@ -1133,9 +1171,9 @@
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> <span class="stat-value" id="topClans">—</span> Clans</span>
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 8.5l-9 9-5-5L2 17.5"/><path d="M15.5 2.5l6 6"/></svg></span> <span class="stat-value" id="topResources">—</span> Resources</span>
     </div>
-    <button id="cinemaToggle" class="cinema-btn" title="Full world view (C)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span>World</span></button</span>>
+    <button id="cinemaToggle" class="cinema-btn" title="Full world view (C)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span>World</span></button>
     <button id="cinemaExit" class="cinema-exit" title="Restore UI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M16 3v3a2 2 0 0 0 2 2h3"/><path d="M8 21v-3a2 2 0 0 0-2-2H3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg><span>Exit full world</span></button>
-</span>  </div>
+  </div>
 
   <!-- Pause Overlay -->
   <div id="pauseOverlay">
@@ -1153,13 +1191,6 @@
 
   <!-- Main Dashboard -->
   <div id="dashboard">
-    <nav id="leftNav">
-      <button class="nav-btn" data-panel="objectivesCard"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg></span><span>Quests</span></button>
-      <button class="nav-btn" data-panel="legendPanel"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span>Clan</span></button>
-      <button class="nav-btn" data-panel="messagesCard"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span>Friends</span></button>
-      <button class="nav-btn" data-panel="worldOverviewCard"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span>World</span></button>
-    </nav>
-
     <div id="stage">
     <div id="world"></div>
     <div id="speechBubbles"></div>
@@ -1173,72 +1204,103 @@
     <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
 
-    <!-- Right Sidebar -->
+    <!-- Right Sidebar — My Agents only -->
     <div id="rightCards">
-      <div class="sidebar-header">AGENTS</div>
+      <div class="sidebar-header">
+        <span></span>AGENTS</span>
+        <button class="card-close" id="rightCardsClose" title="Close" aria-label="Close">×</button>
+      </div>
       <div class="floating-card" id="myAgentsCard">
-      <h3 class="card-title">MY AGENTS</h3>
-      <div class="card-body">
-        <p class="hint" id="myAgentsHint">You haven't deployed anyone yet.</p>
-        <ul id="myAgentsList"></ul>
-        <button id="deployFromMyAgents" class="primary" style="width:100%;margin-top:8px;">Deploy your first agent</button>
-        <button id="copyWorldStatus" class="secondary" style="width:100%;margin-top:8px;">Copy world status</button>
+        <h3 class="card-title">MY AGENTS
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <p class="hint" id="myAgentsHint">You haven't deployed anyone yet.</p>
+          <ul id="myAgentsList"></ul>
+          <button id="deployFromMyAgents" class="primary" style="width:100%;margin-top:8px;">Deploy your first agent</button>
+          <button id="copyWorldStatus" class="secondary" style="width:100%;margin-top:8px;">Copy world status</button>
+        </div>
       </div>
-    </div>
-      <div class="floating-card" id="worldOverviewCard">
-      <h3 class="card-title">WORLD OVERVIEW</h3>
-      <div class="card-body">
-        <p id="worldSummary" class="world-summary">Connecting…</p>
-        <dl>
-          <dt>status</dt><dd id="status">connecting</dd>
-          <dt>day</dt><dd id="day">—</dd>
-          <dt>people</dt><dd id="agents">—</dd>
-          <dt>clans</dt><dd id="clans">—</dd>
-          <dt>huts</dt><dd id="buildings">—</dd>
-          <dt>food &amp; wood</dt><dd id="resources">—</dd>
-        </dl>
-      </div>
-    </div>
-      <div class="floating-card" id="objectivesCard">
-      <h3 class="card-title">CAMERA TOURS</h3>
-      <div class="card-body">
-        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
-        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
-        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
-      </div>
-    </div>
     </div>
 
-    <!-- Bottom Panel Strip -->
+    <!-- Bottom Panel Strip — reference panels -->
     <div id="bottomStrip">
+      <div class="floating-card" id="worldOverviewCard">
+        <h3 class="card-title">WORLD OVERVIEW
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <p id="worldSummary" class="world-summary">Connecting…</p>
+          <dl>
+            <dt>status</dt><dd id="status">connecting</dd>
+            <dt>day</dt><dd id="day">—</dd>
+            <dt>people</dt><dd id="agents">—</dd>
+            <dt>clans</dt><dd id="clans">—</dd>
+            <dt>huts</dt><dd id="buildings">—</dd>
+            <dt>food &amp; wood</dt><dd id="resources">—</dd>
+          </dl>
+        </div>
+      </div>
       <div class="floating-card" id="marketsCard">
-      <h3 class="card-title">BETS</h3>
-      <div class="card-body">
-        <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
-        <div id="markets"></div>
-        <h3 class="card-subtitle">LEADERBOARD</h3>
-        <ul id="leaderboard"></ul>
+        <h3 class="card-title">BETS
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+          <div id="markets"></div>
+          <h3 class="card-subtitle">LEADERBOARD</h3>
+          <ul id="leaderboard"></ul>
+        </div>
       </div>
-    </div>
       <div class="floating-card" id="messagesCard">
-      <h3 class="card-title">CHAT</h3>
-      <div class="card-body">
-        <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
+        <h3 class="card-title">CHAT
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
+        </div>
       </div>
-    </div>
       <div class="floating-card" id="worldLogCard">
-      <h3 class="card-title">WORLD LOG</h3>
-      <div class="card-body">
-        <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
+        <h3 class="card-title">WORLD LOG
+          <span class="card-tools">
+            <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
+        </div>
       </div>
-    </div>
       <div class="floating-card" id="agentCards">
-        <div id="inspector"><p class="hint">click an agent on the map</p></div>
+        <h3 class="card-title">INSPECTOR
+          <span class="card-tools">
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <div id="inspector"><p class="hint">click an agent on the map</p></div>
+        </div>
       </div>
     </div>
   </div><!-- Deploy Panel -->
-  <div id="deployPanel">
-    <h3 class="card-title">DEPLOY AN AGENT</h3>
+  <!-- Deploy Panel -->
+  <div id="deployPanel" class="floating-card">
+    <h3 class="card-title">DEPLOY AN AGENT
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
     <div class="card-body">
       <p class="hint" style="margin:0 0 10px;">Give them a name and they'll spawn next tick, just like everyone else.</p>
       <form id="deploy" autocomplete="off">
@@ -1251,8 +1313,12 @@
   </div>
 
   <!-- Legend Panel (toggled by Clans dock button) -->
-  <div id="legendPanel">
-    <h3 class="card-title">CLANS</h3>
+  <div id="legendPanel" class="floating-card">
+    <h3 class="card-title">CLANS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
     <div class="card-body">
       <p style="font-size:11px;color:var(--muted);margin:0 0 10px;">Click a clan to fly to it.</p>
       <h2 id="legend-title" style="margin:0 0 8px;">clans</h2>
@@ -1268,78 +1334,79 @@
   </div>
 
   <!-- Settings Panel (toggled by Settings dock button) -->
-  <div id="settingsPanel">
-    <h3 class="card-title">SETTINGS</h3>
+  <div id="settingsPanel" class="floating-card">
+    <h3 class="card-title">SETTINGS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
     <div class="card-body">
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Camera</label>
-        <button id="autoCamera" data-on="1" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">camera: cinematic</button>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Colour Mode</label>
-        <button id="mode" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">colour: clan</button>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Camera tours</label>
-        <button id="settingsShowTours" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">show camera tours</button>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Controls</label>
-        <button id="settingsShowControls" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">show controls</button>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px;">Onboarding</label>
-        <button id="settingsResetIntro" class="secondary" style="width:auto;margin:0;padding:5px 10px;font-size:12px;">Reset Intro</button>
-      </div>
+      <p class="settings-group">Display</p>
+      <button id="autoCamera" data-on="1" class="secondary settings-item">camera: cinematic</button>
+      <button id="mode" class="secondary settings-item">colour: clan</button>
+
+      <p class="settings-group">Help</p>
+      <button id="settingsShowTours" class="secondary settings-item">Camera tours</button>
+      <button id="settingsShowControls" class="secondary settings-item">Keyboard controls</button>
+
+      <p class="settings-group">Reset</p>
+      <button id="settingsResetIntro" class="secondary settings-item">Replay intro</button>
     </div>
   </div>
 
-  <!-- Left Controls (secondary) -->
-  <div id="controlsPanel">
-    <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
-    <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
-    <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
-    <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
-    <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
-    <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
-    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>View Presets</span></div>
-    <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
+  <!-- Camera Tours (opened from Settings) -->
+  <div id="objectivesCard" class="floating-card">
+    <h3 class="card-title">CAMERA TOURS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
+    <div class="card-body">
+      <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
+      <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
+      <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+    </div>
+  </div>
+
+  <!-- Left Controls (secondary, opened from Settings) -->
+  <div id="controlsPanel" class="floating-card">
+    <h3 class="card-title">CONTROLS
+      <span class="card-tools">
+        <button class="card-close" title="Close" aria-label="Close">×</button>
+      </span>
+    </h3>
+    <div class="card-body">
+      <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
+      <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
+      <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
+      <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
+      <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
+      <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
+      <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>View Presets</span></div>
+      <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
+    </div>
   </div>
 
   <!-- Gameplay hints -->
   <div id="gameplayHints"></div>
 
-  <!-- Bottom Dock -->
+  <!-- Bottom Dock — single navigation bar (views + actions) -->
   <div id="bottomDock">
-    <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span class="dock-label">Home</span></button>
-    <button class="dock-btn" data-panel="myAgentsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
-    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
-    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
+    <button class="dock-btn" data-agents="1"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
+    <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">World</span></button>
     <button class="dock-btn" data-panel="messagesCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span class="dock-label">Chat</span></button>
-    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">More</span></button>
+    <button class="dock-btn" data-panel="worldLogCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span class="dock-label">Log</span></button>
+    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
+    <span class="dock-divider" aria-hidden="true"></span>
+    <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
+    <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
+    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
   </div>
 
-  <!-- Legacy elements still referenced by JS — kept in a hidden container so IDs remain valid. -->
-  
+  <!-- Legacy render target still written by JS (renderDeployed). Kept hidden so
+       its ID stays valid; all other duplicate IDs were removed with the left rail. -->
   <div id="legacyHidden">
-    <button id="autoCamera" data-on="1">camera: cinematic</button>
-    <button id="mode">colour: clan</button>
-    <button id="dashboardToggle" class="secondary">show more</button>
-    <h2 id="legend-title">clans</h2>
-    <ul id="legend"></ul>
-    <form id="deploy" autocomplete="off">
-      <input id="agentName" maxlength="24" placeholder="name" required>
-      <input id="agentPersonality" maxlength="140" placeholder="short personality note">
-      <button type="submit">deploy</button>
-      <p id="deployStatus"></p>
-    </form>
     <ul id="deployed"></ul>
-    <ul>
-      <li><span class="swatch" style="background:#1a7f37"></span>food</li>
-      <li><span class="swatch" style="background:#6b5210"></span>wood</li>
-      <li><span class="swatch" style="background:#c9d1d9"></span>hut</li>
-      <li><span class="swatch" style="background:#1a7f37;opacity:.18"></span>dormant (regrowing)</li>
-    </ul>
   </div>
 
   <div id="onboarding">
@@ -1347,7 +1414,7 @@
     <div id="onboarding-splash" class="screen active">
       <div class="panel splash-panel">
         <div class="brand"></div>
-        <h1 class="hero">NEO-CIVILIZATION</h1>
+        <h1 class="hero">NOUS</h1>
         <p class="subtitle" id="splash-subtitle">A Living AI Civilization</p>
         <p class="press-hint">Press Any Key to Begin</p>
       </div>
@@ -1356,7 +1423,7 @@
     <!-- Main Menu -->
     <div id="onboarding-menu" class="screen">
       <div class="panel menu-panel">
-        <h1>NEO-CIVILIZATION</h1>
+        <h1>NOUS</h1>
         <p class="subtitle">A persistent world running in real time.</p>
         <nav class="menu-nav">
           <button id="menu-continue" class="primary">Continue Simulation</button>
@@ -1371,7 +1438,7 @@
     <div id="onboarding-slide-1" class="screen">
       <div class="panel slide-panel">
         <p class="slide-number">1 / 3</p>
-        <h1>Welcome to Neo-Civilization</h1>
+        <h1>Welcome to Nous</h1>
         <p class="subtitle">
           Every person has needs, goals, and relationships.
           This is a living civilization — not scripted gameplay.
@@ -1503,6 +1570,7 @@ function setPanelOpen(id, open) {
   el.classList.toggle("open", open);
   const btn = document.querySelector(`[data-panel="${el.id}"]`);
   if (btn) btn.classList.toggle("active", open);
+  syncBottomStrip();
 }
 function togglePanel(id) {
   setPanelOpen(id, !panelOpen(id));
@@ -1511,20 +1579,41 @@ function isMobileLayout() {
   return window.innerWidth <= 900 || document.body.classList.contains("mobile");
 }
 
+function setAgentsOpen(open) {
+  document.body.classList.toggle("agents-open", open);
+  const btn = document.querySelector('#bottomDock .dock-btn[data-agents="1"]');
+  if (btn) btn.classList.toggle("active", open);
+  const card = document.getElementById("myAgentsCard");
+  if (card) card.classList.toggle("open", open);
+}
+
+function bottomStripOpen() {
+  const strip = document.getElementById("bottomStrip");
+  const bottomCards = ["worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards"];
+  if (!strip) return false;
+  return bottomCards.some((id) => {
+    const el = document.getElementById(id);
+    return el && el.classList.contains("open") && !el.classList.contains("collapsed");
+  });
+}
+function syncBottomStrip() {
+  const strip = document.getElementById("bottomStrip");
+  if (strip) strip.classList.toggle("open", bottomStripOpen());
+}
+
 function closeAllPanels(exceptId = null) {
-  // Overlays always close when another overlay opens. On mobile, the right cards
-  // and bottom strip cards are also sheet-style and only one should be open at a time;
-  // on desktop they stay visible as the persistent HUD.
-  const overlays = ["deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard", "agentCards"];
-  const rightCards = ["myAgentsCard", "worldOverviewCard"];
-  const bottomCards = ["marketsCard", "messagesCard", "worldLogCard"];
-  const toClose = isMobileLayout() ? [...overlays, ...rightCards, ...bottomCards] : overlays;
-  for (const id of toClose) {
+  // Single navigation model: exactly one panel is visible at a time, on every
+  // viewport. Opening any dock target closes every other overlay, strip card,
+  // and the agents sidebar, so the world stays the focus.
+  const panels = [
+    "deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard",
+    "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards",
+  ];
+  for (const id of panels) {
     if (id !== exceptId) setPanelOpen(id, false);
   }
-  const strip = document.getElementById("bottomStrip");
-  if (strip && bottomCards.includes(exceptId)) strip.classList.add("open");
-  else if (strip) strip.classList.remove("open");
+  if (exceptId !== "myAgentsCard") setAgentsOpen(false);
+  syncBottomStrip();
 }
 
 // Golden-angle hue steps keep adjacent clan ids visually far apart.
@@ -1686,7 +1775,7 @@ function renderMyAgents(snapshot) {
     const status = simpleAgentStatus(agent);
     const rank = rankLabel(agent.rank);
     const clanText = agent.clan !== null ? `Clan ${agent.clan}` : "no clan";
-    const shareText = `${agent.name} is ${status}, ${clanText}, in Neo-Civilization day ${snapshot.day}.`;
+    const shareText = `${agent.name} is ${status}, ${clanText}, in Nous day ${snapshot.day}.`;
     const restIcon = agent.rest_mode ? AGENT_ICONS.resume : AGENT_ICONS.rest;
     const restLabel = agent.rest_mode ? "Resume" : "Rest";
     const colour = agentColour(agent);
@@ -1747,7 +1836,7 @@ function renderWorldSummary(snapshot) {
 
 copyWorldStatus.addEventListener("click", () => {
   const text = worldSummaryEl.textContent;
-  copyText(text.startsWith("Connecting") ? "Neo-Civilization is loading…" : text, copyWorldStatus);
+  copyText(text.startsWith("Connecting") ? "Nous is loading…" : text, copyWorldStatus);
 });
 
 deployFromMyAgents.addEventListener("click", () => {
@@ -2760,9 +2849,16 @@ document.getElementById("pause-exit").addEventListener("click", () => {
   document.body.classList.toggle("ui-hidden");
 });
 
-// Dock button toggles
+// Dock button toggles — one bar drives every view and action. Each click opens
+// exactly one panel (or the agents sidebar) and closes whatever else was open.
 for (const btn of document.querySelectorAll("#bottomDock .dock-btn")) {
   btn.addEventListener("click", () => {
+    if (btn.dataset.agents === "1") {
+      const willOpen = !document.body.classList.contains("agents-open");
+      closeAllPanels("myAgentsCard");
+      setAgentsOpen(willOpen);
+      return;
+    }
     const panelId = btn.dataset.panel;
     const panel = document.getElementById(panelId);
     if (!panel) return;
@@ -2772,17 +2868,28 @@ for (const btn of document.querySelectorAll("#bottomDock .dock-btn")) {
   });
 }
 
-// Left nav button toggles (desktop only)
-for (const btn of document.querySelectorAll("#leftNav .nav-btn")) {
+// Panel header tools: collapse and close
+document.querySelectorAll(".card-tools button").forEach((btn) => {
+  const card = btn.closest(".floating-card, #rightCards");
+  const isCollapse = btn.classList.contains("card-collapse");
+  const isClose = btn.classList.contains("card-close");
   btn.addEventListener("click", () => {
-    const panelId = btn.dataset.panel;
-    const panel = document.getElementById(panelId);
-    if (!panel) return;
-    const willOpen = !panel.classList.contains("open");
-    closeAllPanels(panelId);
-    setPanelOpen(panelId, willOpen);
+    if (!card) return;
+    const id = card.id;
+    if (isCollapse) {
+      card.classList.toggle("collapsed");
+      syncBottomStrip();
+    } else if (isClose) {
+      if (id === "rightCards" || card.closest("#rightCards")) {
+        setAgentsOpen(false);
+      } else if (id) {
+        setPanelOpen(id, false);
+        syncBottomStrip();
+      }
+    }
   });
-}
+});
+document.getElementById("rightCardsClose")?.addEventListener("click", () => setAgentsOpen(false));
 
 // The camera moves between ticks, so the viewport ring would lag a second behind the
 // scene if it only redrew on a snapshot.
