@@ -663,7 +663,7 @@ const topbar = await page.evaluate(() => {
   const chip = document.getElementById("followChip");
   const subject = document.getElementById("followSubject");
   const isActive = () => chip.classList.contains("active");
-  t.setFollowFromLabel("Ada · foraging");
+  t.setFollowFromLabel("vista · Ada is following food");
   const followed = { active: isActive(), subject: subject.textContent };
 
   // The chip sits between the shelf status and the control hints. It overlapped both when
@@ -704,8 +704,8 @@ check(
   `text="${topbar.day.text}" cls="${topbar.day.cls}"`
 );
 check(
-  "following a subject shows the chip with its label",
-  topbar.followed.active === true && topbar.followed.subject === "Ada · foraging",
+  "following a subject shows the chip with just the subject name",
+  topbar.followed.active === true && topbar.followed.subject === "Ada",
   `active=${topbar.followed.active}, subject="${topbar.followed.subject}"`
 );
 check(

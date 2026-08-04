@@ -14,21 +14,29 @@
 <title>Nous — a living world of autonomous agents</title>
 <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
 <style>
+  /* Palette sampled from the design reference (nav.png). Every panel, card and dock
+     button reads these, so the top bar and the rest of the UI share one brand rather
+     than the bar looking like a different app. */
   :root {
-    --bg: #0a0e14;
-    --panel: rgba(16, 22, 32, 0.92);
-    --line: rgba(48, 56, 72, 0.6);
-    --text: #e6edf3;
-    --muted: #7d8590;
-    --accent: #3fb950;
-    --accent-dim: rgba(63,185,80,0.15);
-    --shadow: 0 12px 40px rgba(0,0,0,0.45);
-    --radius: 12px;
+    --bg: #080c10;
+    --panel: rgba(12, 17, 22, 0.94);
+    --line: rgba(48, 58, 50, 0.7);
+    --text: #f2f4f5;
+    --muted: #7d8186;
+    --accent: #6ee274;
+    --accent-dim: rgba(110,226,116,0.14);
+    --shadow: 0 18px 44px rgba(0,0,0,0.55);
+    --radius: 16px;
     /* Height of the two-row top bar card. Everything that clears the bar reads this,
        so the number lives in exactly one place. --topbar-clear adds the card's own top
        inset and a breathing gap below it. */
-    --topbar-h: 96px;
+    --topbar-h: 104px;
     --topbar-clear: calc(var(--topbar-h) + 24px);
+    /* The bottom dock mirrors the top bar: a floating card inset from the window edges.
+       Its height lives here once, and --dock-clear is the room every panel leaves below
+       itself so it never slides under the dock (inset + height + a breathing gap). */
+    --dock-h: 62px;
+    --dock-clear: calc(var(--dock-h) + 26px);
     --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-bubble: ui-rounded, "Comic Sans MS", "Chalkboard SE", "Chalkboard", "Marker Felt", sans-serif;
@@ -58,7 +66,7 @@
   li { display: flex; align-items: center; gap: 8px; margin-bottom: 3px; }
   .swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
   #status { color: var(--muted); }
-  #status.live { color: #3fb950; }
+  #status.live { color: #6ee274; }
   button {
     width: 100%;
     margin-bottom: 16px;
@@ -84,7 +92,7 @@
   #deploy button { margin-bottom: 6px; }
   #deployStatus { margin: 0 0 16px; min-height: 1.5em; color: var(--muted); font-size: 11px; }
   #deployStatus.bad { color: #f85149; }
-  #deployStatus.good { color: #3fb950; }
+  #deployStatus.good { color: #6ee274; }
   #deployed li { display: block; margin-bottom: 8px; }
   #deployed .who { color: var(--text); }
   #deployed .note { color: var(--muted); font-size: 11px; }
@@ -115,7 +123,7 @@
     font-size: 11px; margin: 0 4px 4px 0;
   }
   #inspector .tag.foe { border-color: #f85149; color: #f85149; }
-  #inspector .tag.ally { border-color: #3fb950; color: #3fb950; }
+  #inspector .tag.ally { border-color: #6ee274; color: #6ee274; }
   #inspector h3 {
     font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
     color: var(--muted); margin: 10px 0 5px;
@@ -153,21 +161,21 @@
     color: var(--muted); font-size: 10px; text-align: right;
     text-shadow: 0 1px 3px #000; pointer-events: none;
   }
-  #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
+  #autoCamera[data-on="1"] { border-color: #6ee274; color: #6ee274; }
   #markets .market {
     border: 1px solid var(--line); border-radius: 8px;
-    padding: 10px; margin-bottom: 10px; background: rgba(10, 14, 20, 0.5);
+    padding: 10px; margin-bottom: 10px; background: rgba(10, 14, 12, 0.5);
   }
   #markets .q { color: var(--text); font-weight: 600; }
   #markets .meta { color: var(--muted); font-size: 10px; margin-bottom: 6px; }
   #markets .sides { display: flex; gap: 6px; }
   #markets .sides button { margin: 0; padding: 5px 10px; font-size: 11px; border-radius: 6px; }
-  #markets .sides button.yes:hover { border-color: #3fb950; color: #3fb950; }
+  #markets .sides button.yes:hover { border-color: #6ee274; color: #6ee274; }
   #markets .sides button.no:hover  { border-color: #f85149; color: #f85149; }
   #markets .held { color: var(--muted); font-size: 10px; margin-top: 5px; }
   #markets .settled { opacity: .65; }
   #markets .out { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); font-weight: 600; font-family: var(--font-mono); }
-  #markets .out.yes  { border-color: #3fb950; color: #3fb950; }
+  #markets .out.yes  { border-color: #6ee274; color: #6ee274; }
   #markets .out.no   { border-color: #f85149; color: #f85149; }
   #markets .out.void { border-color: var(--muted); color: var(--muted); }
   #whoami { margin-bottom: 8px; }
@@ -200,8 +208,8 @@
 
   /* Wide cinematic panels */
   #onboarding .panel {
-    background: rgba(10, 14, 20, 0.94);
-    border: 1px solid rgba(48, 56, 72, 0.5);
+    background: rgba(10, 14, 12, 0.94);
+    border: 1px solid rgba(48, 58, 50, 0.5);
     border-radius: 14px;
     padding: 40px 48px;
     max-width: 780px;
@@ -286,7 +294,7 @@
   .ctrl-item kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 28px; padding: 3px 6px;
-    background: rgba(22, 28, 38, 0.9); border: 1px solid var(--line);
+    background: rgba(18, 24, 18, 0.9); border: 1px solid var(--line);
     border-radius: 5px; font-size: 11px; color: var(--text);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     box-shadow: 0 1px 0 rgba(0,0,0,0.3);
@@ -296,17 +304,17 @@
   /* Begin button — the big green CTA */
   .begin-btn {
     background: linear-gradient(180deg, #2d7a3a, #1e5a2a) !important;
-    border-color: rgba(63,185,80,0.5) !important;
+    border-color: rgba(110,226,116,0.5) !important;
     color: #fff !important;
     font-size: 14px !important;
     font-weight: 600 !important;
     padding: 10px 28px !important;
     letter-spacing: 0.04em !important;
-    box-shadow: 0 0 20px rgba(63,185,80,0.15) !important;
+    box-shadow: 0 0 20px rgba(110,226,116,0.15) !important;
   }
   .begin-btn:hover {
-    border-color: #3fb950 !important;
-    box-shadow: 0 0 28px rgba(63,185,80,0.25) !important;
+    border-color: #6ee274 !important;
+    box-shadow: 0 0 28px rgba(110,226,116,0.25) !important;
   }
 
   /* Brand mark */
@@ -363,7 +371,7 @@
     gap: 10px; pointer-events: none;
   }
   .gameplay-hint {
-    background: rgba(10, 14, 20, 0.95); border: 1px solid var(--line);
+    background: rgba(10, 14, 12, 0.95); border: 1px solid var(--line);
     border-radius: 10px; padding: 12px 22px;
     font-size: 14px; color: var(--text);
     box-shadow: var(--shadow);
@@ -405,9 +413,6 @@
     position: fixed; top: 12px; left: 12px; right: 12px; z-index: 50;
     display: flex; flex-direction: column;
     height: var(--topbar-h);
-    /* The reference bar runs a brighter green than the app accent. Scoped here rather
-       than moved into :root so the rest of the UI keeps its existing colour. */
-    --accent: #6ee274;
     background: linear-gradient(180deg, rgba(12,17,22,0.96) 0%, rgba(10,14,18,0.94) 100%);
     border: 1px solid rgba(48, 58, 50, 0.75);
     border-radius: 16px;
@@ -418,7 +423,7 @@
   #topBar .topRow { display: flex; align-items: center; }
   #topBar .topRow--main { gap: 26px; padding: 0 20px; height: 60px; }
   #topBar .topRow--shelf {
-    gap: 16px; padding: 0 20px; height: 36px;
+    gap: 16px; padding: 0 20px; height: 44px;
     border-top: 1px solid rgba(64, 78, 68, 0.6);
   }
   #topBar .brandMark {
@@ -527,37 +532,53 @@
     color: #8c948a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
   #topBar .shelf-hints i { font-style: normal; opacity: 0.5; margin: 0 3px; }
-  #topBar .follow-notch { flex: 0 0 auto; display: flex; justify-content: center; }
-  /* The chip hangs *below* the shelf rather than rising into the stats row: raising it
-     clipped the last stat's digits against the row boundary. Dropping it downward keeps
-     the notch read — it still breaks the divider line — without stealing row 1's space. */
+
+  /* The follow notch. The divider between the two rows is drawn as a border-top on the
+     status and hints zones (the left and right of the shelf); the centre notch bridges
+     them with a single SVG stroke that dips down into a cradle. Because the side borders
+     and the SVG ends sit at the same y and colour, the eye reads one unbroken line that
+     simply dips around the followed subject — exactly the reference. */
+  #topBar .topRow--shelf { gap: 0; border-top: none; }
+  #topBar .shelf-status,
+  #topBar .shelf-hints { align-self: stretch; }
+  #topBar .shelf-status { border-top: 1px solid rgba(64, 78, 68, 0.6); padding-right: 8px; }
+  #topBar .shelf-hints  { border-top: 1px solid rgba(64, 78, 68, 0.6); padding-left: 8px; }
+  #topBar .follow-notch {
+    flex: 0 0 auto; align-self: stretch; position: relative;
+    width: 340px; display: flex; align-items: center; justify-content: center;
+  }
+  /* When nothing is followed the notch collapses so the two side borders meet and the
+     divider reads as one straight line. */
+  #topBar .follow-notch:not(:has(.active)) { width: 0; }
+  #topBar .follow-notch:not(:has(.active)) .notch-line { display: none; }
+  /* The dipping line, sitting behind the chip. Its straight ends align with the side
+     divider borders; the stroke curves down into the cradle and back up. */
+  #topBar .notch-line {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    pointer-events: none; overflow: visible;
+  }
   #followChip {
-    display: none; align-items: center; gap: 12px;
-    position: relative; top: 17px;
-    padding: 8px 22px;
-    border-radius: 0 0 18px 18px;
-    background: linear-gradient(180deg, rgba(17,23,28,0.99) 0%, rgba(12,17,22,0.99) 100%);
-    border: 1px solid rgba(110,226,116,0.30);
-    border-top: none;
-    box-shadow: 0 7px 20px rgba(0,0,0,0.5), inset 0 -1px 0 rgba(110,226,116,0.12);
+    display: none; align-items: center; gap: 13px;
+    position: relative; z-index: 1;
+    padding: 0 4px; margin-top: -5px;
   }
   #followChip.active { display: inline-flex; }
   #followChip .follow-icon { color: var(--accent); display: inline-flex; }
-  #followChip .follow-icon svg { width: 22px; height: 22px; }
-  #followChip .follow-text { display: flex; flex-direction: column; gap: 2px; line-height: 1.15; }
+  #followChip .follow-icon svg { width: 24px; height: 24px; filter: drop-shadow(0 0 6px rgba(110,226,116,0.5)); }
+  #followChip .follow-text { display: flex; flex-direction: column; gap: 2px; line-height: 1.12; }
   #followChip .follow-eyebrow {
-    font-size: 11px; font-weight: 500; letter-spacing: .17em;
-    text-transform: uppercase; color: #7d8186;
+    font-size: 11px; font-weight: 500; letter-spacing: .19em;
+    text-transform: uppercase; color: #8b9298;
   }
   #followChip .follow-subject {
-    font-size: 17px; color: #f2f4f5; white-space: nowrap;
-    max-width: 320px; overflow: hidden; text-overflow: ellipsis;
+    font-size: 18px; color: #f2f4f5; white-space: nowrap;
+    max-width: 140px; overflow: hidden; text-overflow: ellipsis;
   }
 
   /* Dashboard layout: world is the hero, UI is the overlay */
   #dashboard {
     position: fixed;
-    top: var(--topbar-clear); left: 0; right: 0; bottom: 64px;
+    top: var(--topbar-clear); left: 0; right: 0; bottom: var(--dock-clear);
     pointer-events: none;
     overflow: hidden;
   }
@@ -568,7 +589,7 @@
   /* Stage / world */
   #stage {
     position: fixed;
-    top: var(--topbar-clear); left: 0; right: 0; bottom: 64px;
+    top: var(--topbar-clear); left: 0; right: 0; bottom: var(--dock-clear);
     overflow: hidden;
     transition: right 0.3s ease;
   }
@@ -586,6 +607,10 @@
   #hud .title { color: #fff; text-shadow: 0 1px 3px #000; font-weight: 700; }
   #hud .meta { color: #c9d1d9; font-size: 11px; text-shadow: 0 1px 3px #000; }
   #hud .spacer { flex: 1; }
+  /* The top bar now carries the framing, the counts and the control hints, so the HUD
+     would just repeat them under the bar. It stays in the DOM — setLabel and updateHud
+     still write to it — and the mobile layout, which drops the shelf, shows it again. */
+  #hud { display: none; }
 
   /* Minimap — inside the world area so sidebars never overlap it */
   #minimap {
@@ -605,17 +630,17 @@
     color: var(--muted); font-size: 10px; text-align: right;
     text-shadow: 0 1px 3px #000; pointer-events: none;
   }
-  #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
+  #autoCamera[data-on="1"] { border-color: #6ee274; color: #6ee274; }
 
   /* Right sidebar — agents panel, slides in/out */
   #rightCards {
     position: fixed;
-    top: var(--topbar-clear); right: 0; bottom: 64px; width: 320px;
+    top: var(--topbar-clear); right: 0; bottom: var(--dock-clear); width: 320px;
     display: flex; flex-direction: column;
     gap: 10px;
     padding: 12px;
     overflow-y: auto;
-    background: rgba(10, 14, 20, 0.95);
+    background: rgba(10, 14, 12, 0.95);
     border-left: 1px solid var(--line);
     z-index: 40;
     transform: translateX(100%);
@@ -639,12 +664,12 @@
   /* Bottom panel strip — reference panels, translucent */
   #bottomStrip {
     position: fixed;
-    left: 0; right: 0; bottom: 64px; height: 140px;
+    left: 0; right: 0; bottom: var(--dock-clear); height: 140px;
     display: none; gap: 10px;
     padding: 10px;
     overflow-x: auto;
-    background: rgba(10, 14, 20, 0.35);
-    border-top: 1px solid rgba(48, 56, 72, 0.35);
+    background: rgba(10, 14, 12, 0.35);
+    border-top: 1px solid rgba(48, 58, 50, 0.35);
     z-index: 40;
   }
   #bottomStrip.open { display: flex; }
@@ -653,8 +678,8 @@
     flex: 1 1 220px;
     min-width: 220px;
     max-height: 100%;
-    background: rgba(16, 22, 32, 0.78);
-    border-color: rgba(48, 56, 72, 0.45);
+    background: rgba(13, 19, 15, 0.78);
+    border-color: rgba(48, 58, 50, 0.45);
     backdrop-filter: blur(8px) saturate(1.1);
   }
   /* Each strip card is gated by .open so opening one (e.g. World) never
@@ -687,7 +712,7 @@
     color: var(--muted); margin: 0;
     padding: 10px 14px;
     border-bottom: 1px solid var(--line);
-    background: rgba(22, 28, 38, 0.5);
+    background: rgba(18, 24, 18, 0.5);
     font-weight: 600;
     flex-shrink: 0;
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -737,14 +762,14 @@
   /* Markets card */
   #marketsCard input {
     width: 100%; margin-bottom: 10px; padding: 6px 10px;
-    background: rgba(10, 14, 20, 0.6); color: var(--text);
+    background: rgba(10, 14, 12, 0.6); color: var(--text);
     border: 1px solid var(--line); border-radius: 6px; font: inherit;
     font-size: 12px;
   }
   #marketsCard input:focus {
     outline: none;
     border-color: rgba(88,166,255,0.5);
-    background: rgba(10, 14, 20, 0.8);
+    background: rgba(10, 14, 12, 0.8);
   }
 
   /* Speech bubbles — unchanged */
@@ -793,7 +818,7 @@
   .speech-bubble.type-request { border-color: #000; box-shadow: 4px 4px 0 #f0883e; }
   .speech-bubble.type-request::after { border-top-color: #000; }
   .speech-bubble.type-request::before { border-top-color: #fff; }
-  .speech-bubble.type-offer { border-color: #000; box-shadow: 4px 4px 0 #3fb950; }
+  .speech-bubble.type-offer { border-color: #000; box-shadow: 4px 4px 0 #6ee274; }
   .speech-bubble.type-offer::after { border-top-color: #000; }
   .speech-bubble.type-offer::before { border-top-color: #fff; }
   .speech-bubble.type-alert { border-color: #000; box-shadow: 4px 4px 0 #f85149; }
@@ -806,18 +831,18 @@
   #messagesCard .card-title, #worldLogCard .card-title { font-size: 11px; letter-spacing: 0.14em; }
   #messagesCard .card-body, #worldLogCard .card-body { padding: 0; }
   #messagesCard .feed-list, #worldLogCard .feed-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
-  #messagesCard .feed-item { padding: 10px 14px; border-bottom: 1px solid rgba(48,56,72,0.35); font-size: 12px; line-height: 1.4; }
+  #messagesCard .feed-item { padding: 10px 14px; border-bottom: 1px solid rgba(48, 58, 50,0.35); font-size: 12px; line-height: 1.4; }
   #messagesCard .feed-item:last-child, #worldLogCard .feed-item:last-child { border-bottom: none; }
   #messagesCard .feed-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-weight: 700; }
   #messagesCard .feed-icon { width: 15px; height: 15px; flex-shrink: 0; }
   #messagesCard .feed-type { padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(255,255,255,0.08); color: var(--muted); }
   #messagesCard .feed-type.info { color: #58a6ff; background: rgba(88,166,255,0.1); }
   #messagesCard .feed-type.request { color: #f0883e; background: rgba(240,136,62,0.1); }
-  #messagesCard .feed-type.offer { color: #3fb950; background: rgba(63,185,80,0.1); }
+  #messagesCard .feed-type.offer { color: #6ee274; background: rgba(110,226,116,0.1); }
   #messagesCard .feed-type.alert { color: #f85149; background: rgba(248,81,73,0.1); }
   #messagesCard .feed-text { color: #c9d1d9; }
   #messagesCard .feed-empty, #worldLogCard .feed-empty { color: var(--muted); padding: 14px; }
-  #worldLogCard .feed-item { padding: 8px 14px; border-bottom: 1px solid rgba(48,56,72,0.35); display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c9d1d9; line-height: 1.4; }
+  #worldLogCard .feed-item { padding: 8px 14px; border-bottom: 1px solid rgba(48, 58, 50,0.35); display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c9d1d9; line-height: 1.4; }
   #worldLogCard .feed-icon { width: 15px; height: 15px; flex-shrink: 0; }
   #worldLogCard .feed-icon svg { width: 100%; height: 100%; display: block; }
   #worldLogCard .feed-kind { text-transform: uppercase; font-size: 9px; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); margin-left: auto; flex-shrink: 0; }
@@ -825,7 +850,7 @@
   #worldLogCard .feed-kind.raid { color: #f85149; }
   #worldLogCard .feed-kind.death { color: #8b949e; }
   #worldLogCard .feed-kind.goalChange { color: #a371f7; }
-  #worldLogCard .feed-kind.arrival { color: #3fb950; }
+  #worldLogCard .feed-kind.arrival { color: #6ee274; }
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
 
   /* Agent inspector card (a #bottomStrip card; visibility gated by .open there) */
@@ -849,7 +874,7 @@
   .agent-card-header {
     display: flex; align-items: center; justify-content: space-between;
     padding: 12px 16px;
-    background: rgba(22, 28, 38, 0.6);
+    background: rgba(18, 24, 18, 0.6);
     border-bottom: 1px solid var(--line);
   }
   .agent-card-name { font-size: 15px; font-weight: 800; color: #fff; letter-spacing: 0.01em; }
@@ -941,7 +966,7 @@
   .my-agent-chip.rest { color: #a371f7; border-color: rgba(163,113,247,0.35); background: rgba(163,113,247,0.1); }
   .my-agent-chip.danger { color: #f85149; border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.1); }
   .my-agent-chip.warn { color: #d29922; border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.1); }
-  .my-agent-chip.fine { color: #3fb950; border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.1); }
+  .my-agent-chip.fine { color: #6ee274; border-color: rgba(110,226,116,0.35); background: rgba(110,226,116,0.1); }
   .my-agent-actions {
     display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
   }
@@ -991,7 +1016,7 @@
   /* Market card */
   #marketsCard { max-height: none; }
   #marketsCard .card-title { font-size: 11px; letter-spacing: 0.14em; }
-  .market { display: flex; gap: 12px; padding: 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(10, 14, 20, 0.55); border: 1px solid var(--line); }
+  .market { display: flex; gap: 12px; padding: 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(10, 14, 12, 0.55); border: 1px solid var(--line); }
   .market-icon { width: 32px; height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255,255,255,0.06); }
   .market-icon svg { width: 18px; height: 18px; }
   .market-main { flex: 1; min-width: 0; }
@@ -999,27 +1024,31 @@
   .market-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
   .market-meta strong { color: var(--text); font-weight: 600; }
   .market-status { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-  .market-status.open { color: #3fb950; }
+  .market-status.open { color: #6ee274; }
   .market-status.closed { color: #d29922; }
   .market-status.settled { color: var(--muted); }
   .market-actions { display: flex; gap: 6px; margin-top: 8px; }
   .market-actions button { flex: 1; margin: 0; padding: 6px 8px; font-size: 11px; font-weight: 700; border-radius: 6px; }
-  .market-actions button.yes { background: rgba(63,185,80,0.1); border-color: rgba(63,185,80,0.35); color: #3fb950; }
+  .market-actions button.yes { background: rgba(110,226,116,0.1); border-color: rgba(110,226,116,0.35); color: #6ee274; }
   .market-actions button.no { background: rgba(248,81,73,0.1); border-color: rgba(248,81,73,0.35); color: #f85149; }
-  .market-actions button.yes:hover { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.55); }
+  .market-actions button.yes:hover { background: rgba(110,226,116,0.18); border-color: rgba(110,226,116,0.55); }
   .market-actions button.no:hover { background: rgba(248,81,73,0.18); border-color: rgba(248,81,73,0.55); }
   .market-held { font-size: 10px; color: var(--muted); margin-top: 6px; }
   .market-settled { opacity: 0.75; }
 
   /* Bottom dock */
   #bottomDock {
-    position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+    position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 50;
     display: flex; align-items: center; justify-content: center; gap: 6px;
-    height: 64px;
+    height: var(--dock-h);
     padding: 0 12px;
-    background: rgba(10, 14, 20, 0.95);
-    border-top: 1px solid var(--line);
-    backdrop-filter: blur(12px) saturate(1.1);
+    background: linear-gradient(180deg, rgba(12,17,22,0.96) 0%, rgba(10,14,18,0.94) 100%);
+    border: 1px solid rgba(48, 58, 50, 0.75);
+    border-radius: var(--radius);
+    /* Mirror of the top bar's corner bloom — a faint green glow, this time off the
+       bottom-left corner so the two cards frame the world symmetrically. */
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 40px -26px 60px -46px rgba(110,226,116,0.30);
+    backdrop-filter: blur(14px) saturate(1.1);
   }
   .dock-btn {
     display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -1030,7 +1059,7 @@
     transition: color 0.15s, border-color 0.15s, background 0.15s;
   }
   .dock-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); border-color: var(--line); }
-  .dock-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(63,185,80,0.35); }
+  .dock-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(110,226,116,0.35); }
   .dock-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .dock-icon svg { width: 100%; height: 100%; }
   .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
@@ -1042,7 +1071,7 @@
   .control-row kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 22px; padding: 2px 5px;
-    background: rgba(22, 28, 38, 0.8);
+    background: rgba(18, 24, 18, 0.8);
     border: 1px solid var(--line); border-radius: 4px;
     font-size: 10px; color: var(--text);
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1134,14 +1163,14 @@
     gap: 6px;
     padding: 8px 12px;
     border-radius: 8px;
-    background: rgba(10,14,20,0.85);
+    background: rgba(10, 14, 12,0.85);
     border: 1px solid var(--line);
     color: var(--text);
     font-size: 12px; font-weight: 600;
     cursor: pointer;
     backdrop-filter: blur(8px);
   }
-  .cinema-exit:hover { background: rgba(22,28,38,0.95); border-color: var(--muted); }
+  .cinema-exit:hover { background: rgba(18, 24, 18,0.95); border-color: var(--muted); }
 
   /* Legacy hidden elements (still referenced by JS) */
   #legacyHidden { display: none; }
@@ -1151,7 +1180,9 @@
     body { font-size: 14px; }
     /* One compact full-bleed row on a phone: the shelf's hints are mouse-only anyway,
        and the corner HUD still names the followed subject. */
-    :root { --topbar-h: 52px; --topbar-clear: 52px; }
+    /* Mobile bars are full-bleed and flush to the edges, so the clear is just the bar
+       height (no floating inset or gap to account for). */
+    :root { --topbar-h: 52px; --topbar-clear: 52px; --dock-h: 56px; --dock-clear: 56px; }
     #topBar {
       top: 0; left: 0; right: 0;
       border-radius: 0; border-left: none; border-right: none; border-top: none;
@@ -1173,14 +1204,17 @@
     .icon-btn { width: 34px; height: 34px; border-radius: 9px; }
     .icon-btn svg { width: 16px; height: 16px; }
     #topBar .topActions { gap: 6px; }
+    /* No shelf on a phone, so the HUD carries the framing and the hints again. */
+    #hud { display: flex; }
+    #hud .title, #hud .hud-hints { display: inline; }
 
     #dashboard {
-      top: var(--topbar-clear); left: 0; right: 0; bottom: 64px;
+      top: var(--topbar-clear); left: 0; right: 0; bottom: var(--dock-clear);
     }
     #stage { left: 0; right: 0; }
     #rightCards {
       position: fixed;
-      top: auto; right: 0; left: 0; bottom: 64px;
+      top: auto; right: 0; left: 0; bottom: var(--dock-clear);
       width: 100%; height: auto;
       overflow-y: visible;
       padding: 0 10px;
@@ -1201,7 +1235,7 @@
 
     #bottomStrip {
       position: fixed;
-      top: auto; left: 0; right: 0; bottom: 64px;
+      top: auto; left: 0; right: 0; bottom: var(--dock-clear);
       height: auto; max-height: 50vh;
       flex-direction: column;
       padding: 0 10px;
@@ -1223,7 +1257,7 @@
     #bottomStrip .floating-card.open { display: flex; }
 
     #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard {
-      position: fixed; top: auto; left: 0; right: 0; bottom: 64px;
+      position: fixed; top: auto; left: 0; right: 0; bottom: var(--dock-clear);
       width: 100%; max-height: 50vh;
       border-radius: 16px 16px 0 0;
       box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
@@ -1249,6 +1283,7 @@
       padding: 6px 4px; gap: 2px;
       border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
       border-top: 1px solid var(--line);
+      box-shadow: none;
     }
     .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; }
     .dock-divider { display: none; }
@@ -1328,6 +1363,20 @@
         </span>
       </div>
       <div class="follow-notch">
+        <svg class="notch-line" viewBox="0 0 340 44" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="notchStroke" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0"    stop-color="rgba(64,78,68,0.6)"/>
+              <stop offset="0.22" stop-color="rgba(110,226,116,0.55)"/>
+              <stop offset="0.5"  stop-color="rgba(110,226,116,0.85)"/>
+              <stop offset="0.78" stop-color="rgba(110,226,116,0.55)"/>
+              <stop offset="1"    stop-color="rgba(64,78,68,0.6)"/>
+            </linearGradient>
+          </defs>
+          <path d="M0 1.5 L50 1.5 C80 1.5 65 41 95 41 L245 41 C275 41 260 1.5 290 1.5 L340 1.5"
+                fill="none" stroke="url(#notchStroke)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+          <circle cx="170" cy="41" r="2.6" fill="#6ee274"/>
+        </svg>
         <div id="followChip">
           <span class="follow-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z"/></svg></span>
           <span class="follow-text">
@@ -1364,7 +1413,7 @@
       <span class="title" id="hudTitle">world</span>
       <span class="meta" id="hudMeta"></span>
       <span class="spacer"></span>
-      <span class="meta">drag orbit · shift-drag pan · wheel zoom · click an agent</span>
+      <span class="meta hud-hints">drag orbit · shift-drag pan · wheel zoom · click an agent</span>
     </div>
     <p id="minimapHint">click the minimap to travel</p>
     <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
@@ -1607,7 +1656,7 @@
         </p>
         <div class="slide-features">
           <div class="feature"><span class="feature-dot" style="background:#58a6ff;"></span>Needs &amp; survival</div>
-          <div class="feature"><span class="feature-dot" style="background:#3fb950;"></span>Goals &amp; purpose</div>
+          <div class="feature"><span class="feature-dot" style="background:#6ee274;"></span>Goals &amp; purpose</div>
           <div class="feature"><span class="feature-dot" style="background:#a371f7;"></span>Relationships</div>
           <div class="feature"><span class="feature-dot" style="background:#d29922;"></span>Emergent clans</div>
         </div>
@@ -1630,7 +1679,7 @@
         <div class="slide-features">
           <div class="feature"><span class="feature-dot" style="background:#58a6ff;"></span>Naturally forming villages</div>
           <div class="feature"><span class="feature-dot" style="background:#f85149;"></span>Raids &amp; conflicts</div>
-          <div class="feature"><span class="feature-dot" style="background:#3fb950;"></span>Truces &amp; alliances</div>
+          <div class="feature"><span class="feature-dot" style="background:#6ee274;"></span>Truces &amp; alliances</div>
           <div class="feature"><span class="feature-dot" style="background:#a371f7;"></span>Evolving economies</div>
         </div>
         <div class="slide-nav">
@@ -2193,13 +2242,26 @@ const shelfShot = document.getElementById("shelfShot");
 // single funnel every subject flows through — director shots, fly-tos, overview, mount — so
 // deriving the chip here keeps it in lockstep with the corner HUD without a second source of
 // truth. The generic framings ("whole world", "finding a shot") are not a subject, so the
-// chip hides for them and the world stays the focus. The label is shown verbatim: fly-tos and
-// director shots order their "subject · qualifier" differently, so any split would mislabel
-// half of them — the whole phrase is the honest, HUD-matching thing to show.
-const FOLLOW_NONE = new Set(["whole world", "finding a shot", "world"]);
+// chip hides for them and the world stays the focus.
+//
+// The camera label is a full framing — "vista · Ashsha-056 is following food" — where the
+// shelf status to the left already carries the "kind · activity" part. The chip names only
+// the *subject*: drop the leading "kind ·" and the trailing "is <activity>" so it reads as a
+// clean entity ("Ashsha-056"), the way the reference shows "vista settlement". Verbatim was
+// too long — it truncated mid-word and the notch line cut through it.
+const FOLLOW_NONE = new Set(["whole world", "finding a shot", "world", "the world"]);
+function chipSubject(text) {
+  let s = (text || "").trim();
+  const dot = s.indexOf(" · ");
+  if (dot !== -1) s = s.slice(dot + 3);     // drop the "kind ·" framing the shelf already shows
+  const isIdx = s.indexOf(" is ");
+  if (isIdx !== -1) s = s.slice(0, isIdx);  // drop the "is <activity>" tail
+  return s.trim();
+}
 function setFollowFromLabel(text) {
-  const label = (text || "").trim();
-  if (!label || FOLLOW_NONE.has(label)) {
+  const raw = (text || "").trim();
+  const label = chipSubject(raw);
+  if (!label || FOLLOW_NONE.has(raw) || FOLLOW_NONE.has(label)) {
     followChip.classList.remove("active");
     followSubject.textContent = "";
     return;
@@ -2380,7 +2442,7 @@ function renderInspector(snapshot) {
   const healthy = agent.hunger > 0 && agent.energy > 20;
 
   const energyColor = agent.energy < 30 ? "#f85149" : (agent.energy < 60 ? "#d29922" : "#58a6ff");
-  const hungerColor = agent.hunger === 0 ? "#f85149" : "#3fb950";
+  const hungerColor = agent.hunger === 0 ? "#f85149" : "#6ee274";
   const foodPercent = Math.min(100, (agent.food / 5) * 100);
 
   let html =
@@ -2388,7 +2450,7 @@ function renderInspector(snapshot) {
     `<div class="agent-card-name">${escapeHtml(agent.name)}</div>` +
     `<div class="agent-card-dots">` +
     `<span class="agent-card-dot" style="background:${colour}"></span>` +
-    `<span class="agent-card-dot" style="background:${healthy ? '#3fb950' : '#f85149'}"></span>` +
+    `<span class="agent-card-dot" style="background:${healthy ? '#6ee274' : '#f85149'}"></span>` +
     `</div>` +
     `</div>` +
     `<div class="agent-card-body">` +
@@ -2403,7 +2465,7 @@ function renderInspector(snapshot) {
     `<div class="agent-card-stat"><span style="font-size:14px">★</span><span>Standing</span><span class="value">${agent.standing || 0} · ${agent.rank || 'member'}</span></div>` +
     `</div>` +
     `</div>` +
-    `<div class="agent-card-bar"><span style="width:${foodPercent}%;background:#3fb950"></span></div>`;
+    `<div class="agent-card-bar"><span style="width:${foodPercent}%;background:#6ee274"></span></div>`;
 
   if (agent.user && agent.personality) {
     html += `<p class="note" style="margin:12px 0 0;border-left:2px solid ${colour};padding-left:8px">${escapeHtml(agent.personality)}</p>`;
