@@ -374,13 +374,14 @@
   #settingsPanel .card-body { padding: 12px 16px 14px; }
   #settingsPanel button { margin: 0; }
 
-  /* === NEW AAA LAYOUT — floating panels ================================ */
+  /* === DASHBOARD LAYOUT — world is the hero, UI is the frame ============= */
 
   /* Top bar */
   #topBar {
     position: fixed; top: 0; left: 0; right: 0; z-index: 50;
     display: flex; align-items: center; gap: 16px;
     padding: 10px 18px;
+    height: 48px;
     background: linear-gradient(180deg, rgba(10,14,20,0.95) 0%, rgba(10,14,20,0.82) 100%);
     border-bottom: 1px solid var(--line);
     backdrop-filter: blur(12px) saturate(1.2);
@@ -389,7 +390,7 @@
     font-size: 13px; font-weight: 800; letter-spacing: .14em;
     text-transform: uppercase; color: #fff;
     text-shadow: 0 0 14px rgba(88,166,255,0.4);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
   #topBar .topStats {
     display: flex; align-items: center; gap: 10px;
@@ -420,19 +421,127 @@
   }
   #thinkingStatus.show { display: inline-block; }
 
-  /* Right floating cards container — narrow so the world stays primary. */
-  #rightCards {
-    position: fixed; top: 44px; right: 14px; bottom: 80px; z-index: 40;
-    display: flex; flex-direction: column; gap: 10px;
-    width: 230px;
-    height: calc(100vh - 124px);
-    overflow-y: auto;
-    padding-right: 4px;
-    scrollbar-width: thin;
+  /* Dashboard grid */
+  #dashboard {
+    position: fixed;
+    top: 48px; left: 0; right: 0; bottom: 64px;
+    display: grid;
+    grid-template-areas:
+      "left world right"
+      "left bottom right";
+    grid-template-columns: 64px 1fr 320px;
+    grid-template-rows: 1fr 210px;
+    overflow: hidden;
   }
-  #rightCards::-webkit-scrollbar { width: 4px; }
-  #rightCards::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
 
+  /* Left navigation rail */
+  #leftNav {
+    grid-area: left;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 8px;
+    padding: 14px 6px;
+    background: rgba(10, 14, 20, 0.85);
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    z-index: 40;
+  }
+  .nav-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    width: 52px;
+    padding: 8px 4px;
+    margin: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--muted);
+    font: inherit;
+    font-size: 9px;
+    cursor: pointer;
+    transition: color 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .nav-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); }
+  .nav-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(63,185,80,0.35); }
+  .nav-icon {
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .nav-icon svg { width: 100%; height: 100%; }
+
+  /* Stage / world */
+  #stage {
+    grid-area: world;
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+  }
+  #world { position: absolute; inset: 0; }
+  #world canvas { display: block; width: 100%; height: 100%; border: 0; border-radius: 0; }
+
+  /* HUD */
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; pointer-events: none;
+    background: linear-gradient(#0a0e14cc, #0a0e1400);
+  }
+  #hud .title { color: #fff; text-shadow: 0 1px 3px #000; font-weight: 700; }
+  #hud .meta { color: #c9d1d9; font-size: 11px; text-shadow: 0 1px 3px #000; }
+  #hud .spacer { flex: 1; }
+
+  /* Minimap — inside the world area so sidebars never overlap it */
+  #minimap {
+    position: absolute; right: 14px; bottom: 14px; z-index: 40;
+    width: 220px; height: 220px;
+    border: 1px solid var(--line); border-radius: var(--radius);
+    background: rgba(1, 4, 9, 0.85); overflow: hidden;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(4px);
+  }
+  #minimap canvas {
+    display: block; width: 100%; height: 100%;
+    image-rendering: pixelated; cursor: crosshair; border: 0; border-radius: 0;
+  }
+  #minimapHint {
+    position: absolute; right: 14px; bottom: 242px; z-index: 40;
+    color: var(--muted); font-size: 10px; text-align: right;
+    text-shadow: 0 1px 3px #000; pointer-events: none;
+  }
+  #autoCamera[data-on="1"] { border-color: #3fb950; color: #3fb950; }
+
+  /* Right sidebar — agents only */
+  #rightCards {
+    grid-area: right;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    overflow-y: auto;
+    background: rgba(10, 14, 20, 0.4);
+    border-left: 1px solid var(--line);
+  }
+  .sidebar-header {
+    font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 800;
+    padding: 4px 6px;
+    flex-shrink: 0;
+  }
+
+  /* Bottom panel strip — bets, chat, log, inspector */
+  #bottomStrip {
+    grid-area: bottom;
+    display: flex; gap: 10px;
+    padding: 10px;
+    overflow-x: auto;
+    background: rgba(10, 14, 20, 0.4);
+    border-top: 1px solid var(--line);
+  }
+  #bottomStrip .floating-card {
+    flex: 1 1 0;
+    min-width: 0;
+    max-height: 100%;
+  }
+
+  /* Common card */
   .floating-card {
     background: var(--panel);
     border: 1px solid var(--line);
@@ -440,28 +549,29 @@
     box-shadow: var(--shadow);
     overflow: hidden;
     display: flex; flex-direction: column;
-    max-height: 38vh;
     backdrop-filter: blur(10px) saturate(1.1);
   }
   .floating-card .card-title {
     font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
     color: var(--muted); margin: 0;
-    padding: 12px 16px 10px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--line);
     background: rgba(22, 28, 38, 0.5);
     font-weight: 600;
+    flex-shrink: 0;
   }
   .floating-card .card-body {
-    padding: 12px 16px 14px;
+    padding: 10px 14px;
     overflow-y: auto;
+    flex: 1;
   }
   .floating-card .card-subtitle {
     font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
-    color: var(--muted); margin: 14px 0 8px;
+    color: var(--muted); margin: 12px 0 6px;
     font-weight: 600;
   }
 
-  /* Objectives card */
+  /* Objectives */
   .objective-btn {
     width: 100%; margin-bottom: 6px; padding: 9px 12px;
     background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.2);
@@ -505,12 +615,8 @@
     background: rgba(10, 14, 20, 0.8);
   }
 
-  /* Speech bubble overlay — comic-style captions above agents */
-  #speechBubbles {
-    position: fixed; inset: 0; z-index: 35;
-    pointer-events: none;
-    overflow: hidden;
-  }
+  /* Speech bubbles — unchanged */
+  #speechBubbles { position: fixed; inset: 0; z-index: 35; pointer-events: none; overflow: hidden; }
   .speech-bubble {
     position: absolute;
     transform: translate(-50%, -100%) scale(1);
@@ -534,48 +640,21 @@
     100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
   }
   .speech-bubble::after {
-    content: "";
-    position: absolute;
-    bottom: -12px;
-    left: 18px;
-    width: 0;
-    height: 0;
-    border-left: 10px solid transparent;
-    border-right: 10px solid transparent;
+    content: ""; position: absolute; bottom: -12px; left: 18px;
+    width: 0; height: 0;
+    border-left: 10px solid transparent; border-right: 10px solid transparent;
     border-top: 14px solid #000;
   }
   .speech-bubble::before {
-    content: "";
-    position: absolute;
-    bottom: -8px;
-    left: 20px;
-    width: 0;
-    height: 0;
-    border-left: 8px solid transparent;
-    border-right: 8px solid transparent;
+    content: ""; position: absolute; bottom: -8px; left: 20px;
+    width: 0; height: 0;
+    border-left: 8px solid transparent; border-right: 8px solid transparent;
     border-top: 11px solid #fff;
     z-index: 1;
   }
-  .speech-bubble .speaker {
-    font-weight: 800;
-    margin-bottom: 3px;
-    color: #111;
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .speech-bubble .text {
-    color: #111;
-    font-family: var(--font-bubble);
-    font-size: 14px;
-    line-height: 1.25;
-  }
-  .speech-bubble .speaker svg {
-    width: 14px;
-    height: 14px;
-    margin-right: 6px;
-    vertical-align: -2px;
-  }
+  .speech-bubble .speaker { font-weight: 800; margin-bottom: 3px; color: #111; font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .speech-bubble .text { color: #111; font-family: var(--font-bubble); font-size: 14px; line-height: 1.25; }
+  .speech-bubble .speaker svg { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
   .speech-bubble.type-info { border-color: #000; box-shadow: 4px 4px 0 #58a6ff; }
   .speech-bubble.type-info::after { border-top-color: #000; }
   .speech-bubble.type-info::before { border-top-color: #fff; }
@@ -590,113 +669,26 @@
   .speech-bubble.type-alert::before { border-top-color: #fff; }
   .speech-bubble.fading { opacity: 0; transform: translate(-50%, -90%) scale(0.92); }
 
-  /* Social feed card */
-  #messagesCard {
-    max-height: 34vh;
-  }
-  #messagesCard .card-title {
-    font-size: 11px; letter-spacing: 0.14em;
-  }
-  #messagesCard .card-body {
-    padding: 0;
-  }
-  #messagesCard .feed-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  #messagesCard .feed-item {
-    padding: 10px 14px;
-    border-bottom: 1px solid rgba(48,56,72,0.35);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-  #messagesCard .feed-item:last-child { border-bottom: none; }
-  #messagesCard .feed-meta {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    margin-bottom: 4px;
-    font-weight: 700;
-  }
-  #messagesCard .feed-icon {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-  }
-  #messagesCard .feed-type {
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 9px;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    background: rgba(255,255,255,0.08);
-    color: var(--muted);
-  }
+  /* Social feed / world log cards */
+  #messagesCard, #worldLogCard { max-height: none; }
+  #messagesCard .card-title, #worldLogCard .card-title { font-size: 11px; letter-spacing: 0.14em; }
+  #messagesCard .card-body, #worldLogCard .card-body { padding: 0; }
+  #messagesCard .feed-list, #worldLogCard .feed-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+  #messagesCard .feed-item { padding: 10px 14px; border-bottom: 1px solid rgba(48,56,72,0.35); font-size: 12px; line-height: 1.4; }
+  #messagesCard .feed-item:last-child, #worldLogCard .feed-item:last-child { border-bottom: none; }
+  #messagesCard .feed-meta { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; font-weight: 700; }
+  #messagesCard .feed-icon { width: 15px; height: 15px; flex-shrink: 0; }
+  #messagesCard .feed-type { padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: rgba(255,255,255,0.08); color: var(--muted); }
   #messagesCard .feed-type.info { color: #58a6ff; background: rgba(88,166,255,0.1); }
   #messagesCard .feed-type.request { color: #f0883e; background: rgba(240,136,62,0.1); }
   #messagesCard .feed-type.offer { color: #3fb950; background: rgba(63,185,80,0.1); }
   #messagesCard .feed-type.alert { color: #f85149; background: rgba(248,81,73,0.1); }
-  #messagesCard .feed-text {
-    color: #c9d1d9;
-  }
-  #messagesCard .feed-empty {
-    color: var(--muted);
-    padding: 14px;
-  }
-
-  /* World activity log — recent events the camera might miss. */
-  #worldLogCard {
-    max-height: 34vh;
-  }
-  #worldLogCard .card-title {
-    font-size: 11px; letter-spacing: 0.14em;
-  }
-  #worldLogCard .card-body {
-    padding: 0;
-  }
-  #worldLogCard .feed-list {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  #worldLogCard .feed-item {
-    padding: 8px 14px;
-    border-bottom: 1px solid rgba(48,56,72,0.35);
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    color: #c9d1d9;
-    line-height: 1.4;
-  }
-  #worldLogCard .feed-item:last-child { border-bottom: none; }
-  #worldLogCard .feed-icon {
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-  }
-  #worldLogCard .feed-icon svg {
-    width: 100%; height: 100%; display: block;
-  }
-  #worldLogCard .feed-empty {
-    color: var(--muted);
-    padding: 14px;
-  }
-  #worldLogCard .feed-kind {
-    text-transform: uppercase;
-    font-size: 9px;
-    letter-spacing: 0.06em;
-    font-weight: 700;
-    color: var(--muted);
-    margin-left: auto;
-    flex-shrink: 0;
-  }
+  #messagesCard .feed-text { color: #c9d1d9; }
+  #messagesCard .feed-empty, #worldLogCard .feed-empty { color: var(--muted); padding: 14px; }
+  #worldLogCard .feed-item { padding: 8px 14px; border-bottom: 1px solid rgba(48,56,72,0.35); display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c9d1d9; line-height: 1.4; }
+  #worldLogCard .feed-icon { width: 15px; height: 15px; flex-shrink: 0; }
+  #worldLogCard .feed-icon svg { width: 100%; height: 100%; display: block; }
+  #worldLogCard .feed-kind { text-transform: uppercase; font-size: 9px; letter-spacing: 0.06em; font-weight: 700; color: var(--muted); margin-left: auto; flex-shrink: 0; }
   #worldLogCard .feed-kind.build { color: #d29922; }
   #worldLogCard .feed-kind.raid { color: #f85149; }
   #worldLogCard .feed-kind.death { color: #8b949e; }
@@ -704,18 +696,17 @@
   #worldLogCard .feed-kind.arrival { color: #3fb950; }
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
 
-  /* Agent card — match the reference: header, avatar, stats, bar */
-  #agentCards {
-    width: 300px;
-  }
-  #inspector {
+  /* Agent inspector card */
+  #agentCards { width: auto; }
+  #agentCards #inspector {
+    background: var(--panel);
     border: 1px solid var(--line);
     border-radius: var(--radius);
     padding: 0;
-    background: rgba(13, 17, 23, 0.95);
-    backdrop-filter: blur(12px) saturate(1.1);
-    box-shadow: var(--shadow);
-    overflow: hidden;
+    margin: 0;
+    max-height: 100%;
+    overflow-y: auto;
+    backdrop-filter: blur(10px) saturate(1.1);
   }
   .agent-card-empty {
     padding: 18px;
@@ -729,32 +720,13 @@
     background: rgba(22, 28, 38, 0.6);
     border-bottom: 1px solid var(--line);
   }
-  .agent-card-name {
-    font-size: 15px; font-weight: 800;
-    color: #fff; letter-spacing: 0.01em;
-  }
-  .agent-card-dots {
-    display: flex; gap: 5px;
-  }
-  .agent-card-dot {
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
-  }
-  .agent-card-body {
-    padding: 14px 16px 16px;
-  }
-  .agent-card-state {
-    font-size: 13px; color: var(--text); margin-bottom: 2px;
-    font-weight: 600;
-  }
-  .agent-card-clan {
-    font-size: 12px; color: var(--muted); margin-bottom: 12px;
-  }
-  .agent-card-main {
-    display: flex; gap: 14px;
-    margin-bottom: 14px;
-  }
+  .agent-card-name { font-size: 15px; font-weight: 800; color: #fff; letter-spacing: 0.01em; }
+  .agent-card-dots { display: flex; gap: 5px; }
+  .agent-card-dot { width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2); }
+  .agent-card-body { padding: 14px 16px 16px; }
+  .agent-card-state { font-size: 13px; color: var(--text); margin-bottom: 2px; font-weight: 600; }
+  .agent-card-clan { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .agent-card-main { display: flex; gap: 14px; margin-bottom: 14px; }
   .agent-card-avatar {
     width: 72px; height: 72px;
     border-radius: 12px;
@@ -763,37 +735,13 @@
     display: flex; align-items: center; justify-content: center;
   }
   .agent-card-avatar svg { width: 56px; height: 56px; }
-  .agent-card-stats {
-    display: flex; flex-direction: column; justify-content: center;
-    gap: 8px;
-    flex: 1;
-  }
-  .agent-card-stat {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--text);
-  }
-  .agent-card-stat svg {
-    width: 16px; height: 16px; flex-shrink: 0;
-    color: var(--muted);
-  }
-  .agent-card-stat .value {
-    margin-left: auto;
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-  }
-  .agent-card-bar {
-    height: 6px; border-radius: 3px;
-    background: rgba(255,255,255,0.1);
-    overflow: hidden;
-  }
-  .agent-card-bar span {
-    display: block; height: 100%; border-radius: 3px;
-    transition: width 0.2s ease;
-  }
-  .agent-card-actions {
-    display: flex; gap: 8px;
-    margin-top: 14px;
-  }
+  .agent-card-stats { display: flex; flex-direction: column; justify-content: center; gap: 8px; flex: 1; }
+  .agent-card-stat { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text); }
+  .agent-card-stat svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
+  .agent-card-stat .value { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .agent-card-bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .agent-card-bar span { display: block; height: 100%; border-radius: 3px; transition: width 0.2s ease; }
+  .agent-card-actions { display: flex; gap: 8px; margin-top: 14px; }
   .agent-card-actions button {
     flex: 1; margin: 0;
     padding: 8px 10px;
@@ -803,9 +751,7 @@
     border-radius: 8px;
     color: #58a6ff;
   }
-  .agent-card-actions button:hover {
-    background: rgba(88,166,255,0.15);
-  }
+  .agent-card-actions button:hover { background: rgba(88,166,255,0.15); }
   .tag-rest {
     display: inline-block;
     padding: 1px 6px; border-radius: 6px;
@@ -823,28 +769,37 @@
     color: #58a6ff;
     cursor: pointer;
   }
-  .rest-toggle:hover {
-    background: rgba(88,166,255,0.18);
-  }
-  /* Compact My Agents cards: the world is the game, UI stays out of the way. */
+  .rest-toggle:hover { background: rgba(88,166,255,0.18); }
+
+  /* My Agents — reference card style */
+  #myAgentsList { list-style: none; padding: 0; margin: 0; }
   .my-agent-item {
-    display: flex; align-items: center; gap: 10px;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    margin-bottom: 8px;
   }
-  .my-agent-item:last-child { border-bottom: none; }
+  .my-agent-item:last-child { margin-bottom: 0; }
+  .my-agent-avatar {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.06);
+  }
+  .my-agent-avatar svg { width: 34px; height: 34px; }
   .my-agent-main { flex: 1; min-width: 0; }
   .my-agent-name {
-    font-weight: 700; font-size: 12px; color: var(--text);
+    font-weight: 700; font-size: 13px; color: var(--text);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .my-agent-chips {
-    display: flex; flex-wrap: wrap; gap: 4px;
-    margin-top: 3px;
-  }
+  .my-agent-line { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .my-agent-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
   .my-agent-chip {
     display: inline-flex; align-items: center;
-    padding: 1px 5px; border-radius: 4px;
+    padding: 2px 6px; border-radius: 4px;
     font-size: 9px; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.03em;
     border: 1px solid var(--line);
@@ -856,30 +811,35 @@
   .my-agent-chip.warn { color: #d29922; border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.1); }
   .my-agent-chip.fine { color: #3fb950; border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.1); }
   .my-agent-actions {
-    display: flex; gap: 4px; flex-shrink: 0;
+    display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;
   }
   .my-agent-actions button {
-    width: 26px; height: 26px;
-    padding: 0; margin: 0; border-radius: 6px;
-    display: inline-flex; align-items: center; justify-content: center;
+    width: 56px; height: 46px;
+    padding: 0; margin: 0;
+    border-radius: 8px;
     background: rgba(88,166,255,0.08);
     border: 1px solid rgba(88,166,255,0.25);
     color: #58a6ff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px;
+    font-size: 9px; font-weight: 600;
     cursor: pointer;
   }
-  .my-agent-actions button svg {
-    width: 13px; height: 13px;
-    display: block;
+  .my-agent-actions button svg { width: 14px; height: 14px; display: block; }
+  .my-agent-actions button:hover { background: rgba(88,166,255,0.16); border-color: rgba(88,166,255,0.45); }
+  .new-agent-btn {
+    width: 100%; margin: 12px 0 0; padding: 10px;
+    border-radius: 8px;
+    background: rgba(88,166,255,0.1);
+    border: 1px solid rgba(88,166,255,0.25);
+    color: #58a6ff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    gap: 6px;
+    cursor: pointer;
   }
-  .my-agent-actions button:hover {
-    background: rgba(88,166,255,0.16);
-    border-color: rgba(88,166,255,0.45);
-  }
-  .world-summary {
-    font-size: 13px; line-height: 1.5;
-    margin: 0 0 12px;
-    color: var(--text);
-  }
+  .new-agent-btn svg { width: 14px; height: 14px; }
+  .new-agent-btn:hover { background: rgba(88,166,255,0.18); }
   .copy-btn {
     padding: 2px 6px; border-radius: 5px;
     font-size: 10px; font-weight: 600;
@@ -889,122 +849,63 @@
     cursor: pointer;
   }
   .copy-btn:hover { background: rgba(139,148,158,0.18); color: var(--text); }
+  .world-summary {
+    font-size: 13px; line-height: 1.5;
+    margin: 0 0 12px;
+    color: var(--text);
+  }
   #settingsPanel .secondary:hover { border-color: rgba(88,166,255,0.45); }
 
-  /* Market card — match the reference: icon, question, status line */
-  #marketsCard {
-    max-height: 42vh;
-  }
-  #marketsCard .card-title {
-    font-size: 11px; letter-spacing: 0.14em;
-  }
-  .market {
-    display: flex; gap: 12px;
-    padding: 12px;
-    margin-bottom: 10px;
-    border-radius: 10px;
-    background: rgba(10, 14, 20, 0.55);
-    border: 1px solid var(--line);
-  }
-  .market-icon {
-    width: 32px; height: 32px;
-    flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 8px;
-    background: rgba(255,255,255,0.06);
-  }
+  /* Market card */
+  #marketsCard { max-height: none; }
+  #marketsCard .card-title { font-size: 11px; letter-spacing: 0.14em; }
+  .market { display: flex; gap: 12px; padding: 12px; margin-bottom: 10px; border-radius: 10px; background: rgba(10, 14, 20, 0.55); border: 1px solid var(--line); }
+  .market-icon { width: 32px; height: 32px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: rgba(255,255,255,0.06); }
   .market-icon svg { width: 18px; height: 18px; }
   .market-main { flex: 1; min-width: 0; }
-  .market-q {
-    font-size: 13px; font-weight: 600;
-    color: var(--text); line-height: 1.4;
-    margin-bottom: 6px;
-  }
-  .market-meta {
-    font-size: 11px; color: var(--muted);
-    margin-bottom: 8px;
-  }
+  .market-q { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; margin-bottom: 6px; }
+  .market-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
   .market-meta strong { color: var(--text); font-weight: 600; }
-  .market-status {
-    font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: 0.04em;
-    color: var(--muted);
-  }
+  .market-status { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .market-status.open { color: #3fb950; }
   .market-status.closed { color: #d29922; }
   .market-status.settled { color: var(--muted); }
-  .market-actions {
-    display: flex; gap: 6px; margin-top: 8px;
-  }
-  .market-actions button {
-    flex: 1; margin: 0;
-    padding: 6px 8px;
-    font-size: 11px; font-weight: 700;
-    border-radius: 6px;
-  }
-  .market-actions button.yes {
-    background: rgba(63,185,80,0.1);
-    border-color: rgba(63,185,80,0.35);
-    color: #3fb950;
-  }
-  .market-actions button.no {
-    background: rgba(248,81,73,0.1);
-    border-color: rgba(248,81,73,0.35);
-    color: #f85149;
-  }
-  .market-actions button.yes:hover {
-    background: rgba(63,185,80,0.18);
-    border-color: rgba(63,185,80,0.55);
-  }
-  .market-actions button.no:hover {
-    background: rgba(248,81,73,0.18);
-    border-color: rgba(248,81,73,0.55);
-  }
-  .market-held {
-    font-size: 10px; color: var(--muted); margin-top: 6px;
-  }
+  .market-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .market-actions button { flex: 1; margin: 0; padding: 6px 8px; font-size: 11px; font-weight: 700; border-radius: 6px; }
+  .market-actions button.yes { background: rgba(63,185,80,0.1); border-color: rgba(63,185,80,0.35); color: #3fb950; }
+  .market-actions button.no { background: rgba(248,81,73,0.1); border-color: rgba(248,81,73,0.35); color: #f85149; }
+  .market-actions button.yes:hover { background: rgba(63,185,80,0.18); border-color: rgba(63,185,80,0.55); }
+  .market-actions button.no:hover { background: rgba(248,81,73,0.18); border-color: rgba(248,81,73,0.55); }
+  .market-held { font-size: 10px; color: var(--muted); margin-top: 6px; }
   .market-settled { opacity: 0.75; }
 
   /* Bottom dock */
   #bottomDock {
-    position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
-    z-index: 50;
-    display: flex; align-items: center; gap: 4px;
-    padding: 6px 8px;
-    background: rgba(13, 17, 23, 0.92);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    box-shadow: var(--shadow);
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    height: 64px;
+    padding: 0 12px;
+    background: rgba(10, 14, 20, 0.95);
+    border-top: 1px solid var(--line);
     backdrop-filter: blur(12px) saturate(1.1);
   }
   .dock-btn {
     display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 7px 14px; margin: 0; width: auto;
+    padding: 8px 18px; margin: 0; width: auto;
     background: transparent; border: 1px solid transparent;
     border-radius: 10px; color: var(--muted); font: inherit;
     cursor: pointer; font-size: 10px;
     transition: color 0.15s, border-color 0.15s, background 0.15s;
   }
-  .dock-btn:hover {
-    color: var(--text);
-    background: rgba(255,255,255,0.05);
-    border-color: var(--line);
-  }
-  .dock-btn.active {
-    color: var(--accent);
-    background: var(--accent-dim);
-    border-color: rgba(63,185,80,0.35);
-  }
-  .dock-icon {
-    width: 20px; height: 20px;
-    display: inline-flex; align-items: center; justify-content: center;
-  }
+  .dock-btn:hover { color: var(--text); background: rgba(255,255,255,0.05); border-color: var(--line); }
+  .dock-btn.active { color: var(--accent); background: var(--accent-dim); border-color: rgba(63,185,80,0.35); }
+  .dock-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .dock-icon svg { width: 100%; height: 100%; }
   .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
 
   /* Left controls */
   #controlsPanel {
-    position: fixed; left: 14px; top: 50%; transform: translateY(-50%);
+    position: fixed; left: 78px; top: 50%; transform: translateY(-50%);
     z-index: 40;
     display: flex; flex-direction: column; gap: 9px;
     padding: 14px;
@@ -1015,10 +916,7 @@
     pointer-events: none;
     backdrop-filter: blur(4px);
   }
-  .control-row {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 11px; color: var(--muted);
-  }
+  .control-row { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
   .control-row kbd {
     display: inline-flex; align-items: center; justify-content: center;
     min-width: 22px; padding: 2px 5px;
@@ -1029,35 +927,15 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.3);
   }
 
-  /* Agent cards (bottom-left inspector) */
-  #agentCards {
-    position: fixed; left: 14px; bottom: 76px; z-index: 40;
-    width: 300px; max-height: 340px;
-    display: flex; flex-direction: column; gap: 10px;
-  }
-  #agentCards #inspector {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    padding: 14px;
-    margin: 0;
-    max-height: 300px;
-    overflow-y: auto;
-    backdrop-filter: blur(10px) saturate(1.1);
-  }
-
-  /* Panel visibility is class-driven so mobile and desktop can differ. */
+  /* Overlay panel visibility */
   #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { display: none; }
   #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; }
   #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open { display: block; }
 
   /* Hide UI mode */
   body.ui-hidden #topBar,
-  body.ui-hidden #rightCards,
+  body.ui-hidden #dashboard,
   body.ui-hidden #bottomDock,
-  body.ui-hidden #controlsPanel,
-  body.ui-hidden #agentCards,
   body.ui-hidden #hud,
   body.ui-hidden #minimap,
   body.ui-hidden #minimapHint {
@@ -1065,215 +943,182 @@
     transition: opacity 0.35s ease;
   }
 
+  /* Cinema / full-world mode: collapse all chrome so the world fills the screen.
+     The top bar becomes a small floating restore button in the bottom-right. */
+  body.cinema #dashboard {
+    top: 0; left: 0; right: 0; bottom: 0;
+    grid-template-columns: 0 1fr 0;
+    grid-template-rows: 1fr 0;
+  }
+  body.cinema #leftNav,
+  body.cinema #rightCards,
+  body.cinema #bottomStrip,
+  body.cinema #bottomDock,
+  body.cinema #hud,
+  body.cinema #minimapHint,
+  body.cinema #minimap,
+  body.cinema #topBar .logo,
+  body.cinema #topBar .topStats,
+  body.cinema #topBar .cinema-btn {
+    display: none !important;
+  }
+  body.cinema #topBar {
+    position: fixed;
+    top: auto; left: auto; right: 14px; bottom: 14px;
+    width: auto; height: auto;
+    padding: 0;
+    background: transparent; border: none; backdrop-filter: none;
+    z-index: 50;
+  }
+  body.cinema #topBar .cinema-exit {
+    display: inline-flex;
+  }
+  .cinema-exit {
+    display: none;
+    align-items: center; justify-content: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(10,14,20,0.85);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 12px; font-weight: 600;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  .cinema-exit:hover { background: rgba(22,28,38,0.95); border-color: var(--muted); }
+
+  .cinema-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 5px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    background: rgba(22,28,38,0.7);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 11px; font-weight: 600;
+    cursor: pointer;
+  }
+  .cinema-btn:hover { background: rgba(88,166,255,0.12); border-color: rgba(88,166,255,0.35); color: #58a6ff; }
+  .cinema-btn svg { width: 14px; height: 14px; }
+
   /* Legacy hidden elements (still referenced by JS) */
   #legacyHidden { display: none; }
 
-  /* === end new layout ================================================ */
-
   /* === MOBILE RESPONSIVENESS ========================================= */
-  /*
-   * Phone-width constraints: the desktop floating-card layout is too wide and
-   * too stacked. We turn every panel into a bottom sheet, shrink the minimap,
-   * collapse the dock to icons, and hide secondary cards by default so the
-   * world stays visible.
-   */
-
-  /* Phone and tablet portrait / narrow desktop: switch to bottom sheets and icon dock. */
   @media (max-width: 900px) {
     body { font-size: 14px; }
-
-    #topBar {
-      gap: 8px;
-      padding: 8px 10px;
-      min-height: 44px;
-    }
-    #topBar .logo {
-      font-size: 11px;
-      letter-spacing: .1em;
-      max-width: 90px;
-      line-height: 1.2;
-    }
-    #topBar .topStats {
-      gap: 6px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    #topBar .stat {
-      padding: 3px 8px;
-      font-size: 11px;
-      gap: 4px;
-    }
+    #topBar { gap: 8px; padding: 8px 10px; min-height: 44px; }
+    #topBar .logo { font-size: 11px; letter-spacing: .1em; max-width: 90px; line-height: 1.2; }
+    #topBar .topStats { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    #topBar .stat { padding: 3px 8px; font-size: 11px; gap: 4px; }
     #topBar .stat-icon { width: 12px; height: 12px; }
-    /* Keep only day + agents on the smallest screens. */
     #topBar .stat:nth-child(n+3) { display: none; }
 
+    #dashboard {
+      top: 44px;
+      grid-template-areas: "world" "bottom";
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr auto;
+    }
+    #leftNav { display: none; }
     #rightCards {
       position: fixed;
-      top: auto;
-      right: 0;
-      left: 0;
-      bottom: 72px;
-      width: 100%;
-      height: auto;
+      top: auto; right: 0; left: 0; bottom: 64px;
+      width: 100%; height: auto;
       overflow-y: visible;
       padding: 0 10px;
       gap: 0;
       pointer-events: none;
       align-items: center;
+      background: transparent;
+      border: none;
     }
     #rightCards .floating-card {
-      width: 100%;
-      max-width: 100%;
-      max-height: 45vh;
+      width: 100%; max-width: 100%; max-height: 50vh;
       border-radius: 16px 16px 0 0;
-      display: none;
-      pointer-events: auto;
+      display: none; pointer-events: auto;
       box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
     }
-    #rightCards .floating-card.open {
-      display: flex;
-    }
+    #rightCards .floating-card.open { display: flex; }
 
-    /* Left panels become bottom sheets too. */
-    #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel {
+    #bottomStrip {
       position: fixed;
-      top: auto;
-      left: 0;
-      right: 0;
-      bottom: 72px;
-      width: 100%;
-      max-height: 45vh;
+      top: auto; left: 0; right: 0; bottom: 64px;
+      height: auto; max-height: 50vh;
+      flex-direction: column;
+      padding: 0 10px;
+      background: transparent;
+      border: none;
+      pointer-events: none;
+      overflow-y: auto;
+      display: none;
+    }
+    #bottomStrip.open { display: flex; pointer-events: auto; }
+    #bottomStrip .floating-card {
+      flex: 0 0 auto;
+      width: 100%; max-height: 50vh;
+      border-radius: 16px 16px 0 0;
+      display: none;
+      box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
+    }
+    #bottomStrip .floating-card.open { display: flex; }
+
+    #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard {
+      position: fixed; top: auto; left: 0; right: 0; bottom: 64px;
+      width: 100%; max-height: 50vh;
       border-radius: 16px 16px 0 0;
       box-shadow: 0 -8px 40px rgba(0,0,0,0.55);
-      display: none;
+      display: none; z-index: 60;
     }
     #agentCards.open { display: flex; flex-direction: column; }
-    #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open { display: block; }
+    #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: block; }
 
-    #agentCards {
-      padding: 0;
-      gap: 0;
-    }
-    #agentCards #inspector {
-      border-radius: 16px 16px 0 0;
-      max-height: 45vh;
-    }
+    #agentCards { padding: 0; gap: 0; }
+    #agentCards #inspector { border-radius: 16px 16px 0 0; max-height: 50vh; }
+    #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard { width: 100%; }
+    #deployPanel .card-body, #legendPanel .card-body { padding: 14px 16px 18px; }
 
-    #deployPanel, #legendPanel, #settingsPanel, #controlsPanel { width: 100%; }
-    #deployPanel .card-body, #legendPanel .card-body {
-      padding: 14px 16px 18px;
-    }
+    #minimap { width: 120px; height: 120px; right: 10px; top: 50px; bottom: auto; border-radius: 10px; z-index: 45; }
+    #minimapHint { right: 10px; top: 176px; bottom: auto; font-size: 9px; z-index: 45; }
 
-    #minimap {
-      width: 120px;
-      height: 120px;
-      right: 10px;
-      top: 50px;
-      bottom: auto;
-      border-radius: 10px;
-      z-index: 45;
-    }
-    #minimapHint {
-      right: 10px;
-      top: 176px;
-      bottom: auto;
-      font-size: 9px;
-      z-index: 45;
-    }
-
-    #hud {
-      top: 42px;
-      padding: 8px 10px;
-      gap: 6px;
-    }
+    #hud { top: 0; padding: 8px 10px; gap: 6px; }
     #hud .title { font-size: 12px; }
     #hud .meta { font-size: 10px; }
     #hud .meta:last-child { display: none; }
 
     #bottomDock {
-      left: 0;
-      right: 0;
-      bottom: 0;
-      transform: none;
-      padding: 6px 4px;
-      gap: 2px;
-      border-radius: 0;
-      border-left: 0;
-      border-right: 0;
-      border-bottom: 0;
+      left: 0; right: 0; bottom: 0; transform: none;
+      padding: 6px 4px; gap: 2px;
+      border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
+      border-top: 1px solid var(--line);
     }
-    .dock-btn {
-      flex: 1;
-      padding: 6px 2px;
-      gap: 2px;
-      min-width: 0;
-    }
+    .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; }
     .dock-icon { width: 22px; height: 22px; }
-    .dock-label {
-      font-size: 9px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
-    }
+    .dock-label { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
-    /* Larger touch targets inside cards. */
-    .my-agent-actions button,
-    .agent-card-actions button,
-    .market-actions button {
-      min-height: 40px;
-      min-width: 40px;
-      font-size: 13px;
-    }
+    .my-agent-actions button, .agent-card-actions button, .market-actions button { min-height: 40px; min-width: 40px; font-size: 13px; }
     .my-agent-actions button svg { width: 18px; height: 18px; }
-    .objective-btn {
-      padding: 12px 14px;
-      min-height: 44px;
-    }
-    #marketsCard input,
-    #deployPanel input,
-    #deployPanel button {
-      min-height: 40px;
-      font-size: 14px;
-    }
+    .objective-btn { padding: 12px 14px; min-height: 44px; }
+    #marketsCard input, #deployPanel input, #deployPanel button { min-height: 40px; font-size: 14px; }
 
-    .gameplay-hint {
-      font-size: 12px;
-      padding: 10px 16px;
-      max-width: 90vw;
-    }
+    .gameplay-hint { bottom: 80px; font-size: 12px; padding: 10px 16px; max-width: 90vw; }
 
-    /* Onboarding panels fit small screens. */
-    #onboarding .panel {
-      padding: 28px 22px;
-      width: 92%;
-      max-width: none;
-    }
+    #onboarding .panel { padding: 28px 22px; width: 92%; max-width: none; }
     .splash-panel { padding: 36px 28px; }
     .splash-panel .hero { font-size: 28px; }
-    .menu-panel {
-      margin: auto;
-      align-self: center;
-      width: 92%;
-      max-width: none;
-    }
+    .menu-panel { margin: auto; align-self: center; width: 92%; max-width: none; }
     .slide-features { grid-template-columns: 1fr; gap: 8px; }
     .controls-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
 
-    .speech-bubble {
-      font-size: 12px;
-      padding: 6px 10px 8px;
-      max-width: 180px;
-    }
+    .speech-bubble { font-size: 12px; padding: 6px 10px 8px; max-width: 180px; }
     .speech-bubble .text { font-size: 12px; }
   }
 
-  /* Small phones: icon-only dock to avoid truncation and keep targets large. */
   @media (max-width: 420px) {
     .dock-label { display: none; }
     .dock-btn { padding: 9px 2px; }
   }
-
 </style>
 </head>
 <body>
@@ -1288,7 +1133,9 @@
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span> <span class="stat-value" id="topClans">—</span> Clans</span>
       <span class="stat"><span class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 8.5l-9 9-5-5L2 17.5"/><path d="M15.5 2.5l6 6"/></svg></span> <span class="stat-value" id="topResources">—</span> Resources</span>
     </div>
-  </div>
+    <button id="cinemaToggle" class="cinema-btn" title="Full world view (C)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg><span>World</span></button</span>>
+    <button id="cinemaExit" class="cinema-exit" title="Restore UI"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M16 3v3a2 2 0 0 0 2 2h3"/><path d="M8 21v-3a2 2 0 0 0-2-2H3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg><span>Exit full world</span></button>
+</span>  </div>
 
   <!-- Pause Overlay -->
   <div id="pauseOverlay">
@@ -1304,8 +1151,16 @@
     </div>
   </div>
 
-  <!-- 3D Stage -->
-  <div id="stage">
+  <!-- Main Dashboard -->
+  <div id="dashboard">
+    <nav id="leftNav">
+      <button class="nav-btn" data-panel="objectivesCard"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg></span><span>Quests</span></button>
+      <button class="nav-btn" data-panel="legendPanel"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span>Clan</span></button>
+      <button class="nav-btn" data-panel="messagesCard"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span>Friends</span></button>
+      <button class="nav-btn" data-panel="worldOverviewCard"><span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span>World</span></button>
+    </nav>
+
+    <div id="stage">
     <div id="world"></div>
     <div id="speechBubbles"></div>
     <div id="hud">
@@ -1318,26 +1173,10 @@
     <div id="minimap"><canvas id="map" width="256" height="256"></canvas></div>
   </div>
 
-  <!-- Left Controls (secondary) -->
-  <div id="controlsPanel">
-    <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
-    <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
-    <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
-    <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
-    <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
-    <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
-    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>View Presets</span></div>
-    <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
-  </div>
-
-  <!-- Bottom Left Agent Cards -->
-  <div id="agentCards">
-    <div id="inspector"><p class="hint">click an agent on the map</p></div>
-  </div>
-
-  <!-- Right Floating Cards -->
-  <div id="rightCards">
-    <div class="floating-card" id="myAgentsCard">
+    <!-- Right Sidebar -->
+    <div id="rightCards">
+      <div class="sidebar-header">AGENTS</div>
+      <div class="floating-card" id="myAgentsCard">
       <h3 class="card-title">MY AGENTS</h3>
       <div class="card-body">
         <p class="hint" id="myAgentsHint">You haven't deployed anyone yet.</p>
@@ -1346,8 +1185,7 @@
         <button id="copyWorldStatus" class="secondary" style="width:100%;margin-top:8px;">Copy world status</button>
       </div>
     </div>
-
-    <div class="floating-card" id="worldOverviewCard">
+      <div class="floating-card" id="worldOverviewCard">
       <h3 class="card-title">WORLD OVERVIEW</h3>
       <div class="card-body">
         <p id="worldSummary" class="world-summary">Connecting…</p>
@@ -1361,8 +1199,19 @@
         </dl>
       </div>
     </div>
+      <div class="floating-card" id="objectivesCard">
+      <h3 class="card-title">CAMERA TOURS</h3>
+      <div class="card-body">
+        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
+        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
+        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+      </div>
+    </div>
+    </div>
 
-    <div class="floating-card" id="marketsCard">
+    <!-- Bottom Panel Strip -->
+    <div id="bottomStrip">
+      <div class="floating-card" id="marketsCard">
       <h3 class="card-title">BETS</h3>
       <div class="card-body">
         <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
@@ -1371,32 +1220,23 @@
         <ul id="leaderboard"></ul>
       </div>
     </div>
-
-    <div class="floating-card" id="messagesCard">
-      <h3 class="card-title">WHAT THEY'RE SAYING</h3>
+      <div class="floating-card" id="messagesCard">
+      <h3 class="card-title">CHAT</h3>
       <div class="card-body">
         <ul class="feed-list" id="feedList"><li class="feed-empty">Waiting for the first words...</li></ul>
       </div>
     </div>
-
-    <div class="floating-card" id="worldLogCard">
+      <div class="floating-card" id="worldLogCard">
       <h3 class="card-title">WORLD LOG</h3>
       <div class="card-body">
         <ul class="feed-list" id="worldLog"><li class="feed-empty">Nothing has happened yet...</li></ul>
       </div>
     </div>
-
-    <div class="floating-card" id="objectivesCard">
-      <h3 class="card-title">CAMERA TOURS</h3>
-      <div class="card-body">
-        <button id="flyStreet" class="objective-btn">Street level - walk among them</button>
-        <button id="flyDensest" class="objective-btn">Fly to densest settlement</button>
-        <button id="flyOverview" class="objective-btn">Whole-world overview</button>
+      <div class="floating-card" id="agentCards">
+        <div id="inspector"><p class="hint">click an agent on the map</p></div>
       </div>
     </div>
-  </div>
-
-  <!-- Deploy Panel -->
+  </div><!-- Deploy Panel -->
   <div id="deployPanel">
     <h3 class="card-title">DEPLOY AN AGENT</h3>
     <div class="card-body">
@@ -1454,21 +1294,33 @@
     </div>
   </div>
 
+  <!-- Left Controls (secondary) -->
+  <div id="controlsPanel">
+    <div class="control-row"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <span>Move Camera</span></div>
+    <div class="control-row"><kbd>Mouse</kbd> <span>Pan Camera</span></div>
+    <div class="control-row"><kbd>Wheel</kbd> <span>Zoom In / Out</span></div>
+    <div class="control-row"><kbd>Shift</kbd> <span>Fast Pan</span></div>
+    <div class="control-row"><kbd>F</kbd> <span>Focus Selection</span></div>
+    <div class="control-row"><kbd>Space</kbd> <span>Pause / Play</span></div>
+    <div class="control-row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd> <span>View Presets</span></div>
+    <div class="control-row"><kbd>H</kbd> <span>Hide UI</span></div>
+  </div>
+
   <!-- Gameplay hints -->
   <div id="gameplayHints"></div>
 
   <!-- Bottom Dock -->
   <div id="bottomDock">
-    <button class="dock-btn" data-panel="myAgentsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">My Agents</span></button>
+    <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span class="dock-label">Home</span></button>
+    <button class="dock-btn" data-panel="myAgentsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span class="dock-label">Agents</span></button>
     <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
-    <button class="dock-btn" data-panel="agentCards"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span><span class="dock-label">Inspect</span></button>
-    <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">World</span></button>
-    <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
     <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
-    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">Settings</span></button>
+    <button class="dock-btn" data-panel="messagesCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span class="dock-label">Chat</span></button>
+    <button class="dock-btn" data-panel="settingsPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span class="dock-label">More</span></button>
   </div>
 
   <!-- Legacy elements still referenced by JS — kept in a hidden container so IDs remain valid. -->
+  
   <div id="legacyHidden">
     <button id="autoCamera" data-on="1">camera: cinematic</button>
     <button id="mode">colour: clan</button>
@@ -1660,15 +1512,19 @@ function isMobileLayout() {
 }
 
 function closeAllPanels(exceptId = null) {
-  // Overlays (left panels, settings, controls, tours, inspector) always close when
-  // another overlay opens. On mobile, the right cards are also sheet-style and only
-  // one should be open at a time; on desktop they stay visible as the persistent HUD.
+  // Overlays always close when another overlay opens. On mobile, the right cards
+  // and bottom strip cards are also sheet-style and only one should be open at a time;
+  // on desktop they stay visible as the persistent HUD.
   const overlays = ["deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard", "agentCards"];
-  const rightCards = ["myAgentsCard", "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard"];
-  const toClose = isMobileLayout() ? [...overlays, ...rightCards] : overlays;
+  const rightCards = ["myAgentsCard", "worldOverviewCard"];
+  const bottomCards = ["marketsCard", "messagesCard", "worldLogCard"];
+  const toClose = isMobileLayout() ? [...overlays, ...rightCards, ...bottomCards] : overlays;
   for (const id of toClose) {
     if (id !== exceptId) setPanelOpen(id, false);
   }
+  const strip = document.getElementById("bottomStrip");
+  if (strip && bottomCards.includes(exceptId)) strip.classList.add("open");
+  else if (strip) strip.classList.remove("open");
 }
 
 // Golden-angle hue steps keep adjacent clan ids visually far apart.
@@ -1833,19 +1689,21 @@ function renderMyAgents(snapshot) {
     const shareText = `${agent.name} is ${status}, ${clanText}, in Neo-Civilization day ${snapshot.day}.`;
     const restIcon = agent.rest_mode ? AGENT_ICONS.resume : AGENT_ICONS.rest;
     const restLabel = agent.rest_mode ? "Resume" : "Rest";
+    const colour = agentColour(agent);
+    const line = rank ? `${escapeHtml(rank)} · ${escapeHtml(clanText)}` : escapeHtml(clanText);
     item.innerHTML =
+      `<div class="my-agent-avatar" style="background:${colour}22">${agentAvatar(agent, colour)}</div>` +
       `<div class="my-agent-main">` +
       `<div class="my-agent-name">${escapeHtml(agent.name)}</div>` +
+      `<div class="my-agent-line">${line}</div>` +
       `<div class="my-agent-chips">` +
       `<span class="my-agent-chip ${statusChipClass(status)}">${escapeHtml(status)}</span>` +
-      (rank ? `<span class="my-agent-chip">${escapeHtml(rank)}</span>` : "") +
-      `<span class="my-agent-chip">${escapeHtml(clanText)}</span>` +
       `</div>` +
       `</div>` +
       `<div class="my-agent-actions">` +
-      `<button class="find-agent" aria-label="Find" title="Find">${AGENT_ICONS.locate}</button>` +
-      `<button class="rest-agent" aria-label="${restLabel}" title="${restLabel}">${restIcon}</button>` +
-      `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}</button>` +
+      `<button class="find-agent" aria-label="Locate" title="Locate">${AGENT_ICONS.locate}<span>Locate</span></button>` +
+      `<button class="rest-agent" aria-label="${restLabel}" title="${restLabel}">${restIcon}<span>${restLabel}</span></button>` +
+      `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
       `</div>`;
 
     item.querySelector(".find-agent").addEventListener("click", () => {
@@ -2862,6 +2720,14 @@ function resumePause() {
   worldStage.classList.remove("blur");
 }
 
+function setCinema(on) {
+  document.body.classList.toggle("cinema", on);
+  if (on) worldView.resize();
+}
+
+document.getElementById("cinemaToggle").addEventListener("click", () => setCinema(true));
+document.getElementById("cinemaExit").addEventListener("click", () => setCinema(false));
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && selectedId !== null) {
     selectedId = null;
@@ -2870,6 +2736,9 @@ document.addEventListener("keydown", (event) => {
       renderInspector(lastSnapshot);
       drawMinimap(lastSnapshot);
     }
+  }
+  if (event.key.toLowerCase() === "c") {
+    setCinema(!document.body.classList.contains("cinema"));
   }
   if (event.key.toLowerCase() === "h") {
     document.body.classList.toggle("ui-hidden");
@@ -2893,6 +2762,18 @@ document.getElementById("pause-exit").addEventListener("click", () => {
 
 // Dock button toggles
 for (const btn of document.querySelectorAll("#bottomDock .dock-btn")) {
+  btn.addEventListener("click", () => {
+    const panelId = btn.dataset.panel;
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+    const willOpen = !panel.classList.contains("open");
+    closeAllPanels(panelId);
+    setPanelOpen(panelId, willOpen);
+  });
+}
+
+// Left nav button toggles (desktop only)
+for (const btn of document.querySelectorAll("#leftNav .nav-btn")) {
   btn.addEventListener("click", () => {
     const panelId = btn.dataset.panel;
     const panel = document.getElementById(panelId);
