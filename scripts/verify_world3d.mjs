@@ -629,7 +629,22 @@ const nav = await page.evaluate(() => {
   return {
     afterWorld, afterBets, afterToggleOff,
     dockButtons: document.querySelectorAll("#bottomDock .dock-btn").length,
-    hasLeftNav: !!document.getElementById("leftNav"),
+    // Navigation is one rail down the left edge. What matters is that it is a single
+    // vertical group — the old failure was navigation split across two places, which is
+    // why this asserts the shape rather than merely counting buttons.
+    rail: (() => {
+      const dock = document.getElementById("bottomDock");
+      const box = dock.getBoundingClientRect();
+      const first = dock.querySelector(".dock-btn").getBoundingClientRect();
+      const last = [...dock.querySelectorAll(".dock-btn")].pop().getBoundingClientRect();
+      return {
+        vertical: box.height > box.width,
+        onLeft: box.left < window.innerWidth / 2,
+        // Stacked, not laid out side by side.
+        stacked: last.top > first.top,
+        width: box.width,
+      };
+    })(),
   };
 });
 check(
@@ -648,9 +663,10 @@ check(
   `still visible: ${nav.afterToggleOff.join(", ") || "none"}`
 );
 check(
-  "navigation is a single 8-button dock with no left rail",
-  nav.hasLeftNav === false && nav.dockButtons === 8,
-  `leftNav=${nav.hasLeftNav}, dockButtons=${nav.dockButtons}`
+  "navigation is one vertical 8-button rail down the left edge",
+  nav.dockButtons === 8 && nav.rail.vertical && nav.rail.onLeft && nav.rail.stacked,
+  `buttons=${nav.dockButtons}, vertical=${nav.rail.vertical}, onLeft=${nav.rail.onLeft}, ` +
+    `stacked=${nav.rail.stacked}, width=${nav.rail.width.toFixed(0)}px`
 );
 
 // Top bar: stat deltas and the "Following X" chip are pure derivations exposed on
@@ -885,6 +901,69 @@ await page.evaluate(async () => {
   const real = await (await fetch("/state")).json();
   window["__world"].update(real);
   window.__events.feed(real, real);
+});
+
+// --- 11bis. a strip panel is long and horizontal, and nothing is cut off ----------
+// The failure this catches: PREDICTIONS opened as a full-width panel whose content was
+// stacked vertically, so a market was sliced in half by the bottom edge and the
+// leaderboard was never reachable at all.
+const strip = await page.evaluate(() => {
+  document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
+  const card = document.getElementById("marketsCard");
+  const body = card.querySelector(".card-body");
+  const markets = document.getElementById("markets");
+  const board = card.querySelector(".markets-board");
+  const dock = document.getElementById("bottomDock");
+  const box = (el) => el.getBoundingClientRect();
+  const cardBox = box(card);
+  const styles = getComputedStyle(body);
+  // Every market must fit inside the body, not just the first — the first one to render
+  // is often a short settled card, so testing only that one passed while open markets
+  // had their YES/NO buttons sliced off by the bottom edge.
+  const all = [...markets.querySelectorAll(".market")];
+  const bodyBottom = box(body).bottom;
+  const overflowBottom = all.reduce((worst, m) => Math.max(worst, box(m).bottom - bodyBottom), -Infinity);
+  // Measuring the card's box is not enough: with overflow-y on the card, the box fits
+  // neatly while the YES/NO buttons inside are scrolled out of sight. What a spectator
+  // actually loses is content, so compare each card's content height to its visible one.
+  const hiddenInside = all.reduce((worst, m) => Math.max(worst, m.scrollHeight - m.clientHeight), 0);
+  return {
+    wide: cardBox.width > 700,
+    row: styles.flexDirection === "row",
+    marketsRow: getComputedStyle(markets).flexDirection === "row",
+    boardVisible: board ? box(board).width > 0 : false,
+    // Clear of the rail: with navigation down the left edge, a panel that started at
+    // the window edge would sit underneath it.
+    gapToDock: cardBox.left - box(dock).right,
+    overflowBottom,
+    hiddenInside,
+    hasMarket: all.length > 0,
+    marketCount: all.length,
+  };
+});
+check(
+  "an open strip panel is long and horizontal",
+  strip.wide === true && strip.row === true && strip.marketsRow === true,
+  `width>700=${strip.wide}, body=row:${strip.row}, markets=row:${strip.marketsRow}`
+);
+check(
+  "the panel clears the rail instead of sliding under it",
+  strip.gapToDock > 8,
+  `${strip.gapToDock.toFixed(1)}px between rail and panel`
+);
+check(
+  "no market is cut off by the bottom of the panel",
+  strip.hasMarket === false || (strip.overflowBottom <= 1 && strip.hiddenInside <= 1),
+  `worst of ${strip.marketCount}: ${strip.overflowBottom.toFixed(0)}px past the body, ` +
+    `${strip.hiddenInside.toFixed(0)}px hidden inside the card`
+);
+check(
+  "the leaderboard is reachable, not pushed out of the panel",
+  strip.boardVisible === true,
+  `leaderboard column visible: ${strip.boardVisible}`
+);
+await page.evaluate(() => {
+  document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
 });
 
 // --- 11c. ambient sound: silent by default, and never required -------------------

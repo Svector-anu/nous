@@ -37,14 +37,18 @@
        inset and a breathing gap below it. */
     --topbar-h: 104px;
     --topbar-clear: calc(var(--topbar-h) + 24px);
-    /* The bottom dock mirrors the top bar: a floating card inset from the window edges.
-       Its height lives here once, and --dock-clear is the room every panel leaves below
-       itself so it never slides under the dock (inset + height + a breathing gap). */
+    /* Navigation is a vertical rail down the left edge, per the design reference: a
+       floating card inset from the window, icon over label, hairlines between items.
+       Its width lives here once and --rail-clear is the room every panel leaves to its
+       right so nothing slides underneath it. */
+    --rail-w: 88px;
+    --rail-clear: calc(var(--rail-w) + 24px);
+    /* Nothing occupies the bottom edge now that the rail is vertical, so panels only
+       leave the same 12px inset the rail itself uses. --dock-h stays because the mobile
+       layout still lays the rail out as a bottom bar, where a height is what matters. */
     --dock-h: 62px;
-    --dock-clear: calc(var(--dock-h) + 26px);
-    /* Where the bottom panel strip floats. Sits clear of the dock's own 12px inset
-       plus its height, leaving a visible gap so the two read as separate cards. */
-    --strip-bottom: calc(var(--dock-h) + 24px);
+    --dock-clear: 12px;
+    --strip-bottom: 12px;
     --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-bubble: ui-rounded, "Comic Sans MS", "Chalkboard SE", "Chalkboard", "Marker Felt", sans-serif;
@@ -870,7 +874,9 @@
      The strip itself is only a layout box: the visible surface is the card inside. */
   #bottomStrip {
     position: fixed;
-    left: 12px; right: 12px; bottom: var(--strip-bottom); height: 168px;
+    /* Tall enough that an open market shows its YES/NO buttons without scrolling inside
+       its own card. A market is the one thing here a spectator has to be able to act on. */
+    left: var(--rail-clear); right: 12px; bottom: var(--strip-bottom); height: 276px;
     display: none; gap: 10px;
     overflow-x: auto;
     background: none;
@@ -893,6 +899,51 @@
      reveals its neighbours. The strip container is shown by syncBottomStrip(). */
   #bottomStrip .floating-card { display: none; }
   #bottomStrip .floating-card.open { display: flex; }
+
+  /* A panel in the strip is wide and short. Stacked vertically its content ran past the
+     bottom edge and cut a market in half mid-sentence, so in the strip the body lays out
+     as columns and each column scrolls on its own axis. */
+  #bottomStrip .floating-card .card-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #bottomStrip #marketsCard .card-body {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 20px;
+    padding: 4px 16px 16px;
+  }
+  #bottomStrip #marketsCard .markets-lead {
+    flex: 0 0 176px;
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  /* The markets themselves are the long axis: a row that scrolls sideways, so adding a
+     market makes the list longer rather than pushing the next one out of sight. */
+  #bottomStrip #marketsCard #markets {
+    flex: 1 1 auto;
+    display: flex; flex-direction: row;
+    gap: 12px;
+    min-width: 0;
+    overflow-x: auto; overflow-y: hidden;
+    padding-bottom: 4px;
+  }
+  #bottomStrip #marketsCard #markets .market {
+    flex: 0 0 264px;
+    margin-bottom: 0;
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+  #bottomStrip #marketsCard .markets-board {
+    flex: 0 0 188px;
+    min-width: 0;
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    padding-left: 18px;
+  }
+  #bottomStrip #marketsCard .markets-board .card-subtitle { margin-top: 0; }
   #bottomStrip .floating-card.collapsed .card-body { display: none; }
   .card-tools {
     display: inline-flex; align-items: center; gap: 4px;
@@ -1268,21 +1319,26 @@
 
   /* Bottom dock */
   #bottomDock {
-    position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 50;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-    height: var(--dock-h);
-    padding: 0 12px;
+    position: fixed; left: 12px; top: var(--topbar-clear); bottom: 12px; right: auto; z-index: 50;
+    width: var(--rail-w);
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+    gap: 0;
+    padding: 4px 7px;
+    overflow-y: auto;
     background: linear-gradient(180deg, rgba(12,17,22,0.96) 0%, rgba(10,14,18,0.94) 100%);
     border: 1px solid rgba(48, 58, 50, 0.75);
     border-radius: var(--radius);
-    /* Mirror of the top bar's corner bloom — a faint green glow, this time off the
-       bottom-left corner so the two cards frame the world symmetrically. */
-    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 40px -26px 60px -46px rgba(110,226,116,0.30);
+    /* Mirror of the top bar's corner bloom — a faint green glow, off the top-left corner
+       so the rail and the bar frame the world from the same side. */
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 30px 34px 60px -46px rgba(110,226,116,0.30);
     backdrop-filter: blur(14px) saturate(1.1);
+    scrollbar-width: none;
   }
+  #bottomDock::-webkit-scrollbar { display: none; }
   .dock-btn {
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 8px 18px; margin: 0; width: auto;
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    padding: 13px 2px; margin: 0; width: 100%; flex: 0 0 auto;
     background: transparent; border: 1px solid transparent;
     border-radius: 10px; color: var(--muted); font: inherit;
     cursor: pointer; font-size: 10px;
@@ -1293,7 +1349,18 @@
   .dock-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .dock-icon svg { width: 100%; height: 100%; }
   .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
-  .dock-divider { width: 1px; height: 34px; margin: 0 6px; background: var(--line); flex-shrink: 0; }
+  /* A hairline between every item, inset from the rail's edges exactly as the reference
+     draws them. Done as a pseudo-element on the button rather than as real borders,
+     because .dock-btn already carries a transparent border that the active state turns
+     green — a second border there would fight it. */
+  #bottomDock .dock-btn + .dock-btn::before,
+  #bottomDock .dock-divider + .dock-btn::before {
+    content: ""; position: absolute; top: 0; left: 14%; right: 14%;
+    height: 1px; background: rgba(48, 58, 50, 0.6);
+  }
+  /* The group break between watching the world and acting on it. Same hairline, drawn
+     wider so the two halves of the rail read as separate. */
+  .dock-divider { width: auto; height: 1px; margin: 6px 6px; background: var(--line); flex-shrink: 0; }
 
   /* Controls panel rows (panel box defined once in the overlay-visibility block) */
   #controlsPanel .card-body { display: flex; flex-direction: column; gap: 9px; }
@@ -1412,7 +1479,13 @@
        and the corner HUD still names the followed subject. */
     /* Mobile bars are full-bleed and flush to the edges, so the clear is just the bar
        height (no floating inset or gap to account for). */
-    :root { --topbar-h: 52px; --topbar-clear: 52px; --dock-h: 56px; --dock-clear: 56px; }
+    /* The bar is back along the bottom here, so --dock-clear goes back to meaning its
+       height and --rail-clear collapses: nothing occupies the left edge on a phone. */
+    :root {
+      --topbar-h: 52px; --topbar-clear: 52px;
+      --dock-h: 56px; --dock-clear: 56px;
+      --rail-w: 0px; --rail-clear: 0px;
+    }
     #topBar {
       top: 0; left: 0; right: 0;
       border-radius: 0; border-left: none; border-right: none; border-top: none;
@@ -1491,6 +1564,31 @@
     }
     #bottomStrip .floating-card.open { display: flex; }
 
+    /* Undo the desktop column layout: at 390px three columns would be 130px each. The
+       sheet is tall and narrow here, which is the shape stacking was made for. */
+    #bottomStrip #marketsCard .card-body {
+      flex-direction: column;
+      gap: 0;
+      padding: 12px 16px 16px;
+      overflow-y: auto;
+    }
+    #bottomStrip #marketsCard .markets-lead { flex: 0 0 auto; }
+    #bottomStrip #marketsCard #markets {
+      flex-direction: column;
+      overflow-x: visible; overflow-y: visible;
+      gap: 0;
+    }
+    #bottomStrip #marketsCard #markets .market {
+      flex: 0 0 auto;
+      margin-bottom: 10px;
+      overflow-y: visible;
+    }
+    #bottomStrip #marketsCard .markets-board {
+      flex: 0 0 auto;
+      border-left: none; padding-left: 0;
+      overflow-y: visible;
+    }
+
     #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard {
       position: fixed; top: auto; left: 0; right: 0; bottom: var(--dock-clear);
       width: 100%; max-height: 50vh;
@@ -1513,14 +1611,21 @@
     #hud .meta { font-size: 10px; }
     #hud .meta:last-child { display: none; }
 
+    /* A vertical rail would eat a third of a 390px screen, so on a phone navigation
+       goes back to a bottom bar. Same buttons, same handlers — only the axis changes. */
     #bottomDock {
-      left: 0; right: 0; bottom: 0; transform: none;
+      left: 0; right: 0; bottom: 0; top: auto; transform: none;
+      width: auto; height: var(--dock-h);
+      flex-direction: row; align-items: center; justify-content: center;
+      overflow-y: visible;
       padding: 6px 4px; gap: 2px;
       border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
       border-top: 1px solid var(--line);
       box-shadow: none;
     }
-    .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; }
+    .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; width: auto; }
+    #bottomDock .dock-btn + .dock-btn::before,
+    #bottomDock .dock-divider + .dock-btn::before { display: none; }
     .dock-divider { display: none; }
     .dock-icon { width: 22px; height: 22px; }
     .dock-label { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -1701,12 +1806,18 @@
             <button class="card-close" title="Close" aria-label="Close">×</button>
           </span>
         </h3>
+        <!-- Three columns, so a panel that is wide and short reads left to right instead
+             of stacking into a scroll. Every id is unchanged; only the grouping is new. -->
         <div class="card-body">
-          <p class="demo-note" id="marketsDemoNote">Demo credits — no real money.</p>
-          <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+          <div class="markets-lead">
+            <p class="demo-note" id="marketsDemoNote">Demo credits — no real money.</p>
+            <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+          </div>
           <div id="markets"></div>
-          <h3 class="card-subtitle">LEADERBOARD</h3>
-          <ul id="leaderboard"></ul>
+          <div class="markets-board">
+            <h3 class="card-subtitle">LEADERBOARD</h3>
+            <ul id="leaderboard"></ul>
+          </div>
         </div>
       </div>
       <div class="floating-card" id="messagesCard">
