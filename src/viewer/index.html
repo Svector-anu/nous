@@ -679,6 +679,29 @@
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--accent); box-shadow: 0 0 7px rgba(110,226,116,0.95);
   }
+  /* Wallet control. Same shell as .icon-btn but it carries a label, because an icon
+     alone cannot say "connect" unambiguously. Hidden entirely while wallet identity is
+     off, so a disabled feature costs the map no chrome at all. */
+  #walletBtn {
+    display: none;
+    align-items: center; gap: 7px;
+    height: 44px; padding: 0 14px;
+    border-radius: 12px;
+    background: #12171b;
+    border: 1px solid rgba(48, 58, 50, 0.7);
+    color: #b9c0c6; cursor: pointer;
+    font-family: inherit; font-size: 12px; letter-spacing: 0.04em;
+    white-space: nowrap;
+    transition: color .18s ease, border-color .18s ease, background .18s ease;
+  }
+  #walletBtn.show { display: inline-flex; }
+  #walletBtn svg { width: 16px; height: 16px; flex: 0 0 auto; }
+  #walletBtn:hover:not(:disabled) { color: var(--accent); border-color: rgba(110,226,116,0.4); background: #171d21; }
+  #walletBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  /* Connected: the address is the label, so the green reads as "you are known here". */
+  #walletBtn.connected { color: var(--accent); border-color: rgba(110,226,116,0.45); }
+  #walletBtn.connected svg { color: var(--accent); }
+  #walletBtn.busy { opacity: 0.6; cursor: progress; }
   #thinkingStatus {
     padding: 4px 10px; border-radius: 12px;
     font-size: 12px; color: var(--text);
@@ -1390,6 +1413,11 @@
     #topBar .topActions { gap: 6px; }
     /* No shelf on a phone, so the HUD carries the framing and the hints again. */
     #hud { display: flex; }
+    /* Icon only on a phone: a text label here is what tips the bar into horizontal
+       overflow. The address stays reachable through the button's title. */
+    #walletBtn { height: 34px; padding: 0 9px; border-radius: 9px; }
+    #walletBtn svg { width: 16px; height: 16px; }
+    #walletBtn #walletLabel { display: none; }
     #hud .title, #hud .hud-hints { display: inline; }
 
     #dashboard {
@@ -1533,6 +1561,7 @@
       <div class="topActions">
         <button id="cinemaToggle" class="icon-btn" title="Full world view (C)" aria-label="Full world view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg></button>
         <button id="alertsToggle" class="icon-btn has-dot" title="Recent events" aria-label="Recent events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
+        <button id="walletBtn" type="button" title="Connect a wallet" aria-label="Connect a wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Connect</span></button>
         <button id="panelsToggle" class="icon-btn" title="Panels" aria-label="Panels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="15" y2="12"/><line x1="4" y1="17" x2="18" y2="17"/></svg></button>
       </div>
     </div>
@@ -2113,9 +2142,168 @@ function escapeHtml(text) {
 
 async function setRest(agentId, rest) {
   try {
-    const response = await fetch(`/agents/${agentId}/rest`, {
+// --- wallet identity --------------------------------------------------------
+// Sign-In With Ethereum, as a single control in the top bar. This proves who you are;
+// it buys no advantage in the world. A linked agent answers only to its owner, which is
+// the only thing the session is actually used for.
+//
+// Note this never touches the network: the wallet signs a text message and the server
+// recovers the address from the signature. No RPC, no gas, no transaction.
+
+const walletBtn = document.getElementById("walletBtn");
+const walletLabel = document.getElementById("walletLabel");
+const WALLET_SESSION_KEY = "nous.wallet.session";
+const WALLET_ADDRESS_KEY = "nous.wallet.address";
+
+// The session is a bearer token, so it lives in sessionStorage rather than
+// localStorage: it dies with the tab instead of persisting on disk.
+const wallet = {
+  ready: false,
+  address: sessionStorage.getItem(WALLET_ADDRESS_KEY) || "",
+  session: sessionStorage.getItem(WALLET_SESSION_KEY) || "",
+};
+
+function shortAddress(address) {
+  return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
+}
+
+// Every authenticated call goes through here, so there is one place that decides
+// whether a request carries identity.
+function walletAuthHeaders() {
+  return wallet.session ? { Authorization: `Bearer ${wallet.session}` } : {};
+}
+
+function renderWallet() {
+  if (!walletBtn) return;
+  walletBtn.classList.toggle("connected", Boolean(wallet.address));
+  if (wallet.address) {
+    walletLabel.textContent = shortAddress(wallet.address);
+    walletBtn.title = `${wallet.address} — click to disconnect`;
+  } else {
+    walletLabel.textContent = "Connect";
+    walletBtn.title = "Connect a wallet";
+  }
+}
+
+function setWalletSession(address, session) {
+  wallet.address = address || "";
+  wallet.session = session || "";
+  if (wallet.session) {
+    sessionStorage.setItem(WALLET_SESSION_KEY, wallet.session);
+    sessionStorage.setItem(WALLET_ADDRESS_KEY, wallet.address);
+  } else {
+    sessionStorage.removeItem(WALLET_SESSION_KEY);
+    sessionStorage.removeItem(WALLET_ADDRESS_KEY);
+  }
+  renderWallet();
+}
+
+// The server is the authority on whether this feature exists at all. `ready` means the
+// flag is on *and* the signature library imported, so a half-configured deployment shows
+// a disabled button with a reason rather than one that fails silently on click.
+function applyChainConfig(config) {
+  if (!walletBtn) return;
+  wallet.ready = Boolean(config && config.ready);
+  const enabled = Boolean(config && config.identity_enabled);
+  // Feature off entirely: show nothing. A dead control is worse than no control.
+  walletBtn.classList.toggle("show", enabled);
+  walletBtn.disabled = enabled && !wallet.ready;
+  if (walletBtn.disabled) {
+    walletLabel.textContent = "Wallet off";
+    walletBtn.title = "Signature verification is unavailable on this server";
+  } else {
+    renderWallet();
+  }
+}
+
+function walletBusy(busy, text) {
+  walletBtn.classList.toggle("busy", busy);
+  walletBtn.disabled = busy;
+  if (text) walletLabel.textContent = text;
+}
+
+// Say what went wrong in the button itself for a beat, then go back. A spectator who
+// dismissed a wallet prompt should not have to open a console to find out.
+function walletFailed(text) {
+  walletLabel.textContent = text;
+  setTimeout(renderWallet, 2600);
+}
+
+async function connectWallet() {
+  const provider = window.ethereum;
+  if (!provider) {
+    walletBtn.title = "No wallet extension found in this browser";
+    walletFailed("No wallet");
+    return;
+  }
+  walletBusy(true, "Connecting…");
+  try {
+    const accounts = await provider.request({ method: "eth_requestAccounts" });
+    const address = (accounts && accounts[0]) || "";
+    if (!address) {
+      walletFailed("No account");
+      return;
+    }
+
+    const nonceResponse = await fetch("/chain/nonce", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    if (!nonceResponse.ok) {
+      walletFailed("Unavailable");
+      return;
+    }
+    const challenge = await nonceResponse.json();
+
+    walletBusy(true, "Sign in wallet…");
+    // personal_sign takes the message first and the signer second.
+    const signature = await provider.request({
+      method: "personal_sign",
+      params: [challenge.message, address],
+    });
+
+    const verifyResponse = await fetch("/chain/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, message: challenge.message, signature }),
+    });
+    if (!verifyResponse.ok) {
+      walletFailed("Refused");
+      return;
+    }
+    const proven = await verifyResponse.json();
+    setWalletSession(proven.address, proven.session);
+  } catch (error) {
+    // Rejecting the wallet prompt lands here and is a normal outcome, not a fault.
+    walletFailed(error && error.code === 4001 ? "Cancelled" : "Failed");
+  } finally {
+    walletBtn.classList.remove("busy");
+    walletBtn.disabled = false;
+  }
+}
+
+if (walletBtn) {
+  walletBtn.addEventListener("click", () => {
+    if (wallet.address) setWalletSession("", "");
+    else connectWallet();
+  });
+  renderWallet();
+  fetch("/chain/config")
+    .then((response) => (response.ok ? response.json() : null))
+    .then(applyChainConfig)
+    .catch(() => {
+      /* the world still watches fine without a wallet */
+    });
+}
+
+// Test seam: the gate has no wallet extension, so it drives these directly.
+window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, state: wallet };
+
+    const response = await fetch(`/agents/${agentId}/rest`, {
+      method: "POST",
+      // Carries the session when there is one: a linked agent answers only to its owner.
+      headers: { "Content-Type": "application/json", ...walletAuthHeaders() },
       body: JSON.stringify({ rest }),
     });
     if (!response.ok) {

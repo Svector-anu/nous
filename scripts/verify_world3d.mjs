@@ -719,6 +719,74 @@ check(
   `width=${topbar.layout.chipWidth}, status=${topbar.layout.overlapsStatus}, hints=${topbar.layout.overlapsHints}`
 );
 
+// --- 11a. the wallet control --------------------------------------------------
+// There is no wallet extension in this browser, so the states are driven through
+// window.__wallet rather than through a real signature. What is asserted is the part the
+// spectator sees: a feature that is off costs the bar no chrome, a half-configured server
+// says so instead of failing silently, and a connected wallet actually authorizes calls.
+const walletUi = await page.evaluate(() => {
+  const w = window.__wallet;
+  const button = document.getElementById("walletBtn");
+  const label = document.getElementById("walletLabel");
+  const read = () => ({
+    shown: button.classList.contains("show"),
+    disabled: button.disabled,
+    label: label.textContent,
+    connected: button.classList.contains("connected"),
+  });
+
+  w.setWalletSession("", "");
+  w.applyChainConfig({ identity_enabled: false, ready: false });
+  const off = read();
+
+  w.applyChainConfig({ identity_enabled: true, ready: false });
+  const halfConfigured = read();
+
+  w.applyChainConfig({ identity_enabled: true, ready: true });
+  const idle = read();
+  const anonymousHeaders = w.walletAuthHeaders();
+
+  w.setWalletSession("0xabcdef0123456789abcdef0123456789abcdef01", "session-token-xyz");
+  const connected = read();
+  const authHeaders = w.walletAuthHeaders();
+
+  // Disconnecting must actually drop the token, or "log out" is a lie.
+  w.setWalletSession("", "");
+  const afterDisconnect = { ...read(), headers: w.walletAuthHeaders() };
+
+  w.applyChainConfig({ identity_enabled: false, ready: false });
+  return { off, halfConfigured, idle, connected, anonymousHeaders, authHeaders, afterDisconnect };
+});
+check(
+  "the wallet control stays out of the bar while wallet identity is off",
+  walletUi.off.shown === false,
+  `shown=${walletUi.off.shown}`
+);
+check(
+  "a server that cannot verify signatures shows a disabled wallet button, not a dead one",
+  walletUi.halfConfigured.shown === true && walletUi.halfConfigured.disabled === true &&
+    walletUi.halfConfigured.label === "Wallet off",
+  `shown=${walletUi.halfConfigured.shown}, disabled=${walletUi.halfConfigured.disabled}, label="${walletUi.halfConfigured.label}"`
+);
+check(
+  "a ready server offers Connect and sends no authorization",
+  walletUi.idle.shown === true && walletUi.idle.disabled === false &&
+    walletUi.idle.label === "Connect" && walletUi.anonymousHeaders.Authorization === undefined,
+  `label="${walletUi.idle.label}", disabled=${walletUi.idle.disabled}, auth=${walletUi.anonymousHeaders.Authorization}`
+);
+check(
+  "a connected wallet shows its address and authorizes requests",
+  walletUi.connected.connected === true && walletUi.connected.label === "0xabcd…ef01" &&
+    walletUi.authHeaders.Authorization === "Bearer session-token-xyz",
+  `label="${walletUi.connected.label}", auth=${walletUi.authHeaders.Authorization}`
+);
+check(
+  "disconnecting drops the session token",
+  walletUi.afterDisconnect.connected === false && walletUi.afterDisconnect.label === "Connect" &&
+    walletUi.afterDisconnect.headers.Authorization === undefined,
+  `label="${walletUi.afterDisconnect.label}", auth=${walletUi.afterDisconnect.headers.Authorization}`
+);
+
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
 // The desktop floating-card layout is too wide for a phone. This checks the adaptive
 // layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find
