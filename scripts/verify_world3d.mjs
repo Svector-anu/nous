@@ -643,6 +643,10 @@ const nav = await page.evaluate(() => {
         // Stacked, not laid out side by side.
         stacked: last.top > first.top,
         width: box.width,
+        // Hugs its items rather than stretching down the whole window. Pinned top and
+        // bottom it spread eight buttons over the full viewport and read as an empty
+        // sidebar. Measured as a fraction of the window so it holds at any height.
+        heightFraction: box.height / window.innerHeight,
       };
     })(),
   };
@@ -667,6 +671,11 @@ check(
   nav.dockButtons === 8 && nav.rail.vertical && nav.rail.onLeft && nav.rail.stacked,
   `buttons=${nav.dockButtons}, vertical=${nav.rail.vertical}, onLeft=${nav.rail.onLeft}, ` +
     `stacked=${nav.rail.stacked}, width=${nav.rail.width.toFixed(0)}px`
+);
+check(
+  "the rail hugs its items instead of stretching down the window",
+  nav.rail.heightFraction < 0.8,
+  `rail is ${(nav.rail.heightFraction * 100).toFixed(0)}% of window height`
 );
 
 // Top bar: stat deltas and the "Following X" chip are pure derivations exposed on

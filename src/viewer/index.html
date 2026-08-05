@@ -1319,8 +1319,14 @@
 
   /* Bottom dock */
   #bottomDock {
-    position: fixed; left: 12px; top: var(--topbar-clear); bottom: 12px; right: auto; z-index: 50;
+    /* Height hugs the eight items rather than stretching to the window. Pinned to both
+       edges the rail spread them over the full viewport, which read as a sidebar holding
+       nothing; the reference draws a compact card. max-height keeps it scrollable if a
+       short window cannot fit the list. */
+    position: fixed; left: 12px; top: var(--topbar-clear); bottom: auto; right: auto; z-index: 50;
     width: var(--rail-w);
+    height: auto;
+    max-height: calc(100vh - var(--topbar-clear) - 24px);
     display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
     gap: 0;
     padding: 4px 7px;
@@ -1337,8 +1343,8 @@
   #bottomDock::-webkit-scrollbar { display: none; }
   .dock-btn {
     position: relative;
-    display: flex; flex-direction: column; align-items: center; gap: 5px;
-    padding: 13px 2px; margin: 0; width: 100%; flex: 0 0 auto;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 10px 2px; margin: 0; width: 100%; flex: 0 0 auto;
     background: transparent; border: 1px solid transparent;
     border-radius: 10px; color: var(--muted); font: inherit;
     cursor: pointer; font-size: 10px;
