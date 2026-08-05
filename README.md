@@ -156,16 +156,20 @@ and is remembered; default 0.75 into a limiter.
 three real loops ship in `src/viewer/beds/`, all **CC0 / public domain**, so they can be
 redistributed with the repo and need no attribution:
 
-| bed | track | author |
-|---|---|---|
-| `calm.ogg` | [Lofi Hip Hop Loop](https://opengameart.org/content/lofi-hip-hop-loop) | omfgdude |
-| `active.ogg` | [Chill lofi inspired (loop edit)](https://opengameart.org/content/chill-lofi-inspired-loop-edit) | qubodup |
-| `tense.ogg` | [Derelict, from CC0 - Dark Music](https://opengameart.org/content/cc0-dark-music) | josepharaoh99 |
+| bed | track | author | licence |
+|---|---|---|---|
+| `calm.mp3` | [Medieval: The Old Tower Inn](https://opengameart.org/content/medieval-the-old-tower-inn) | RandomMind | CC0 |
+| `active.mp3` | [Medieval: Market Day](https://opengameart.org/content/medieval-market-day) | RandomMind | CC0 |
+| `tense.mp3` | [Medieval: Battle](https://opengameart.org/content/medieval-battle) | RandomMind | CC0 |
+
+all three are by the same composer on purpose. the beds crossfade into one another, so
+three tracks from three writers would disagree on key and instrumentation the moment the
+world changed mood; one hand across the set means a blend rather than a collision.
 
 to swap any of them, drop a file in and rename it in `src/viewer/beds/manifest.json`:
 
 ```json
-{ "calm": "calm.ogg", "active": "active.ogg", "tense": "tense.ogg" }
+{ "calm": "calm.mp3", "active": "active.mp3", "tense": "tense.mp3" }
 ```
 
 any format the browser decodes works. all three load at once and crossfade, so a mood
