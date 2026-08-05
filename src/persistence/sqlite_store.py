@@ -38,6 +38,8 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.AdvisorState,
     component_module.RestQueue,
     component_module.ForceDecisionQueue,
+    component_module.IdentityQueue,
+    component_module.EscrowBook,
     component_module.MarketBook,
 )
 
@@ -176,5 +178,9 @@ class SqliteWorldStore:
             world.add(world.create_entity(), component_module.RestQueue())
         if world.first(component_module.ForceDecisionQueue) is None:
             world.add(world.create_entity(), component_module.ForceDecisionQueue())
+        if world.first(component_module.IdentityQueue) is None:
+            world.add(world.create_entity(), component_module.IdentityQueue())
+        if world.first(component_module.EscrowBook) is None:
+            world.add(world.create_entity(), component_module.EscrowBook())
 
         return world

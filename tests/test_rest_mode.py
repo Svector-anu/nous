@@ -231,7 +231,9 @@ def test_force_decision_endpoint_returns_402_without_payment(tmp_path):
 
 
 def test_force_decision_endpoint_returns_402_when_enabled(tmp_path):
-    config = WorldConfig(**{**CONFIG.__dict__, "llm_force_decision_enabled": True})
+    config = WorldConfig(
+        **{**CONFIG.__dict__, "llm_force_decision_enabled": True, "x402_enabled": True}
+    )
     with TestClient(create_app(config, tmp_path / "x402.db")) as client:
         response = client.post("/clans/1/force-decision")
         assert response.status_code == 402
@@ -240,7 +242,9 @@ def test_force_decision_endpoint_returns_402_when_enabled(tmp_path):
 
 
 def test_force_decision_endpoint_records_paid_request(tmp_path):
-    config = WorldConfig(**{**CONFIG.__dict__, "llm_force_decision_enabled": True})
+    config = WorldConfig(
+        **{**CONFIG.__dict__, "llm_force_decision_enabled": True, "x402_enabled": True}
+    )
     with TestClient(create_app(config, tmp_path / "x402.db")) as client:
         response = client.post(
             "/clans/1/force-decision",

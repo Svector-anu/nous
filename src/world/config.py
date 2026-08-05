@@ -112,6 +112,39 @@ class WorldConfig:
     market_starting_balance: int = 1000
     market_max_stake: int = 100
 
+    # --- chain identity and payments ------------------------------------------
+    # Robinhood Chain. These are network coordinates, not credentials: the rpc url can
+    # carry a provider key, so it lives in the environment (src/chain/settings.py) and
+    # never in this dataclass — WorldConfig is persisted verbatim into world_meta.
+    #
+    # Nothing here changes a simulation rule. An address is a label on an agent, worth
+    # exactly zero in-world; see AGENTS.md and the "do not reopen" note in NEXT.md.
+    chain_id: int = 4663
+    chain_testnet_id: int = 46630
+    chain_name: str = "Robinhood Chain"
+    chain_explorer_url: str = "https://robinhoodchain.blockscout.com"
+    # Wallet linking. Off by default: an unconfigured deploy must not advertise a
+    # connect button that cannot verify anything.
+    chain_identity_enabled: bool = False
+    # One link request per user agent is plenty, and the bound stops the queue from
+    # becoming the unbounded accumulator every other queue here is capped to avoid.
+    identity_queue_limit: int = 32
+    # A verified payment proof is remembered so it cannot be replayed. Bounded for the
+    # same reason.
+    x402_spent_limit: int = 256
+
+    # x402 pay-to-act. "header" trusts an upstream proxy's verdict (the existing seam,
+    # useful in tests and behind a gateway); "chain" verifies a transaction receipt
+    # against the rpc. Live payments need X402_ENABLED=true *and* a reachable rpc.
+    x402_enabled: bool = False
+    x402_verifier: str = "header"
+    x402_price: str = "0.10"
+    x402_currency: str = "USDG"
+
+    # Real-money markets. Off until an operator configures custody; the demo credit
+    # markets above are unaffected either way and stay labelled demo in the viewer.
+    real_money_enabled: bool = False
+
     goal_review_ticks: int = 120
     goal_bias_chance: float = 0.6
     influence_base_radius: int = 4

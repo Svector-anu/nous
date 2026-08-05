@@ -18,6 +18,9 @@ def _simulate(ticks: int) -> Simulation:
 def test_systems_run_in_the_documented_order():
     assert build_registry().names() == [
         "spawning",
+        # Straight after spawning: a wallet label attaches on the same tick the agent
+        # becomes visible. Writes only Agent.owner_address, which no system reads.
+        "identity",
         "messaging",
         "needs",
         "trade",
@@ -91,6 +94,6 @@ def test_snapshot_shape():
     assert set(snapshot["agents"][0]) == {
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
         "user", "personality", "wants", "huts", "raids_won", "raids_lost", "received",
-        "target", "standing", "rank", "rest_mode",
+        "target", "standing", "rank", "rest_mode", "owner",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}
