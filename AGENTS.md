@@ -108,7 +108,7 @@ Both gates below now also run in CI (`.github/workflows/gates.yml`) on every pus
 before you push, because a red PR costs a round trip.
 
 ```bash
-.venv/bin/python -m pytest -q          # 418 tests, ~62s. the gate.
+.venv/bin/python -m pytest -q          # 484 tests, ~115s. the gate.
 ```
 
 GPU behaviour is invisible to pytest, so:

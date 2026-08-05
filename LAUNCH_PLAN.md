@@ -33,21 +33,35 @@
 
 ## Gaps for a soft public demo
 
-- There is no authenticated account or persistent server-side user identity proven by source.
-  The market name is client-side `localStorage`, not an account (`src/viewer/index.html:2715-2719`).
-- Deployed agents have no owner field (`src/world/components.py:71-88`). The rest and delete
-  endpoints only verify `user_deployed` (`src/api/server.py:360-369,381-395`), so any visitor
-  can control or delete another visitor’s deployed agent.
-- The public market card is headed “BETS” and the identity input says “your name”
-  (`src/viewer/index.html:1625-1636`). It does not itself establish the demo-only nature of
-  the credits despite the backend’s explicit demo-only semantics.
-- Existing documentation has stale test-count claims: README says 354 tests
-  (`README.md:45-50,145`); NEXT says 416 (`NEXT.md:22`); AGENTS says 418 (`AGENTS.md:110-112`).
-  The supplied current baseline is 424 pytest tests and 59 browser checks. Not verified —
-  needs a decision or source: whether those supplied counts still reflect this checkout.
-- Not verified — needs a decision or source: the intended always-on hosting provider, log
-  destination/retention, restart policy, backup location and retention, recovery objective,
-  and who owns operational alerts.
+*Revised 2026-08-05. Four of the five gaps below were closed by the chain-identity work
+(`c4fca5d`) and the Step 1 claims audit. What each one says now is marked.*
+
+- ~~There is no authenticated account or persistent server-side user identity proven by
+  source.~~ **Closed.** Sign-In With Ethereum: `POST /chain/nonce` issues a single-use
+  challenge, `POST /chain/verify` recovers the signer and opens a bounded, expiring
+  session (`src/api/server.py`, `src/chain/siwe.py`). Identity is server-side and
+  cryptographic rather than a `localStorage` string. Guests still watch without signing in.
+- ~~Deployed agents have no owner field.~~ **Closed.** `Agent.owner_address` is durable
+  world state, registered in `COMPONENT_TYPES`, and applied through `IdentityQueue` at a
+  fixed tick (`src/world/systems/identity.py`). It is a label only: a test pins that the
+  world's `state_hash` is identical with and without it.
+- ~~The rest and delete endpoints only verify `user_deployed`, so any visitor can control
+  or delete another visitor's deployed agent.~~ **Closed.** Both endpoints now authorize
+  against the linked owner. An unlinked agent stays open to anyone, which keeps the demo
+  playable without a wallet; the moment an agent is linked, only that wallet may rest or
+  delete it.
+- ~~The public market card is headed "BETS" and does not establish the demo-only nature
+  of the credits.~~ **Closed.** The card reads "PREDICTIONS" and carries
+  "Demo credits — no real money."; `/chain/config` reports `markets_are_demo` directly
+  from `real_money_enabled`.
+- ~~Existing documentation has stale test-count claims.~~ **Closed**, and superseded: the
+  baseline is now **484 pytest tests** (~115s) and **58 of 59 browser checks**, not 424/59.
+  The one browser failure is "the camera stays put while you hold it", which predates this
+  work and trades places with the raycast check between runs.
+- **Still open.** Not verified — needs a decision or source: the intended always-on hosting
+  provider, log destination/retention, restart policy, backup location and retention,
+  recovery objective, and who owns operational alerts. This is Step 3 and is the only
+  gap in this list that remains.
 
 ## Ordered implementation steps
 

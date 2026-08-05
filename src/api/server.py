@@ -250,15 +250,35 @@ def create_app(
             response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
         return response
 
+    # The Nous mark: ring, four cardinal ticks, four-pointed star. Same shape the boot
+    # screen and top bar carry, redrawn on a 32-unit grid rather than reused verbatim —
+    # the 24-unit version uses 1.3 stroke and long thin ticks, which mush into grey at
+    # the 16px a browser tab actually renders. Heavier strokes and a larger star survive
+    # the downscale; the silhouette stays the same.
     _FAVICON = (
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
-        "<rect width='16' height='16' fill='#0d1117'/>"
-        "<circle cx='8' cy='8' r='4' fill='#58a6ff'/>"
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+        "<rect width='32' height='32' rx='7' fill='#080c10'/>"
+        "<g stroke='#6ee274' stroke-width='2.2' stroke-linecap='round' fill='none'>"
+        "<circle cx='16' cy='16' r='8.6'/>"
+        "<path d='M16 2.4v3.2M16 26.4v3.2M2.4 16h3.2M26.4 16h3.2'/>"
+        "</g>"
+        "<path d='M16 10.8l1.9 3.3 3.3 1.9-3.3 1.9-1.9 3.3-1.9-3.3-3.3-1.9 3.3-1.9z'"
+        " fill='#6ee274'/>"
         "</svg>"
     )
 
     @app.get("/favicon.ico")
     async def favicon() -> Response:
+        return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+    @app.get("/favicon.svg")
+    async def favicon_svg() -> Response:
+        """Same mark under the extension browsers expect for an svg icon.
+
+        `/favicon.ico` serves svg bytes, which every current browser accepts because the
+        content type is what it honours — but a `.svg` url is what a `<link rel="icon">`
+        should point at, and some tooling sniffs the extension rather than the header.
+        """
         return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     @app.get("/")
@@ -582,13 +602,35 @@ def create_app(
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
+    def _authorize_agent(agent: Agent, agent_id: int, http_request: Request) -> None:
+        """Only the linked owner may control a linked agent.
+
+        Unlinked agents stay open to anyone, which is what keeps the demo playable
+        without a wallet. The moment an agent carries an address, that address is the
+        only thing allowed to rest or delete it.
+        """
+        world = app.state.simulation.world
+        if not world.config.chain_identity_enabled or not agent.owner_address:
+            return
+        token = http_request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        proven = app.state.sessions.address(token) if token else ""
+        if proven != agent.owner_address:
+            raise HTTPException(403, f"agent {agent_id} is linked to another wallet")
+
     @app.post("/agents/{agent_id}/rest", status_code=202)
-    async def set_rest(agent_id: int, request: RestRequest) -> JSONResponse:
-        """Queue a rest-mode toggle for a user-deployed agent. Applied on the next tick."""
+    async def set_rest(
+        agent_id: int, request: RestRequest, http_request: Request
+    ) -> JSONResponse:
+        """Queue a rest-mode toggle for a user-deployed agent. Applied on the next tick.
+
+        When identity is enabled and the agent is linked, only its owner may toggle it.
+        """
         world = app.state.simulation.world
         agent = world.try_get(agent_id, Agent)
         if agent is None or not agent.user_deployed:
             raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, http_request)
+
         if world.first(RestQueue) is None:
             raise HTTPException(503, "world is not ready")
         resting.enqueue(world, agent_id, request.rest)
@@ -604,17 +646,22 @@ def create_app(
         )
 
     @app.delete("/agents/{agent_id}", status_code=200)
-    async def delete_agent(agent_id: int) -> JSONResponse:
+    async def delete_agent(agent_id: int, http_request: Request) -> JSONResponse:
         """Remove a user-deployed agent from the world.
 
         This is an administrative seam for cleaning up test agents; it does not
         represent a simulation event. The agent is removed from any clan and then
         destroyed. Markets opened on the agent's survival resolve as NO.
+
+        When identity is enabled and the agent is linked, only its owner may delete it —
+        deletion is irreversible, so this is the check that matters most.
         """
         world = app.state.simulation.world
         agent = world.try_get(agent_id, Agent)
         if agent is None or not agent.user_deployed:
             raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, http_request)
+
         for entity, clan in world.store(Clan):
             clan.remove(agent_id)
         world.destroy_entity(agent_id)

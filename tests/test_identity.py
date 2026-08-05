@@ -277,3 +277,140 @@ def test_linking_without_a_session_is_refused(tmp_path):
             json={"address": "0x" + "a" * 40, "session": "forged-token"},
         )
         assert response.status_code == 401
+
+
+# --- ownership enforcement on rest and delete --------------------------------
+#
+# The hole these close: before ownership was enforced, `/agents/{id}/rest` and
+# `DELETE /agents/{id}` checked only `user_deployed`, so any visitor could rest or
+# delete any other visitor's agent. Deletion is irreversible.
+
+
+def _linked_agent(app, address: str) -> int:
+    """Deploy an agent and link it to `address`, applied through a real tick."""
+    world = app.state.simulation.world
+    agent_id = _deploy(world)
+    identity.enqueue(world, agent_id, address)
+    identity.run(world, TickRng(1, world.tick + 1, "identity"))
+    return agent_id
+
+
+def test_a_stranger_cannot_rest_a_linked_agent(tmp_path):
+    owner = "0x" + "a" * 40
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _linked_agent(app, owner)
+        response = client.post(f"/agents/{agent_id}/rest", json={"rest": True})
+        assert response.status_code == 403
+
+        # And the agent is untouched — a refused request must change nothing.
+        world = app.state.simulation.world
+        assert world.get(agent_id, Agent).rest_mode is False
+
+
+def test_a_stranger_cannot_delete_a_linked_agent(tmp_path):
+    owner = "0x" + "a" * 40
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _linked_agent(app, owner)
+        assert client.delete(f"/agents/{agent_id}").status_code == 403
+        # Still alive. This is the one that cannot be undone.
+        assert app.state.simulation.world.try_get(agent_id, Agent) is not None
+
+
+def test_a_forged_session_token_is_refused(tmp_path):
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _linked_agent(app, "0x" + "a" * 40)
+        response = client.post(
+            f"/agents/{agent_id}/rest",
+            json={"rest": True},
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+        assert response.status_code == 403
+
+
+def test_another_wallets_session_is_refused(tmp_path):
+    """Authenticated is not the same as authorized. A real session for the wrong
+    wallet must still be refused."""
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _linked_agent(app, "0x" + "a" * 40)
+        intruder = app.state.sessions.open("0x" + "b" * 40)
+        response = client.post(
+            f"/agents/{agent_id}/rest",
+            json={"rest": True},
+            headers={"Authorization": f"Bearer {intruder}"},
+        )
+        assert response.status_code == 403
+
+
+def test_the_owner_can_rest_their_own_agent(tmp_path):
+    """The other half: the check must not lock out the person it exists to serve."""
+    owner = "0x" + "a" * 40
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _linked_agent(app, owner)
+        token = app.state.sessions.open(owner)
+        response = client.post(
+            f"/agents/{agent_id}/rest",
+            json={"rest": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 202
+
+
+def test_the_owner_can_delete_their_own_agent(tmp_path):
+    owner = "0x" + "a" * 40
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _linked_agent(app, owner)
+        token = app.state.sessions.open(owner)
+        response = client.delete(
+            f"/agents/{agent_id}", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 200
+        assert app.state.simulation.world.try_get(agent_id, Agent) is None
+
+
+def test_an_unlinked_agent_stays_open_to_anyone(tmp_path):
+    """Deliberate: the demo has to be playable without a wallet. Only a *linked*
+    agent is protected — linking is what claims it."""
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        agent_id = _deploy(app.state.simulation.world)
+        assert client.post(f"/agents/{agent_id}/rest", json={"rest": True}).status_code == 202
+
+
+def test_ownership_is_not_enforced_while_identity_is_disabled(tmp_path):
+    """With the feature off, behaviour is exactly what it was before this change."""
+    app = create_app(
+        WorldConfig(agent_count=0, resource_count=8, chain_identity_enabled=False),
+        tmp_path / "own.db",
+    )
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        agent_id = _deploy(world)
+        world.get(agent_id, Agent).owner_address = "0x" + "a" * 40
+        assert client.post(f"/agents/{agent_id}/rest", json={"rest": True}).status_code == 202

@@ -12,7 +12,12 @@
 <meta name="twitter:title" content="Nous — a living world of autonomous agents">
 <meta name="twitter:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
 <title>Nous — a living world of autonomous agents</title>
-<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
+<!-- The Nous mark, same bytes the server hands back from /favicon.svg. Inline so the
+     tab icon is right on the first paint and survives the file being opened directly.
+     Drawn on a 32-unit grid: the 24-unit version in the boot lockup uses a 1.3 stroke
+     that mushes into grey at the 16px a tab actually renders. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23080c10'/%3E%3Cg stroke='%236ee274' stroke-width='2.2' stroke-linecap='round' fill='none'%3E%3Ccircle cx='16' cy='16' r='8.6'/%3E%3Cpath d='M16 2.4v3.2M16 26.4v3.2M2.4 16h3.2M26.4 16h3.2'/%3E%3C/g%3E%3Cpath d='M16 10.8l1.9 3.3 3.3 1.9-3.3 1.9-1.9 3.3-1.9-3.3-3.3-1.9 3.3-1.9z' fill='%236ee274'/%3E%3C/svg%3E">
+<link rel="alternate icon" href="/favicon.ico">
 <style>
   /* Palette sampled from the design reference (nav.png). Every panel, card and dock
      button reads these, so the top bar and the rest of the UI share one brand rather
@@ -37,6 +42,9 @@
        itself so it never slides under the dock (inset + height + a breathing gap). */
     --dock-h: 62px;
     --dock-clear: calc(var(--dock-h) + 26px);
+    /* Where the bottom panel strip floats. Sits clear of the dock's own 12px inset
+       plus its height, leaving a visible gap so the two read as separate cards. */
+    --strip-bottom: calc(var(--dock-h) + 24px);
     --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-bubble: ui-rounded, "Comic Sans MS", "Chalkboard SE", "Chalkboard", "Marker Felt", sans-serif;
@@ -179,6 +187,14 @@
   #markets .out.no   { border-color: #f85149; color: #f85149; }
   #markets .out.void { border-color: var(--muted); color: var(--muted); }
   #whoami { margin-bottom: 8px; }
+  /* The backend is explicit that these are demo credits with no real currency
+     (components.py BookState.balances, server.py PositionRequest). The card has to
+     say so too, or a spectator sees "YES · 25" and a leaderboard and reasonably
+     infers money. */
+  .demo-note {
+    margin: 0 0 9px; font-size: 10.5px; letter-spacing: .05em;
+    color: var(--muted);
+  }
   #leaderboard li { justify-content: space-between; }
   #leaderboard .credits { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   #legend li.clickable { cursor: pointer; }
@@ -826,26 +842,29 @@
   }
   .sidebar-header .card-close:hover { color: var(--text); }
 
-  /* Bottom panel strip — reference panels, translucent */
+  /* Bottom panel strip — floats above the dock as its own card, inset to the same
+     gutters so it reads as a sibling of the dock rather than a slab welded to it.
+     The strip itself is only a layout box: the visible surface is the card inside. */
   #bottomStrip {
     position: fixed;
-    left: 0; right: 0; bottom: var(--dock-clear); height: 140px;
+    left: 12px; right: 12px; bottom: var(--strip-bottom); height: 168px;
     display: none; gap: 10px;
-    padding: 10px;
     overflow-x: auto;
-    background: rgba(10, 14, 12, 0.35);
-    border-top: 1px solid rgba(48, 58, 50, 0.35);
+    background: none;
     z-index: 40;
   }
   #bottomStrip.open { display: flex; }
-  body.agents-open #bottomStrip { right: 320px; }
+  body.agents-open #bottomStrip { right: 332px; }
   #bottomStrip .floating-card {
     flex: 1 1 220px;
     min-width: 220px;
     max-height: 100%;
-    background: rgba(13, 19, 15, 0.78);
-    border-color: rgba(48, 58, 50, 0.45);
-    backdrop-filter: blur(8px) saturate(1.1);
+    /* Same fill, border and blur as the dock, so the two read as one system. */
+    background: linear-gradient(180deg, rgba(12, 17, 22, 0.96) 0%, rgba(10, 14, 18, 0.94) 100%);
+    border: 1px solid rgba(48, 58, 50, 0.75);
+    border-radius: var(--radius);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(14px) saturate(1.1);
   }
   /* Each strip card is gated by .open so opening one (e.g. World) never
      reveals its neighbours. The strip container is shown by syncBottomStrip(). */
@@ -1623,13 +1642,14 @@
         </div>
       </div>
       <div class="floating-card" id="marketsCard">
-        <h3 class="card-title">BETS
+        <h3 class="card-title">PREDICTIONS
           <span class="card-tools">
             <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
             <button class="card-close" title="Close" aria-label="Close">×</button>
           </span>
         </h3>
         <div class="card-body">
+          <p class="demo-note" id="marketsDemoNote">Demo credits — no real money.</p>
           <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
           <div id="markets"></div>
           <h3 class="card-subtitle">LEADERBOARD</h3>
@@ -1772,7 +1792,7 @@
     <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">World</span></button>
     <button class="dock-btn" data-panel="messagesCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span class="dock-label">Chat</span></button>
     <button class="dock-btn" data-panel="worldLogCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span class="dock-label">Log</span></button>
-    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
+    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Predictions</span></button>
     <span class="dock-divider" aria-hidden="true"></span>
     <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
     <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
@@ -2742,7 +2762,7 @@ function renderMarkets(book) {
     const node = document.createElement("div");
     node.className = "market";
     const statusClass = open ? "open" : "closed";
-    const statusText = open ? "Open for bets" : "Betting closed";
+    const statusText = open ? "Open" : "Closed";
     node.innerHTML =
       `<div class="market-icon">${marketIcon()}</div>` +
       `<div class="market-main">` +
