@@ -153,19 +153,28 @@ picks between: `calm` when little is happening, `active` once most agents are wo
 cannot slow the page down and there is no licence to worry about. volume lives in settings
 and is remembered; default 0.75 into a limiter.
 
-to use your own loops instead, drop three files in `src/viewer/beds/` and name them in
-`src/viewer/beds/manifest.json`, which ships empty:
+three real loops ship in `src/viewer/beds/`, all **CC0 / public domain**, so they can be
+redistributed with the repo and need no attribution:
+
+| bed | track | author |
+|---|---|---|
+| `calm.ogg` | [Lofi Hip Hop Loop](https://opengameart.org/content/lofi-hip-hop-loop) | omfgdude |
+| `active.ogg` | [Chill lofi inspired (loop edit)](https://opengameart.org/content/chill-lofi-inspired-loop-edit) | qubodup |
+| `tense.ogg` | [Derelict, from CC0 - Dark Music](https://opengameart.org/content/cc0-dark-music) | josepharaoh99 |
+
+to swap any of them, drop a file in and rename it in `src/viewer/beds/manifest.json`:
 
 ```json
-{ "calm": "calm.webm", "active": "active.webm", "tense": "tense.webm" }
+{ "calm": "calm.ogg", "active": "active.ogg", "tense": "tense.ogg" }
 ```
 
 any format the browser decodes works. all three load at once and crossfade, so a mood
-change is seamless rather than a restart from the top of another file. the audio files
-themselves are git-ignored — whatever you put there is yours to license, not the repo's to
-carry. all three names must be present or the synth keeps the score, and if the manifest is
-malformed or a file fails to decode it falls back the same way: a bad loop must never cost
-a visitor their sound.
+change is seamless rather than a restart from the top of another file. all three names must
+be present or the synth keeps the score, and if the manifest is malformed or a file fails
+to decode it falls back the same way: a bad loop must never cost a visitor their sound.
+
+keep replacements CC0 or otherwise redistributable. these are served from a public url, so
+a licence that only permits use *inside a production* is not enough.
 
 **prediction markets.** spectators bet on what the world will do. markets open on a
 schedule and on events (a truce forms, a clan takes a beating), resolve automatically from

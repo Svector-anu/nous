@@ -921,8 +921,10 @@ check(
 // A real click, because a stored preference is not a gesture and a context started
 // without one stays suspended and silent.
 await page.click("#soundToggle");
-// Long enough for the fade-in to arrive at level, so the loudness assertion reads the
-// destination rather than a point part-way up the ramp.
+// Wait for the graph to exist before timing the fade. Loading and decoding the beds takes
+// however long it takes, so a fixed sleep would read the ramp part-way up on a slow decode
+// and call the music quiet when it is merely still arriving.
+await page.waitForFunction(() => window.__audio.ambience.enabled === true, { timeout: 20000 });
 await page.waitForTimeout(1500);
 const audioOn = await page.evaluate(() => {
   const a = window.__audio;
@@ -935,13 +937,26 @@ const audioOn = await page.evaluate(() => {
     master: a.ambience.master ? a.ambience.master.gain.value : 0,
     hasLimiter: !!a.ambience.limiter,
     defaultVolume: a.DEFAULT_VOLUME,
+    usingBeds: a.ambience.usingBeds,
+    bedCount: a.ambience.bedNodes ? Object.keys(a.ambience.bedNodes).length : 0,
   };
 });
 check(
   "turning sound on builds a running audio graph",
-  audioOn.enabled === true && audioOn.voices >= 3 && audioOn.sounding === true &&
-    audioOn.running !== "closed",
-  `enabled=${audioOn.enabled}, ctx=${audioOn.running}, voices=${audioOn.voices}, stored=${audioOn.stored}`
+  audioOn.enabled === true && audioOn.sounding === true && audioOn.running !== "closed" &&
+    // Either path is a valid graph: real loops when the manifest names them, the synth
+    // when it does not. Asserting only one would go red the moment the beds changed.
+    (audioOn.usingBeds ? audioOn.bedCount === 3 : audioOn.voices >= 3),
+  `enabled=${audioOn.enabled}, ctx=${audioOn.running}, beds=${audioOn.usingBeds}, ` +
+    `bedCount=${audioOn.bedCount}, voices=${audioOn.voices}, stored=${audioOn.stored}`
+);
+// The shipped manifest names three CC0 loops, so this deployment must actually be playing
+// them. If it silently fell back to the synth the music would be wrong and nothing else
+// here would notice.
+check(
+  "the shipped loops are what plays, not the fallback synth",
+  audioOn.usingBeds === true && audioOn.bedCount === 3,
+  `usingBeds=${audioOn.usingBeds}, loaded=${audioOn.bedCount}`
 );
 check(
   "the choice is remembered",
