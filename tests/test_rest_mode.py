@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.api.server import create_app
@@ -58,10 +59,6 @@ def test_rest_queue_is_bounded():
 # --- api ----------------------------------------------------------------------
 
 
-def _client(tmp_path):
-    return TestClient(create_app(CONFIG, tmp_path / "rest.db"))
-
-
 def test_rest_toggle_queues_for_next_tick(tmp_path):
     with _fast_client(tmp_path) as client:
         client.post("/agents", json={"name": "Kestrel", "personality": "cautious"})
@@ -84,16 +81,32 @@ def test_rest_toggle_queues_for_next_tick(tmp_path):
 # --- sim behaviour ------------------------------------------------------------
 
 
-def test_rest_mode_applies_on_the_next_tick():
+@pytest.mark.parametrize("warmup_ticks", [1, 2, 3, 5, 8, 13])
+def test_rest_mode_applies_on_the_next_tick(warmup_ticks):
+    """Applying the toggle must not depend on which tick it lands on.
+
+    A single-tick version of this test passes even if application is made
+    conditional on the tick's RNG stream, because one tick only ever exercises one
+    draw. Running the same toggle from several different starting ticks pins the
+    behaviour as unconditional.
+    """
     simulation = _sim()
     spawning.enqueue(simulation.world, "Kestrel", "cautious")
     simulation.step()
-
     agent_id = _deployed(simulation)[0]
+
+    # Advance to a different tick before toggling, so each case exercises a
+    # different draw from the "resting" RNG stream.
+    simulation.run(warmup_ticks)
+
     resting.enqueue(simulation.world, agent_id, True)
     simulation.step()
-
     assert simulation.world.get(agent_id, Agent).rest_mode is True
+
+    # ...and the toggle must come back off just as reliably.
+    resting.enqueue(simulation.world, agent_id, False)
+    simulation.step()
+    assert simulation.world.get(agent_id, Agent).rest_mode is False
 
 
 def test_rest_mode_does_not_override_starvation():
@@ -170,8 +183,37 @@ def test_rest_mode_does_not_break_determinism():
         simulation.run(200)
         return state_hash(simulation.world)
 
+    # Each configuration is reproducible run to run...
     assert run(False) == run(False)
     assert run(True) == run(True)
+
+    # ...and the flag actually reaches the simulation. Without this the two
+    # assertions above also hold when rest mode does nothing at all, which is
+    # exactly the bug this file exists to catch.
+    assert run(True) != run(False)
+
+
+def test_rest_flag_is_inert_for_agents_that_never_rest():
+    """Setting no flag at all must leave the world byte-identical to a world where
+    the rest machinery is present but unused — the queue's existence must not
+    consume RNG or otherwise perturb the sim."""
+
+    def run() -> str:
+        simulation = _sim()
+        spawning.enqueue(simulation.world, "Kestrel", "cautious")
+        simulation.step()
+        simulation.run(200)
+        return state_hash(simulation.world)
+
+    baseline = run()
+
+    # Draining an empty rest queue every tick must be a no-op.
+    simulation = _sim()
+    spawning.enqueue(simulation.world, "Kestrel", "cautious")
+    simulation.step()
+    resting.enqueue(simulation.world, _deployed(simulation)[0], False)
+    simulation.run(200)
+    assert state_hash(simulation.world) == baseline
 
 
 # --- force decision seam -------------------------------------------------------

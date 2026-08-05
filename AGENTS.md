@@ -99,25 +99,30 @@ Architecture you can discover by reading. These you cannot.
 
 ## GATES
 
-There is **no linter, formatter, typechecker or CI** in this repo — none installed, no
-`.github/`. Tests are the only automated gate, so nothing arrives "too late to iterate
-against", but also nothing catches style or types.
+There is **no linter, formatter or typechecker** in this repo — none installed. Tests are
+the only automated gate, so nothing arrives "too late to iterate against", but also
+nothing catches style or types.
+
+Both gates below now also run in CI (`.github/workflows/gates.yml`) on every push to
+`main` and every pull request. CI is a backstop, not a substitute: run them locally
+before you push, because a red PR costs a round trip.
 
 ```bash
-.venv/bin/python -m pytest -q          # 358 tests, ~195s. the gate.
+.venv/bin/python -m pytest -q          # 418 tests, ~62s. the gate.
 ```
 
 GPU behaviour is invisible to pytest, so:
 
 ```bash
 .venv/bin/python -m src.main           # in one terminal
-node scripts/verify_world3d.mjs        # 39 checks in real chrome, ~90s
+node scripts/verify_world3d.mjs        # 59 checks in real chrome, ~90s
 ```
 
 Needs `npm i playwright` in a scratch directory — **not** in the repo. Then symlink it for
 the run: `ln -sfn /path/to/scratch/node_modules node_modules`, and `rm -f node_modules`
 after. "Playwright is not installed in the repo" is the *correct* state and is never a
-reason to skip this gate.
+reason to skip this gate. The CI job reproduces exactly this dance rather than adding a
+`package.json`, so the repo state stays as documented.
 
 ```bash
 .venv/bin/python -m scripts.verify_llm --scripted   # offline, no key, ~30s

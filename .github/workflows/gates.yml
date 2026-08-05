@@ -1,0 +1,107 @@
+name: gates
+
+# The two gates from AGENTS.md, run on every push to main and every pull request.
+# Before this existed nothing verified the repo automatically: a broken commit reached
+# main whenever someone forgot to run the suites locally.
+#
+# The browser gate deliberately does NOT add a package.json. AGENTS.md is explicit that
+# "Playwright is not installed in the repo" is the correct state, so CI reproduces the
+# documented local workflow instead: install into a scratch directory, symlink
+# node_modules for the run, remove the symlink afterwards.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same PR makes the first run's answer worthless, so cancel it.
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest (the gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        run: python -m pytest -q
+
+  world3d:
+    name: world3d (real chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The scratch dir lives outside the workspace so the symlink dance matches AGENTS.md.
+    env:
+      SCRATCH: /tmp/neociv-scratch
+      NEOCIV_URL: http://127.0.0.1:8000/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright and real Chrome in a scratch dir
+        run: |
+          mkdir -p "$SCRATCH"
+          cd "$SCRATCH"
+          npm init -y >/dev/null 2>&1
+          npm i --no-audit --no-fund playwright
+          # The gate launches channel:"chrome", so it needs real Chrome, not bundled chromium.
+          npx playwright install --with-deps chrome
+
+      - name: Start the simulation server
+        run: |
+          # nohup + disown so the server outlives this step's shell.
+          nohup python -m src.main > /tmp/server.log 2>&1 &
+          echo $! > /tmp/server.pid
+          disown || true
+          # Wait for the port rather than sleeping a fixed guess.
+          for i in $(seq 1 60); do
+            if curl -fsS "$NEOCIV_URL" -o /dev/null; then
+              echo "server up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not come up in 60s"; cat /tmp/server.log; exit 1
+
+      - name: Run the world3d gate
+        run: |
+          # `set -e` is on by default, so a failing gate would skip the cleanup below.
+          # Capture the status explicitly, always remove the symlink, then report.
+          ln -sfn "$SCRATCH/node_modules" node_modules
+          set +e
+          node scripts/verify_world3d.mjs
+          status=$?
+          set -e
+          rm -f node_modules
+          exit $status
+
+      - name: Server log on failure
+        if: failure()
+        run: cat /tmp/server.log || true
+
+      - name: Stop the server
+        if: always()
+        run: |
+          [ -f /tmp/server.pid ] && kill "$(cat /tmp/server.pid)" 2>/dev/null || true
+          rm -f node_modules
