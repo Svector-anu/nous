@@ -876,6 +876,84 @@ await page.evaluate(async () => {
   window.__events.feed(real, real);
 });
 
+// --- 11c. ambient sound: silent by default, and never required -------------------
+// The bed is synthesised, so there is nothing to download and nothing to hear in a
+// headless browser. What matters is asserted instead: that it stays off until asked,
+// that the mood mapping tracks the world, and that the graph really starts and stops.
+const audioIdle = await page.evaluate(() => {
+  const a = window.__audio;
+  const agents = (n, state) => Array.from({ length: n }, (_, i) => ({ id: i + 1, state }));
+  return {
+    supported: a.supported(),
+    enabled: a.ambience.enabled,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    pressed: document.getElementById("soundToggle").getAttribute("aria-pressed"),
+    // Pure mapping, asserted without a speaker.
+    calm: a.moodFor({ agents: agents(10, "IDLE") }),
+    active: a.moodFor({ agents: [...agents(6, "GATHER"), ...agents(4, "IDLE")] }),
+    tense: a.moodFor({ agents: [...agents(9, "IDLE"), ...agents(1, "FLEE")] }),
+    empty: a.moodFor({ agents: [] }),
+  };
+});
+check(
+  "ambient sound is off until a spectator asks for it",
+  audioIdle.enabled === false && audioIdle.sounding === false && audioIdle.pressed === "false",
+  `enabled=${audioIdle.enabled}, sounding=${audioIdle.sounding}, pressed=${audioIdle.pressed}`
+);
+check(
+  "the bed follows what the world is doing",
+  audioIdle.calm === "calm" && audioIdle.active === "active" &&
+    audioIdle.tense === "tense" && audioIdle.empty === "calm",
+  `idle=${audioIdle.calm}, working=${audioIdle.active}, fleeing=${audioIdle.tense}, empty=${audioIdle.empty}`
+);
+
+// A real click, because a stored preference is not a gesture and a context started
+// without one stays suspended and silent.
+await page.click("#soundToggle");
+await page.waitForTimeout(600);
+const audioOn = await page.evaluate(() => {
+  const a = window.__audio;
+  return {
+    enabled: a.ambience.enabled,
+    running: a.ambience.ctx ? a.ambience.ctx.state : null,
+    voices: a.ambience.voices.length,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+  };
+});
+check(
+  "turning sound on builds a running audio graph",
+  audioOn.enabled === true && audioOn.voices >= 3 && audioOn.sounding === true &&
+    audioOn.running !== "closed",
+  `enabled=${audioOn.enabled}, ctx=${audioOn.running}, voices=${audioOn.voices}, stored=${audioOn.stored}`
+);
+check(
+  "the choice is remembered",
+  audioOn.stored === "on",
+  `localStorage nous.sound = ${audioOn.stored}`
+);
+
+await page.click("#soundToggle");
+await page.waitForTimeout(300);
+const audioOff = await page.evaluate(() => {
+  const a = window.__audio;
+  // The world must keep running with sound fully off — this is the path every visitor
+  // who never touches the button takes.
+  a.ambience.setMood("tense");
+  return {
+    enabled: a.ambience.enabled,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+    live: document.getElementById("status").textContent.trim(),
+  };
+});
+check(
+  "turning it off silences it and the world carries on",
+  audioOff.enabled === false && audioOff.sounding === false && audioOff.stored === "off" &&
+    audioOff.live === "live",
+  `enabled=${audioOff.enabled}, stored=${audioOff.stored}, status=${audioOff.live}`
+);
+
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
 // The desktop floating-card layout is too wide for a phone. This checks the adaptive
 // layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find
