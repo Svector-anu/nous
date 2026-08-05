@@ -1059,6 +1059,8 @@
   #worldLogCard .feed-kind.goalChange { color: #a371f7; }
   #worldLogCard .feed-kind.arrival { color: #6ee274; }
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
+  /* Same green as the leader flash on the map, so the two read as one event. */
+  #worldLogCard .feed-kind.leader { color: #6ee274; }
 
   /* Agent inspector card (a #bottomStrip card; visibility gated by .open there) */
   #agentCards { width: auto; flex-direction: column; }
@@ -1411,13 +1413,13 @@
     .icon-btn { width: 34px; height: 34px; border-radius: 9px; }
     .icon-btn svg { width: 16px; height: 16px; }
     #topBar .topActions { gap: 6px; }
-    /* No shelf on a phone, so the HUD carries the framing and the hints again. */
-    #hud { display: flex; }
     /* Icon only on a phone: a text label here is what tips the bar into horizontal
        overflow. The address stays reachable through the button's title. */
     #walletBtn { height: 34px; padding: 0 9px; border-radius: 9px; }
     #walletBtn svg { width: 16px; height: 16px; }
     #walletBtn #walletLabel { display: none; }
+    /* No shelf on a phone, so the HUD carries the framing and the hints again. */
+    #hud { display: flex; }
     #hud .title, #hud .hud-hints { display: inline; }
 
     #dashboard {
@@ -1559,9 +1561,9 @@
         </div>
       </div>
       <div class="topActions">
+        <button id="walletBtn" type="button" title="Connect a wallet" aria-label="Connect a wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Connect</span></button>
         <button id="cinemaToggle" class="icon-btn" title="Full world view (C)" aria-label="Full world view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg></button>
         <button id="alertsToggle" class="icon-btn has-dot" title="Recent events" aria-label="Recent events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
-        <button id="walletBtn" type="button" title="Connect a wallet" aria-label="Connect a wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Connect</span></button>
         <button id="panelsToggle" class="icon-btn" title="Panels" aria-label="Panels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="15" y2="12"/><line x1="4" y1="17" x2="18" y2="17"/></svg></button>
       </div>
     </div>
@@ -2140,8 +2142,6 @@ function escapeHtml(text) {
   return node.innerHTML;
 }
 
-async function setRest(agentId, rest) {
-  try {
 // --- wallet identity --------------------------------------------------------
 // Sign-In With Ethereum, as a single control in the top bar. This proves who you are;
 // it buys no advantage in the world. A linked agent answers only to its owner, which is
@@ -2300,6 +2300,8 @@ if (walletBtn) {
 // Test seam: the gate has no wallet extension, so it drives these directly.
 window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, state: wallet };
 
+async function setRest(agentId, rest) {
+  try {
     const response = await fetch(`/agents/${agentId}/rest`, {
       method: "POST",
       // Carries the session when there is one: a linked agent answers only to its owner.
@@ -2619,6 +2621,7 @@ const WORLD_LOG_ICONS = {
   goalChange: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12L2.5 9.5"/></svg>`,
   arrival: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   fleeing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  leader: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l4 4 5-7 5 7 4-4v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
 };
 
 const worldLog = document.getElementById("worldLog");
@@ -3359,6 +3362,19 @@ function setStatDelta(id, current, previous) {
 // Debug seam for the browser gate (like window.__director): lets verify_world3d.mjs assert the
 // top-bar derivations deterministically without waiting on live snapshots.
 window.__topbar = { setStatDelta, setFollowFromLabel };
+
+// Debug seam for the browser gate. The three events a spectator must not miss — a death, a
+// raid, a succession — are rare and unschedulable in a live world, so the gate drives a pair
+// of hand-built snapshots through the real detector and the real log renderer rather than
+// waiting for the simulation to happen to produce one.
+window.__events = {
+  findEvents,
+  feed: (before, after) => {
+    previousWorldSnapshot = before;
+    processWorldLog(after);
+    return worldLogEntries.slice();
+  },
+};
 
 function dayNumber(tick) {
   // The simulation counts 200 ticks per day; the sidebar already shows "day".

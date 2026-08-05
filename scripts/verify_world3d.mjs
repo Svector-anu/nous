@@ -787,6 +787,95 @@ check(
   `label="${walletUi.afterDisconnect.label}", auth=${walletUi.afterDisconnect.headers.Authorization}`
 );
 
+// --- 11b. the three events a spectator must not miss ----------------------------
+// A death, a fight and a succession are rare and cannot be scheduled, so waiting for the
+// live world to produce one would make this gate flaky. Instead a pair of hand-built
+// snapshots is pushed through the real detector, the real log renderer and the real flash
+// spawner. Nothing here is a mock: window.__events.feed calls processWorldLog, and
+// view.update is the same method the websocket calls.
+const spectator = await page.evaluate(() => {
+  const agent = (id, name, extra = {}) => ({
+    id, name, x: 10 + id, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0, wood: 0,
+    clan: 1, user: false, personality: "steady", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "", ...extra,
+  });
+  const snap = (agents, clans, tick) => ({
+    tick, day: 1, agents, buildings: [], resources: [], clans,
+    grid: { width: 64, height: 64 },
+  });
+  const clan = (leader) => ({ id: 1, size: 2, goal: "gather food", leader, centre: [12, 10] });
+
+  const before = snap([agent(1, "Ada"), agent(2, "Bo")], [clan(1)], 1);
+  const kindsOf = (entries) => entries.map((e) => e.kind);
+
+  // 1. a death: the agent is simply absent from the next snapshot.
+  const died = window.__events.feed(before, snap([agent(2, "Bo")], [clan(2)], 2));
+
+  // 2. a raid: the winner's raids_won goes up.
+  const raided = window.__events.feed(
+    before,
+    snap([agent(1, "Ada", { raids_won: 1 }), agent(2, "Bo")], [clan(1)], 2)
+  );
+
+  // 3. a succession: same people, same place, new leader.
+  const led = window.__events.feed(before, snap([agent(1, "Ada"), agent(2, "Bo")], [clan(2)], 2));
+
+  // The flashes are counted on the real view. update() is what the socket calls.
+  const view = window["__world"];
+  view.update(before);
+  const flashesBefore = view.flashSprites.length;
+  view.update(snap([agent(2, "Bo")], [clan(2)], 2));
+  const flashesAfter = view.flashSprites.length;
+
+  return {
+    died: { kinds: kindsOf(died), label: died.find((e) => e.kind === "death")?.label },
+    raided: { kinds: kindsOf(raided), label: raided.find((e) => e.kind === "raid")?.label },
+    led: { kinds: kindsOf(led), label: led.find((e) => e.kind === "leader")?.label },
+    logText: document.getElementById("worldLog").textContent,
+    flashGain: flashesAfter - flashesBefore,
+    configured: Object.keys(view.flashTextures),
+  };
+});
+check(
+  "a death is reported in plain English",
+  spectator.died.kinds.includes("death") && /died/.test(spectator.died.label || ""),
+  `kinds=[${spectator.died.kinds}] label="${spectator.died.label}"`
+);
+check(
+  "a raid is reported in plain English",
+  spectator.raided.kinds.includes("raid") && /raid/.test(spectator.raided.label || ""),
+  `kinds=[${spectator.raided.kinds}] label="${spectator.raided.label}"`
+);
+check(
+  "a new clan leader is reported by name",
+  spectator.led.kinds.includes("leader") && /Bo now leads clan 1/.test(spectator.led.label || ""),
+  `kinds=[${spectator.led.kinds}] label="${spectator.led.label}"`
+);
+check(
+  "the world log actually renders the event text",
+  /now leads clan/.test(spectator.logText),
+  `log="${spectator.logText.replace(/\s+/g, " ").trim().slice(0, 80)}"`
+);
+check(
+  "death and succession have their own map flashes",
+  spectator.configured.includes("death") && spectator.configured.includes("leader"),
+  `configured: ${spectator.configured.join(", ")}`
+);
+check(
+  "a death and a succession put flashes on the map",
+  spectator.flashGain >= 2,
+  `${spectator.flashGain} new flashes (expected a death and a leader change)`
+);
+
+// Hand the view and the log back a real snapshot. Without this the next socket message is
+// diffed against a two-agent fixture, which would report the whole population as dead.
+await page.evaluate(async () => {
+  const real = await (await fetch("/state")).json();
+  window["__world"].update(real);
+  window.__events.feed(real, real);
+});
+
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
 // The desktop floating-card layout is too wide for a phone. This checks the adaptive
 // layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find

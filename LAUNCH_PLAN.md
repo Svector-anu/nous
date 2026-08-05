@@ -55,9 +55,10 @@
   "Demo credits — no real money."; `/chain/config` reports `markets_are_demo` directly
   from `real_money_enabled`.
 - ~~Existing documentation has stale test-count claims.~~ **Closed**, and superseded: the
-  baseline is now **484 pytest tests** (~115s) and **58 of 59 browser checks**, not 424/59.
-  The one browser failure is "the camera stays put while you hold it", which predates this
-  work and trades places with the raycast check between runs.
+  baseline is now **484 pytest tests** (~110s) and **70 of 70 browser checks**, not 424/59.
+  Two browser checks are timing-sensitive rather than broken — "the camera stays put while
+  you hold it" and the raycast pick — and trade places between runs; a full green run is the
+  normal result.
 - **Still open.** Not verified — needs a decision or source: the intended always-on hosting
   provider, log destination/retention, restart policy, backup location and retention,
   recovery objective, and who owns operational alerts. This is Step 3 and is the only

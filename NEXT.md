@@ -20,7 +20,7 @@ Do not start until I confirm your read is right.
 | | |
 |---|---|
 | Tests | **484 passed in 115s** (`pytest -q`, actual output) |
-| Browser checks | **58/59** (`node scripts/verify_world3d.mjs`) — "the camera stays put while you hold it" fails intermittently; see below |
+| Browser checks | **70/70** (`node scripts/verify_world3d.mjs`) — "the camera stays put while you hold it" is timing-sensitive and fails on roughly one run in three |
 | Commits | on branch `phase/3-soft-limits` |
 | Working tree | dirty (Phase 3 + UX clarity + pre-launch craft/responsiveness pass) |
 | Lint / typecheck / CI | **none exist** |
