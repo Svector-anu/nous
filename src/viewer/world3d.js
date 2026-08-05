@@ -1133,6 +1133,19 @@ export class WorldView {
       }
     };
     const release = (event) => {
+      // Pin the goal to wherever the hand actually left the camera. move() already does
+      // this per event, but pointer events can be coalesced or delivered out of order, and
+      // a pointerup that lands after the last move leaves the goal a fraction ahead of the
+      // camera — which the ease then glides into, so the view creeps after you let go.
+      // Done inline rather than through seized() so it stays a pin: seized() also reports
+      // manual input, and a release is not a new interaction.
+      if (dragging) {
+        this.goal.theta = this.orbit.theta;
+        this.goal.phi = this.orbit.phi;
+        this.goal.distance = this.orbit.distance;
+        this.goal.x = this.target.x;
+        this.goal.z = this.target.z;
+      }
       dragging = null;
       try {
         if (event.pointerId !== undefined && canvas.hasPointerCapture(event.pointerId)) {
@@ -1856,6 +1869,14 @@ export class WorldView {
       }
       entry.body.instanceMatrix.needsUpdate = true;
       entry.head.instanceMatrix.needsUpdate = true;
+      // InstancedMesh.raycast computes its bounding sphere once, caches it, and never
+      // refreshes it when the instances move. Agents then walk out of a sphere measured
+      // minutes ago and the ray early-outs before touching a single capsule — clicking a
+      // visible agent silently does nothing. Discarding it defers an O(agents) recompute
+      // to the next pick, which happens on a click, rather than paying it every frame.
+      // Nothing else needs it: these meshes set frustumCulled = false.
+      entry.body.boundingSphere = null;
+      entry.head.boundingSphere = null;
       entry.phase.needsUpdate = true;
       entry.speed.needsUpdate = true;
       entry.lean.needsUpdate = true;

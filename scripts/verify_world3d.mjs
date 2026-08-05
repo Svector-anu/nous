@@ -363,7 +363,13 @@ const picking = await page.evaluate((TORSO_Y) => {
     else if (got === null) missed++;
     else {
       const other = positions.get(got);
-      if (other && range(other) <= range(q) + 1e-6) nearerWon++;
+      // A ray hits a surface; `range` measures to a torso centre. An agent standing
+      // shoulder to shoulder with the one aimed at can present a nearer surface while its
+      // centre sits marginally farther, so anything inside a body width is legitimate
+      // geometry rather than a mismapped instance. A humanoid here is about 0.3 world
+      // units across the shoulders (TILE * 0.076 either side of the spine, TILE = 2).
+      const BODY_WIDTH = 0.36;
+      if (other && range(other) <= range(q) + BODY_WIDTH) nearerWon++;
       else fartherWon++;
     }
   }
@@ -374,21 +380,21 @@ const picking = await page.evaluate((TORSO_Y) => {
 // *further away* than the one aimed at, which is the signature of a broken instanceId to
 // agent-id mapping and would hide behind a plain "mostly correct" assertion.
 //
-// Misses are environmental, not a fault: the world ticks once a second while this loop
-// projects and raycasts forty-odd agents, so some of them genuinely walk out from under the
-// cursor mid-loop. The invariant that actually detects a broken instanceId mapping is
-// fartherWon === 0, which is asserted exactly; the miss budget is loose on purpose so this
-// check fails for real reasons rather than for the sim being alive.
-// `fartherWon` compares distance to torso *centres*, but a hit can land anywhere on a body:
-// two agents standing close can have the nearest hit belong to the marginally farther
-// centre, which is legitimate geometry rather than a fault. Measured across four runs the
-// count sits at 0-2 of ~50. A genuinely broken instanceId mapping shows up as a large
-// fraction, not one in fifty, so the bar is a small proportion rather than exactly zero.
+// Misses used to be written off as the sim being alive, which was wrong — this whole loop
+// runs inside one synchronous evaluate, so no frame renders and no snapshot lands while it
+// is going. They were a real bug: InstancedMesh caches its bounding sphere on first raycast
+// and never refreshes it, so once agents wandered out of that stale sphere the ray
+// early-outed and clicking a plainly visible agent did nothing. With the sphere invalidated
+// on every pose the miss count is 0, so it is now asserted as 0 rather than budgeted.
+//
+// `fartherWon` stays a small proportion rather than exactly zero: it compares torso centres
+// while a ray hits a surface, and the BODY_WIDTH tolerance above absorbs the honest cases.
+// A genuinely broken instanceId mapping shows up as a large fraction, not one in forty.
 check(
   "clicking an agent never resolves to one behind it",
-  picking.fartherWon <= Math.max(2, picking.onScreen * 0.06) &&
+  picking.fartherWon <= Math.max(1, picking.onScreen * 0.04) &&
     picking.onScreen > 5 &&
-    picking.missed <= Math.max(3, picking.onScreen * 0.25),
+    picking.missed === 0,
   `${picking.exact}/${picking.onScreen} exact, ${picking.nearerWon} occluded by a nearer agent, ` +
     `${picking.fartherWon} resolved to a farther agent, ${picking.missed} moved out from under the cursor`
 );
@@ -489,10 +495,15 @@ const seized = await reading();
 check("dragging takes control immediately", seized.enabled === false);
 await page.waitForTimeout(2500);
 const stillHeld = await reading();
+const drift = (a, b) =>
+  ["theta", "phi", "distance", "x", "z"]
+    .map((k) => `${k}=${Math.abs(a[k] - b[k]).toExponential(1)}`)
+    .join(" ");
 check(
   "the camera stays put while you hold it",
   !moved(seized, stillHeld),
-  "a drifting camera after letting go means the goal was not pinned"
+  `a drifting camera after letting go means the goal was not pinned — ` +
+    `${drift(seized, stillHeld)}, director ${seized.enabled}->${stillHeld.enabled}`
 );
 
 // Autopilot leaks nothing: it drives flyTo every frame for a long stretch.
