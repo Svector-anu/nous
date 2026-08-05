@@ -14,6 +14,11 @@ package-lock.json
 # research media — raw video files, not project assets
 *.mp4
 
+# drop-in music loops. the score is synthesised, so these are optional and personal;
+# whatever you put here is yours to license, not the repo's to carry.
+src/viewer/beds/*
+!src/viewer/beds/manifest.json
+
 # design references and screenshots — pasted in to describe intent, not project assets.
 # They are large, they date instantly, and none of them are read at runtime.
 Screenshot*

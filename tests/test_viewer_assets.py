@@ -14,8 +14,15 @@ from src.api.server import VIEWER_INDEX, create_app
 
 VIEWER_DIR = VIEWER_INDEX.parent
 
-# `import x from "./y.js"`, `import "./y.js"`, and the `export ... from` form.
-IMPORT_SPECIFIER = re.compile(r"""(?:import|export)\b[^;'"]*?["'](\.{0,2}/[^"']+)["']""")
+# `import x from "./y.js"`, `export ... from "./y.js"`, the side-effect `import "./y.js"`,
+# and the dynamic `import("./y.js")`.
+#
+# Anchored on `from` or on `import` immediately before the string, rather than allowing any
+# run of characters after the keyword: the looser form treated `export const URL = "/static/x"`
+# as an import and then tried to read a plain data path as a module.
+IMPORT_SPECIFIER = re.compile(
+    r"""(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.{0,2}/[^"']+)["']"""
+)
 
 
 def _specifiers(source: str) -> list[str]:

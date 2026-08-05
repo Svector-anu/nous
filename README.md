@@ -145,6 +145,28 @@ rules as everyone else. `GET /agents` returns the cards.
 .venv/bin/python -m pytest tests/ -q      # 484 tests, ~115s
 ```
 
+**music.** off until you press the speaker in the top bar, because browsers refuse to start
+audio without a gesture anyway. what plays is synthesised in the browser — a dark
+phrygian score, ambient hip-hop under halftime trap, with three arrangements the world
+picks between: `calm` when little is happening, `active` once most agents are working,
+`tense` the moment anyone is fleeing. no audio file ships and nothing is fetched, so it
+cannot slow the page down and there is no licence to worry about. volume lives in settings
+and is remembered; default 0.75 into a limiter.
+
+to use your own loops instead, drop three files in `src/viewer/beds/` and name them in
+`src/viewer/beds/manifest.json`, which ships empty:
+
+```json
+{ "calm": "calm.webm", "active": "active.webm", "tense": "tense.webm" }
+```
+
+any format the browser decodes works. all three load at once and crossfade, so a mood
+change is seamless rather than a restart from the top of another file. the audio files
+themselves are git-ignored — whatever you put there is yours to license, not the repo's to
+carry. all three names must be present or the synth keeps the score, and if the manifest is
+malformed or a file fails to decode it falls back the same way: a bad loop must never cost
+a visitor their sound.
+
 **prediction markets.** spectators bet on what the world will do. markets open on a
 schedule and on events (a truce forms, a clan takes a beating), resolve automatically from
 world state with no human oracle, and pay out parimutuel — winners split the pool, no house.

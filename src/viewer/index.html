@@ -1064,6 +1064,20 @@
 
   /* One icon carries both states: the crossed lines show while muted, the waves once
      sound is on. Swapping the whole svg would flicker on every toggle. */
+  /* Volume lives in Settings rather than on the map: the toggle is the thing you reach
+     for mid-watch, the level is set once. */
+  .settings-slider {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 6px 2px; font-size: 12px; color: var(--muted);
+  }
+  .settings-slider input[type="range"] {
+    flex: 1 1 auto; min-width: 0; accent-color: var(--accent); cursor: pointer;
+  }
+  .settings-slider-value {
+    min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+
   #soundToggle .sound-on-wave { display: none; }
   #soundToggle.sounding { color: var(--accent); border-color: rgba(110, 226, 116, 0.45); }
   #soundToggle.sounding .sound-off-slash { display: none; }
@@ -1780,6 +1794,15 @@
       <button id="autoCamera" data-on="1" class="secondary settings-item">camera: cinematic</button>
       <button id="mode" class="secondary settings-item">colour: clan</button>
 
+      <p class="settings-group">Sound</p>
+      <button id="settingsSound" class="secondary settings-item">music: off</button>
+      <label class="settings-slider" for="musicVolume">
+        <span>Volume</span>
+        <input id="musicVolume" type="range" min="0" max="100" step="1" value="75"
+               aria-label="Music volume">
+        <span id="musicVolumeValue" class="settings-slider-value">75</span>
+      </label>
+
       <p class="settings-group">Help</p>
       <button id="settingsShowTours" class="secondary settings-item">Camera tours</button>
       <button id="settingsShowControls" class="secondary settings-item">Keyboard controls</button>
@@ -2000,7 +2023,9 @@ window.addEventListener("error", (event) => {
 <script type="module">
 import { WorldView, densestCluster } from "/static/world3d.js";
 import { Director, busiestPlace, findEvents } from "/static/director.js";
-import { Ambience, moodFor, supported as audioSupported } from "/static/audio.js";
+import {
+  Ambience, moodFor, supported as audioSupported, DEFAULT_VOLUME, clampVolume,
+} from "/static/audio.js";
 
 // Half-extent in world units to hold in frame when flying to a settlement.
 const TILE_SPAN = 18;
@@ -2313,22 +2338,52 @@ window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, short
 // Off until asked for. Browsers refuse to start audio without a gesture anyway, so the
 // choice is really between "silent until clicked" and "broken until clicked".
 const SOUND_KEY = "nous.sound";
-const ambience = new Ambience();
+const VOLUME_KEY = "nous.volume";
 const soundToggle = document.getElementById("soundToggle");
+const settingsSound = document.getElementById("settingsSound");
+const volumeSlider = document.getElementById("musicVolume");
+const volumeValue = document.getElementById("musicVolumeValue");
+
 let soundWanted = false;
+let storedVolume = DEFAULT_VOLUME;
 try {
   soundWanted = localStorage.getItem(SOUND_KEY) === "on";
+  const saved = localStorage.getItem(VOLUME_KEY);
+  if (saved !== null) storedVolume = clampVolume(parseFloat(saved));
 } catch {
   /* private mode: the preference simply does not persist */
 }
+const ambience = new Ambience(storedVolume);
 
 function renderSound() {
-  if (!soundToggle) return;
   const on = ambience.enabled;
-  soundToggle.classList.toggle("sounding", on);
-  soundToggle.setAttribute("aria-pressed", on ? "true" : "false");
-  soundToggle.title = on ? `Ambient sound (${ambience.mood})` : "Ambient sound (off)";
+  if (soundToggle) {
+    soundToggle.classList.toggle("sounding", on);
+    soundToggle.setAttribute("aria-pressed", on ? "true" : "false");
+    soundToggle.title = on ? `Music (${ambience.mood})` : "Music (off)";
+  }
+  if (settingsSound) settingsSound.textContent = on ? `music: ${ambience.mood}` : "music: off";
+  const percent = Math.round(ambience.volume * 100);
+  if (volumeSlider && volumeSlider.value !== String(percent)) volumeSlider.value = String(percent);
+  if (volumeValue) volumeValue.textContent = String(percent);
 }
+
+function setVolume(fraction) {
+  ambience.setVolume(fraction);
+  try {
+    localStorage.setItem(VOLUME_KEY, String(ambience.volume));
+  } catch {
+    /* the level still applies for this session */
+  }
+  renderSound();
+}
+
+if (volumeSlider) {
+  volumeSlider.addEventListener("input", () => setVolume(volumeSlider.value / 100));
+}
+// The settings row is a second door to the same switch, for anyone who never guesses that
+// the speaker icon in the bar is clickable.
+if (settingsSound) settingsSound.addEventListener("click", () => setSound(!ambience.enabled));
 
 function updateAmbience(snapshot) {
   // moodFor is pure and cheap, and setMood is a no-op while silent — so this costs
@@ -2348,14 +2403,17 @@ async function setSound(on) {
   renderSound();
 }
 
-if (soundToggle) {
+{
   if (!audioSupported()) {
     // No web audio here at all. A control that cannot do anything is worse than no
-    // control, so it says why and stops taking clicks.
-    soundToggle.disabled = true;
-    soundToggle.title = "Ambient sound (not supported by this browser)";
+    // control, so every door to it says why and stops taking input.
+    for (const control of [soundToggle, settingsSound, volumeSlider]) {
+      if (control) control.disabled = true;
+    }
+    if (soundToggle) soundToggle.title = "Music (not supported by this browser)";
+    if (settingsSound) settingsSound.textContent = "music: unsupported";
   } else {
-    soundToggle.addEventListener("click", () => setSound(!ambience.enabled));
+    if (soundToggle) soundToggle.addEventListener("click", () => setSound(!ambience.enabled));
     if (soundWanted) {
       // Remembered from last visit, but a stored preference is not a gesture: the context
       // would start suspended and stay silent. Wait for the first real interaction.
@@ -2373,7 +2431,9 @@ if (soundToggle) {
 
 // Test seam: the gate runs without a speaker, so the mood mapping and the toggle state
 // are asserted directly rather than by listening.
-window.__audio = { ambience, moodFor, setSound, supported: audioSupported };
+window.__audio = {
+  ambience, moodFor, setSound, setVolume, supported: audioSupported, DEFAULT_VOLUME,
+};
 
 async function setRest(agentId, rest) {
   try {

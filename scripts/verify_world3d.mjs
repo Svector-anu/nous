@@ -921,7 +921,9 @@ check(
 // A real click, because a stored preference is not a gesture and a context started
 // without one stays suspended and silent.
 await page.click("#soundToggle");
-await page.waitForTimeout(600);
+// Long enough for the fade-in to arrive at level, so the loudness assertion reads the
+// destination rather than a point part-way up the ramp.
+await page.waitForTimeout(1500);
 const audioOn = await page.evaluate(() => {
   const a = window.__audio;
   return {
@@ -930,6 +932,9 @@ const audioOn = await page.evaluate(() => {
     voices: a.ambience.voices.length,
     sounding: document.getElementById("soundToggle").classList.contains("sounding"),
     stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+    master: a.ambience.master ? a.ambience.master.gain.value : 0,
+    hasLimiter: !!a.ambience.limiter,
+    defaultVolume: a.DEFAULT_VOLUME,
   };
 });
 check(
@@ -942,6 +947,43 @@ check(
   "the choice is remembered",
   audioOn.stored === "on",
   `localStorage nous.sound = ${audioOn.stored}`
+);
+// The whole point of the loudness pass: the master must actually sit high, and it must be
+// safe to do so. A high master with no limiter is how the old bed would have clipped.
+check(
+  "the music plays loud enough to hear, through a limiter",
+  audioOn.master >= 0.7 && audioOn.hasLimiter === true,
+  `master gain ${audioOn.master}, limiter ${audioOn.hasLimiter}, default ${audioOn.defaultVolume}`
+);
+
+const volume = await page.evaluate(async () => {
+  const a = window.__audio;
+  const slider = document.getElementById("musicVolume");
+  a.setVolume(0.3);
+  const lowered = a.ambience.volume;
+  // The graph is retargeted rather than set, so read the destination the ramp is heading
+  // for instead of racing it.
+  slider.value = "90";
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 120));
+  return {
+    lowered,
+    fromSlider: a.ambience.volume,
+    shown: document.getElementById("musicVolumeValue").textContent,
+    stored: (() => { try { return localStorage.getItem("nous.volume"); } catch { return null; } })(),
+    muteStillWorks: (() => { a.ambience.setVolume(0); return a.ambience.volume === 0; })(),
+  };
+});
+check(
+  "the volume control moves the music and is remembered",
+  Math.abs(volume.lowered - 0.3) < 1e-6 && Math.abs(volume.fromSlider - 0.9) < 1e-6 &&
+    volume.shown === "90" && Math.abs(parseFloat(volume.stored) - 0.9) < 1e-6,
+  `set=${volume.lowered}, slider=${volume.fromSlider}, shown=${volume.shown}, stored=${volume.stored}`
+);
+check(
+  "the volume control reaches silence",
+  volume.muteStillWorks === true,
+  `zero accepted: ${volume.muteStillWorks}`
 );
 
 await page.click("#soundToggle");
