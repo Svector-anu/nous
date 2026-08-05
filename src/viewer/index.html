@@ -192,18 +192,84 @@
   }
   #onboarding.hidden { opacity: 0; pointer-events: none; }
   #onboarding.hidden .screen { display: none !important; }
+  #onboarding.hidden #onboardingSky { display: none; }
   #onboarding .screen {
     position: absolute; inset: 0;
     display: none;
     opacity: 0;
     transition: opacity 0.4s ease;
     pointer-events: auto;
-    background: rgba(6, 10, 16, 0.72);
-    backdrop-filter: blur(2px);
+    background: transparent;
   }
   #onboarding .screen.active {
     display: flex; align-items: center; justify-content: center;
     opacity: 1;
+  }
+
+  /* === Cinematic backdrop ==================================================
+     Drawn entirely in CSS and inline SVG rather than shipped as artwork: the
+     repo has no CDN and no build step, and a photographic sky would be megabytes
+     for something the eye reads as "vast and quiet". Vector also stays sharp at
+     any resolution and re-themes from --accent for free. */
+  #onboardingSky {
+    position: absolute; inset: 0; overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 50% 108%, rgba(24,42,30,0.55) 0%, rgba(8,12,16,0) 60%),
+      linear-gradient(180deg, #05080b 0%, #070c11 42%, #080f11 72%, #060a0c 100%);
+  }
+  /* The planet: one circle, mostly off-screen. The inset shadow carves the night
+     side so only a crescent of atmosphere catches the light, which is what sells
+     the scale — a fully-lit disc reads as a ball, a crescent reads as a world. */
+  #onboardingSky .planet {
+    position: absolute;
+    top: -84vmax; left: 50%; transform: translateX(-32%);
+    width: 118vmax; height: 118vmax; border-radius: 50%;
+    background:
+      radial-gradient(circle at 32% 74%, rgba(58,86,66,0.30) 0%, rgba(12,20,18,0.86) 42%, #05080a 68%);
+    box-shadow:
+      inset -26px 34px 120px rgba(150,220,175,0.16),
+      inset 8px -10px 180px rgba(0,0,0,0.92),
+      0 0 190px rgba(110,226,116,0.11);
+  }
+  /* Atmospheric rim: a hairline of lit air along the limb. */
+  #onboardingSky .planet::after {
+    content: ""; position: absolute; inset: -1px; border-radius: 50%;
+    background: transparent;
+    box-shadow: inset -3px 5px 26px rgba(186,246,205,0.30);
+  }
+  #onboardingSky .stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.85; }
+  /* Layered ridges. Each band is flatter and lighter than the one behind it, which
+     is aerial perspective — the cheapest convincing depth cue there is. */
+  #onboardingSky .ridge { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; display: block; }
+  #onboardingSky .ridge--far  { height: 46vh; opacity: 0.55; }
+  #onboardingSky .ridge--mid  { height: 38vh; opacity: 0.80; }
+  #onboardingSky .ridge--near { height: 30vh; opacity: 1; }
+  /* Valley haze: light pooling where the settlement sits, so the eye lands there. */
+  #onboardingSky .haze {
+    position: absolute; left: 50%; bottom: 4vh; transform: translateX(-50%);
+    width: 78vw; height: 26vh; pointer-events: none;
+    background: radial-gradient(60% 100% at 50% 100%, rgba(226,178,96,0.16) 0%, rgba(226,178,96,0.05) 38%, rgba(0,0,0,0) 72%);
+    filter: blur(22px);
+  }
+  /* Settlement windows. Amber against all that green-black is the only warm colour
+     on screen, so a handful of dots reads as "people live down there". */
+  #onboardingSky .ember {
+    position: absolute; width: 2px; height: 2px; border-radius: 50%;
+    background: #ffd7a0;
+    box-shadow: 0 0 6px 1px rgba(255,190,120,0.85);
+    animation: emberFlicker 4s ease-in-out infinite;
+  }
+  @keyframes emberFlicker {
+    0%, 100% { opacity: 0.30; }
+    50%      { opacity: 0.95; }
+  }
+  /* A slow vignette keeps the corners quiet so UI always wins the contrast fight. */
+  #onboardingSky .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(78% 62% at 50% 46%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.62) 100%);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #onboardingSky .ember { animation: none; opacity: 0.7; }
   }
 
   /* Wide cinematic panels */
@@ -218,7 +284,106 @@
     position: relative;
   }
 
-  /* Splash */
+  /* === Boot screen =========================================================
+     The socket takes a moment to connect and the first snapshot to arrive. That
+     wait used to be a dark page with "connecting" in a corner; now it is the
+     first thing the product says. The stages are driven by real socket state,
+     never a fake timer — a progress bar that lies is worse than none. */
+  #onboarding-boot .boot-wrap,
+  #onboarding-splash .splash-wrap {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; padding: 0 24px; width: 100%;
+  }
+  .brandLockup { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .brandLockup .mark {
+    width: 92px; height: 92px; color: var(--accent);
+    filter: drop-shadow(0 0 26px rgba(110,226,116,0.45));
+  }
+  .brandLockup .mark svg { width: 100%; height: 100%; display: block; }
+  .brandLockup .word {
+    font-family: var(--font-mono);
+    font-size: 62px; font-weight: 500; letter-spacing: .34em;
+    text-transform: uppercase; color: #f4f7f5; margin: 0;
+    text-indent: .34em; /* letter-spacing pads the right edge; recentre the word */
+    text-shadow: 0 0 40px rgba(150,220,175,0.28);
+  }
+  .boot-bar {
+    position: relative; width: min(520px, 74vw); height: 3px;
+    margin: 44px 0 20px; border-radius: 2px;
+    background: rgba(255,255,255,0.09); overflow: hidden;
+  }
+  .boot-bar .fill {
+    position: absolute; inset: 0 auto 0 0; width: 0%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(110,226,116,0.55), #9dfba4);
+    box-shadow: 0 0 16px rgba(110,226,116,0.75);
+    transition: width 0.55s cubic-bezier(.4,0,.2,1);
+  }
+  .boot-status {
+    font-size: 14px; color: #aab3ac; letter-spacing: .04em; margin: 0 0 26px;
+    min-height: 1.2em; /* reserve the line so stage changes do not nudge the layout */
+  }
+  .boot-stages { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; justify-content: center; }
+  .boot-stage {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 12.5px; color: #6c7570;
+    transition: color .45s ease;
+  }
+  .boot-stage .pip {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #2b332d; transition: background .45s ease, box-shadow .45s ease;
+  }
+  .boot-stage.done { color: #cfd8d2; }
+  .boot-stage.done .pip { background: var(--accent); box-shadow: 0 0 9px rgba(110,226,116,0.9); }
+
+  /* Splash — the hero. No panel chrome: the backdrop is the design, and a card
+     around it would shrink the world back into a dialog. */
+  #onboarding-splash .splash-wrap { gap: 0; }
+  .splash-eyebrow {
+    margin: 22px 0 0;
+    font-size: 13px; letter-spacing: .40em; text-transform: uppercase;
+    color: #93a89a;
+  }
+  .splash-eyebrow i { font-style: normal; color: var(--accent); opacity: .8; margin: 0 10px; }
+  .splash-lede {
+    margin: 26px 0 0; max-width: 46ch;
+    font-size: 16.5px; line-height: 1.65; color: #b8c0ba;
+  }
+  .enter-btn {
+    margin: 46px 0 0; width: auto; padding: 15px 42px;
+    display: inline-flex; align-items: center; gap: 14px;
+    font-size: 14px; font-weight: 600; letter-spacing: .17em; text-transform: uppercase;
+    color: #eafbec;
+    background: linear-gradient(180deg, rgba(24,52,32,0.92), rgba(14,32,20,0.92));
+    border: 1px solid rgba(110,226,116,0.55);
+    border-radius: 999px;
+    box-shadow: 0 0 0 1px rgba(110,226,116,0.10), 0 12px 40px rgba(0,0,0,0.55), inset 0 1px 0 rgba(190,250,205,0.14);
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  }
+  .enter-btn:hover {
+    border-color: rgba(150,240,160,0.9);
+    box-shadow: 0 0 26px rgba(110,226,116,0.34), 0 12px 40px rgba(0,0,0,0.55);
+    transform: translateY(-1px);
+  }
+  .enter-btn svg { width: 17px; height: 17px; }
+  .splash-hint {
+    margin: 20px 0 0; font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: #5f6a63; animation: pulse 2.8s ease-in-out infinite;
+  }
+  /* Staggered reveal: the eye should land on the mark, then the word, then the
+     invitation — not all three at once. */
+  .reveal { opacity: 0; transform: translateY(14px); animation: revealUp .9s cubic-bezier(.2,.7,.3,1) forwards; }
+  .reveal--1 { animation-delay: .10s; }
+  .reveal--2 { animation-delay: .30s; }
+  .reveal--3 { animation-delay: .52s; }
+  .reveal--4 { animation-delay: .74s; }
+  @keyframes revealUp { to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; opacity: 1; transform: none; }
+  }
+
+  /* Splash (legacy panel styles, still used by the menu) */
   .splash-panel {
     max-width: 640px;
     text-align: center;
@@ -1621,13 +1786,58 @@
   </div>
 
   <div id="onboarding">
+    <!-- Cinematic backdrop, shared by every onboarding screen. Pure CSS/SVG: no
+         artwork ships with the repo, so this costs bytes rather than megabytes. -->
+    <div id="onboardingSky" aria-hidden="true">
+      <div class="planet"></div>
+      <canvas class="stars" id="onboardingStars"></canvas>
+      <svg class="ridge ridge--far" viewBox="0 0 1440 420" preserveAspectRatio="none">
+        <path fill="#0a1216" d="M0 420V207Q0 207 51 213Q103 219 154 225Q206 231 257 259Q309 288 360 303Q411 319 463 330Q514 342 566 361Q617 380 669 375Q720 369 771 363Q823 357 874 344Q926 331 977 335Q1029 340 1080 318Q1131 296 1183 284Q1234 273 1286 240Q1337 207 1389 201L1440 195V420Z"/>
+      </svg>
+      <svg class="ridge ridge--mid" viewBox="0 0 1440 380" preserveAspectRatio="none">
+        <path fill="#070e11" d="M0 380V118Q0 118 60 137Q120 156 180 168Q240 179 300 219Q360 259 420 276Q480 294 540 313Q600 333 660 337Q720 340 780 321Q840 301 900 308Q960 314 1020 283Q1080 251 1140 231Q1200 210 1260 183Q1320 156 1380 125L1440 95V380Z"/>
+      </svg>
+      <svg class="ridge ridge--near" viewBox="0 0 1440 300" preserveAspectRatio="none">
+        <path fill="#04080a" d="M0 300V61Q0 61 72 77Q144 94 216 123Q288 152 360 184Q432 216 504 233Q576 251 648 261Q720 272 792 271Q864 271 936 242Q1008 213 1080 191Q1152 170 1224 139Q1296 108 1368 86L1440 64V300Z"/>
+      </svg>
+      <div class="haze"></div>
+      <div class="vignette"></div>
+    </div>
+
+    <!-- Boot: real connection progress, not a decorative timer -->
+    <div id="onboarding-boot" class="screen active">
+      <div class="boot-wrap">
+        <div class="brandLockup">
+          <span class="mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.4"/><line x1="12" y1="1.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.6"/><line x1="1.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.6" y2="12"/><path d="M12 8.4l1.1 2.5 2.5 1.1-2.5 1.1L12 15.6l-1.1-2.5L8.4 12l2.5-1.1z" fill="currentColor" stroke="none"/></svg>
+          </span>
+          <p class="word">Nous</p>
+        </div>
+        <div class="boot-bar"><span class="fill" id="bootFill"></span></div>
+        <p class="boot-status" id="bootStatus">Booting civilization…</p>
+        <div class="boot-stages">
+          <span class="boot-stage" id="bootStage-world"><span class="pip"></span>Loading world</span>
+          <span class="boot-stage" id="bootStage-agents"><span class="pip"></span>Initializing agents</span>
+          <span class="boot-stage" id="bootStage-systems"><span class="pip"></span>Preparing systems</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Splash -->
-    <div id="onboarding-splash" class="screen active">
-      <div class="panel splash-panel">
-        <div class="brand"></div>
-        <h1 class="hero">NOUS</h1>
-        <p class="subtitle" id="splash-subtitle">A Living AI Civilization</p>
-        <p class="press-hint">Press Any Key to Begin</p>
+    <div id="onboarding-splash" class="screen">
+      <div class="splash-wrap">
+        <div class="brandLockup reveal reveal--1">
+          <span class="mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.4"/><line x1="12" y1="1.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.6"/><line x1="1.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.6" y2="12"/><path d="M12 8.4l1.1 2.5 2.5 1.1-2.5 1.1L12 15.6l-1.1-2.5L8.4 12l2.5-1.1z" fill="currentColor" stroke="none"/></svg>
+          </span>
+          <p class="word">Nous</p>
+        </div>
+        <p class="splash-eyebrow reveal reveal--2">Observe <i>•</i> Influence <i>•</i> Evolve</p>
+        <p class="splash-lede reveal reveal--3" id="splash-subtitle">Step into a living civilization where autonomous agents build, trade and survive.</p>
+        <button class="enter-btn reveal reveal--4" id="splash-enter">Enter Nous
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
+        </button>
+        <p class="splash-hint reveal reveal--4">or press any key</p>
       </div>
     </div>
 
@@ -2663,6 +2873,7 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
 const onboardingEl = document.getElementById("onboarding");
 const splashScreen = document.getElementById("onboarding-splash");
 const menuScreen = document.getElementById("onboarding-menu");
+const bootScreen = document.getElementById("onboarding-boot");
 const slide1 = document.getElementById("onboarding-slide-1");
 const slide2 = document.getElementById("onboarding-slide-2");
 const slide3 = document.getElementById("onboarding-slide-3");
@@ -2671,17 +2882,18 @@ const splashSubtitle = document.getElementById("splash-subtitle");
 let introDone =
   localStorage.getItem("neociv.intro") === "done" ||
   new URLSearchParams(location.search).has("skipIntro");
-let onboardingState = "splash";
+let onboardingState = "boot";
 let hintsActive = false;
 
 function showScreen(id) {
-  for (const el of [splashScreen, menuScreen, slide1, slide2, slide3]) {
+  for (const el of [bootScreen, splashScreen, menuScreen, slide1, slide2, slide3]) {
     el.classList.remove("active");
   }
   document.getElementById(id).classList.add("active");
   onboardingState = id.replace("onboarding-", "");
 }
 
+function showBoot() { showScreen("onboarding-boot"); }
 function showSplash() { showScreen("onboarding-splash"); }
 function showMenu() { showScreen("onboarding-menu"); }
 function showSlide1() { showScreen("onboarding-slide-1"); }
@@ -2702,7 +2914,109 @@ function enterGameplay() {
 function updateSplashCount(snapshot) {
   if (introDone && onboardingState !== "splash") return;
   splashSubtitle.textContent =
-    `${snapshot.stats.agents} people are alive. Nobody controls them.`;
+    `${snapshot.stats.agents} people are alive down there. Nobody controls them.`;
+}
+
+// --- onboarding backdrop ------------------------------------------------------
+//
+// Stars and settlement embers are painted once from a fixed seed rather than
+// animated per frame: the world behind this screen is already asking for the GPU,
+// and a starfield that costs a rAF loop to look static is a bad trade.
+
+function paintOnboardingSky() {
+  const canvas = document.getElementById("onboardingStars");
+  if (!canvas) return;
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth || window.innerWidth;
+  const h = canvas.clientHeight || window.innerHeight;
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  // Deterministic: the same sky every load, so it reads as a place rather than noise.
+  let seed = 20260805;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+
+  const count = Math.round((w * h) / 5200);
+  for (let i = 0; i < count; i++) {
+    const x = rand() * w;
+    // Stars thin out toward the horizon, where the haze and ridges take over.
+    const y = rand() * h * 0.72;
+    const r = rand() * 0.9 + 0.25;
+    const a = (1 - y / (h * 0.72)) * 0.6 + 0.08;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(214,232,220,${a.toFixed(3)})`;
+    ctx.fill();
+  }
+}
+
+function placeOnboardingEmbers() {
+  const sky = document.getElementById("onboardingSky");
+  if (!sky || sky.querySelector(".ember")) return;
+  let seed = 991;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return seed / 4294967296;
+  };
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 46; i++) {
+    const ember = document.createElement("span");
+    ember.className = "ember";
+    // Clustered around the valley floor so they read as one settlement.
+    ember.style.left = `${28 + rand() * 44}%`;
+    ember.style.bottom = `${5 + rand() * 13}%`;
+    ember.style.animationDelay = `${(rand() * 4).toFixed(2)}s`;
+    ember.style.opacity = (0.35 + rand() * 0.5).toFixed(2);
+    frag.appendChild(ember);
+  }
+  sky.appendChild(frag);
+}
+
+// --- boot sequence ------------------------------------------------------------
+//
+// Driven by real state: the socket opening, the first snapshot landing, and the
+// world view mounting. A bar that advances on a timer would be a lie, and would
+// finish while the page was still blank.
+
+const BOOT_STAGES = ["world", "agents", "systems"];
+const bootFill = document.getElementById("bootFill");
+const bootStatusEl = document.getElementById("bootStatus");
+// Set once the handoff is scheduled, so late snapshots cannot rewind the bar.
+let bootSealed = false;
+
+function setBootStage(reached, label) {
+  if (bootSealed) return;
+  const index = BOOT_STAGES.indexOf(reached);
+  BOOT_STAGES.forEach((name, i) => {
+    const el = document.getElementById(`bootStage-${name}`);
+    if (el) el.classList.toggle("done", i <= index);
+  });
+  if (bootFill) bootFill.style.width = `${((index + 1) / BOOT_STAGES.length) * 100}%`;
+  if (bootStatusEl && label) bootStatusEl.textContent = label;
+}
+
+// Hand off to the splash once the world is actually up. The stages are real, but
+// the last one needs a beat to register as "done" rather than flashing past on a
+// fast connection — anticipation is the point of this screen.
+let bootFinishing = false;
+function finishBoot() {
+  if (bootFinishing) return;
+  bootFinishing = true;
+  setTimeout(() => {
+    setBootStage("systems", "Ready.");
+    bootSealed = true;
+    if (introDone) return;   // skipIntro / returning player: already hidden
+    setTimeout(() => {
+      if (onboardingState === "boot") showSplash();
+    }, 700);
+  }, 260);
 }
 
 // Splash: any key or click advances to menu
@@ -2711,6 +3025,21 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     showMenu();
   }
+});
+
+document.getElementById("splash-enter").addEventListener("click", (e) => {
+  e.stopPropagation();
+  showMenu();
+});
+
+// Paint the backdrop once, and repaint on resize so the starfield stays crisp.
+paintOnboardingSky();
+placeOnboardingEmbers();
+setBootStage("world", "Connecting to the world…");
+let skyResizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(skyResizeTimer);
+  skyResizeTimer = setTimeout(paintOnboardingSky, 180);
 });
 
 splashScreen.addEventListener("click", () => {
@@ -2938,6 +3267,10 @@ function updateThinking(advisor) {
 function render(snapshot) {
   lastSnapshot = snapshot;
   ensureMounted(snapshot);
+  // The first snapshot is the moment the world genuinely exists, so the boot
+  // sequence advances here rather than on a timer.
+  setBootStage("agents", `Initializing ${snapshot.stats.agents} agents…`);
+  finishBoot();
   updateSplashCount(snapshot);
   updateThinking(snapshot.advisor);
 
@@ -3192,6 +3525,7 @@ function connect() {
     retryDelay = 500;
     statusEl.textContent = "live";
     statusEl.className = "live";
+    setBootStage("world", "Loading the world…");
   };
   socket.onmessage = (event) => render(JSON.parse(event.data));
   socket.onclose = () => {
