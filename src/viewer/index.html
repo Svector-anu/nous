@@ -443,6 +443,22 @@
     text-shadow: 0 0 24px rgba(88,166,255,0.3);
   }
   .splash-panel .subtitle { font-size: 16px; color: var(--muted); margin: 0 0 36px; }
+  /* The live-chain line under the lede. Green because it is the same "this is real and
+     running" signal the top bar's live dot carries. */
+  .splash-chain {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin: 0 0 30px; padding: 6px 14px;
+    border: 1px solid rgba(110, 226, 116, 0.35); border-radius: 999px;
+    background: rgba(110, 226, 116, 0.07);
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em;
+    color: var(--accent);
+  }
+  .splash-chain[hidden] { display: none; }
+  .splash-chain-dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 8px rgba(110, 226, 116, 0.8);
+    animation: pulse 2.2s ease-in-out infinite;
+  }
   .press-hint { font-size: 12px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; animation: pulse 2.5s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
 
@@ -2080,7 +2096,13 @@
           <p class="word">Nous</p>
         </div>
         <p class="splash-eyebrow reveal reveal--2">Observe <i>•</i> Influence <i>•</i> Evolve</p>
-        <p class="splash-lede reveal reveal--3" id="splash-subtitle">Step into a living civilization where autonomous agents build, trade and survive.</p>
+        <p class="splash-lede reveal reveal--3" id="splash-subtitle">A civilization that runs itself. Nobody scripts it, nobody owns it — and you can pay it to change its mind.</p>
+        <!-- Hidden until the server says payments are actually on, so it can never claim
+             a chain the deployment is not talking to. Filled in by applyChainConfig. -->
+        <p class="splash-chain reveal reveal--3" id="splashChain" hidden>
+          <span class="splash-chain-dot"></span>
+          <span id="splashChainText"></span>
+        </p>
         <button class="enter-btn reveal reveal--4" id="splash-enter">Enter Nous
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
         </button>
@@ -2404,6 +2426,20 @@ function applyChainConfig(config) {
   // Kept even when the button is absent: the payment flow reads the explorer url from
   // here to tell a wallet where the chain can be browsed.
   wallet.chain = config || null;
+
+  // The boot line only appears when payments are genuinely on. Driven by the server's
+  // own answer rather than written into the markup, so the claim cannot outlive the
+  // configuration that makes it true.
+  const chainLine = document.getElementById("splashChain");
+  if (chainLine) {
+    const live = Boolean(config && config.x402_enabled && config.chain_id);
+    chainLine.hidden = !live;
+    if (live) {
+      document.getElementById("splashChainText").textContent =
+        `LIVE ON ${String(config.chain_name || "CHAIN").toUpperCase()} · ` +
+        `${config.x402_currency || "USDG"} · CHAIN ${config.chain_id}`;
+    }
+  }
   if (!walletBtn) return;
   wallet.ready = Boolean(config && config.ready);
   const enabled = Boolean(config && config.identity_enabled);
