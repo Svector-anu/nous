@@ -1226,6 +1226,29 @@ check(
   `${deployedFlow.items} agents, deploy ${deployedFlow.deployOpen}, myAgents ${deployedFlow.myAgentsOpen}`
 );
 
+// The My Agents row has the same fault the inspector had: rebuilt every snapshot, so its
+// Locate / Rest / Copy buttons were destroyed once a second and a tap in flight hit a
+// detached node. This is the list ci actually caught it on, so it is asserted directly by
+// node identity rather than left to the timing of the click below.
+const rowSurvives = await mobilePage.evaluate(async () => {
+  const actions = () => document.querySelector("#myAgentsList .my-agent-actions");
+  const first = actions();
+  if (!first) return { tested: false };
+  await new Promise((resolve) => setTimeout(resolve, 3400));
+  return {
+    tested: true,
+    sameNode: actions() === first,
+    stillInDocument: document.contains(first),
+  };
+});
+check(
+  "the my-agents row survives the list redrawing around it",
+  rowSurvives.tested === true && rowSurvives.sameNode && rowSurvives.stillInDocument,
+  rowSurvives.tested
+    ? `sameNode=${rowSurvives.sameNode}, inDocument=${rowSurvives.stillInDocument}`
+    : "no agent row — nothing was tested"
+);
+
 const findBtn = await mobilePage.locator(".find-agent").first();
 if (await findBtn.isVisible().catch(() => false)) {
   await findBtn.click();

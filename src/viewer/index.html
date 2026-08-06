@@ -2747,8 +2747,22 @@ function statusChipClass(status) {
   return "fine";
 }
 
+// Same churn as the inspector and the deployed list: rebuilding every tick destroyed the
+// Locate / Rest / Copy buttons once a second, so a tap in flight hit a detached node.
+// This is the list the ci runner actually caught it on.
+let lastMyAgentsKey = null;
+
 function renderMyAgents(snapshot) {
   const mine = snapshot.agents.filter((a) => a.user);
+
+  // Only what the row displays. Position deliberately excluded: it changes every tick and
+  // is not shown, and the handlers below read it live rather than from the closure.
+  const key = mine
+    .map((a) => [a.id, a.name, simpleAgentStatus(a), a.rank, a.clan, a.rest_mode ? 1 : 0].join(":"))
+    .join("|");
+  if (key === lastMyAgentsKey) return;
+  lastMyAgentsKey = key;
+
   myAgentsList.innerHTML = "";
   if (!mine.length) {
     myAgentsHint.style.display = "";
@@ -2784,17 +2798,32 @@ function renderMyAgents(snapshot) {
       `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
       `</div>`;
 
+    // The row now outlives the snapshot it was built from, so the handlers read the agent
+    // as it is at click time rather than as it was when drawn. Without this, Locate would
+    // fly to where the agent stood several seconds ago and Rest could toggle the wrong way.
+    const current = () =>
+      (lastSnapshot?.agents || []).find((a) => a.id === agent.id) || agent;
+
     item.querySelector(".find-agent").addEventListener("click", () => {
+      const now = current();
       selectedId = agent.id;
       worldView.setSelected(selectedId);
-      flyToSim(agent.x, agent.y, `${agent.name} · ${status}`, 8);
+      flyToSim(now.x, now.y, `${now.name} · ${simpleAgentStatus(now)}`, 8);
       closeAllPanels("agentCards");
       setPanelOpen("agentCards", true);
-      renderInspector(snapshot);
+      renderInspector(lastSnapshot || snapshot);
     });
-    item.querySelector(".rest-agent").addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
+    item.querySelector(".rest-agent").addEventListener("click", () =>
+      setRest(agent.id, !current().rest_mode)
+    );
     const copyBtn = item.querySelector(".copy-agent");
-    copyBtn.addEventListener("click", () => copyText(shareText, copyBtn));
+    copyBtn.addEventListener("click", () => {
+      const now = current();
+      const text = `${now.name} is ${simpleAgentStatus(now)}, ` +
+        `${now.clan !== null ? `Clan ${now.clan}` : "no clan"}, ` +
+        `in Nous day ${(lastSnapshot || snapshot).day}.`;
+      copyText(text, copyBtn);
+    });
     myAgentsList.appendChild(item);
   }
 }
