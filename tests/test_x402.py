@@ -12,7 +12,7 @@ import asyncio
 import pytest
 from starlette.testclient import TestClient
 
-from src.api.server import create_app
+from src.api.server import apply_chain_env, create_app
 from src.chain import escrow
 from src.chain.settings import USDG_MAINNET
 from src.chain.x402 import (
@@ -446,3 +446,60 @@ def test_the_demo_credit_book_and_the_escrow_book_never_share_a_balance():
     assert book is not None
     assert "0xabc" not in book.balances
     assert escrow.balance(world, "0xabc") == 500
+
+
+# --- turning payments on without starting a new world -------------------------
+#
+# A resumed world restores its config from the save (sqlite_store: WorldConfig(**meta)),
+# so editing config.py does nothing to a world that already exists. These flags are the
+# only way to change a running deployment.
+
+
+def test_env_turns_payments_on(monkeypatch):
+    monkeypatch.setenv("X402_ENABLED", "true")
+    monkeypatch.setenv("CHAIN_IDENTITY_ENABLED", "1")
+    config = WorldConfig(agent_count=0)
+    assert config.x402_enabled is False
+
+    config, changed = apply_chain_env(config)
+    assert config.x402_enabled is True
+    assert config.chain_identity_enabled is True
+    assert "x402_enabled=True" in changed
+
+
+def test_an_unset_flag_is_left_alone(monkeypatch):
+    """Unset means "leave it", not "false". An operator who sets only X402_ENABLED must
+    not silently switch identity off."""
+    for name in ("X402_ENABLED", "CHAIN_IDENTITY_ENABLED", "REAL_MONEY_ENABLED"):
+        monkeypatch.delenv(name, raising=False)
+    config = WorldConfig(agent_count=0, chain_identity_enabled=True)
+
+    config, changed = apply_chain_env(config)
+    assert changed == []
+    assert config.chain_identity_enabled is True
+
+
+def test_a_flag_can_be_turned_back_off(monkeypatch):
+    monkeypatch.setenv("X402_ENABLED", "false")
+    config, _ = apply_chain_env(WorldConfig(agent_count=0, x402_enabled=True))
+    assert config.x402_enabled is False
+
+
+def test_an_unparseable_flag_changes_nothing(monkeypatch):
+    """Guessing here turns real payments on or off. It refuses to guess."""
+    monkeypatch.setenv("REAL_MONEY_ENABLED", "maybe")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert changed == []
+    assert config.real_money_enabled is False
+
+
+def test_the_verifier_can_be_switched_to_chain(monkeypatch):
+    monkeypatch.setenv("X402_VERIFIER", "chain")
+    config, _ = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.x402_verifier == "chain"
+
+
+def test_a_nonsense_verifier_is_ignored(monkeypatch):
+    monkeypatch.setenv("X402_VERIFIER", "trustmebro")
+    config, _ = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.x402_verifier == "header"
