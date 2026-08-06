@@ -196,8 +196,36 @@
      say so too, or a spectator sees "YES · 25" and a leaderboard and reasonably
      infers money. */
   .demo-note {
-    margin: 0 0 9px; font-size: 10.5px; letter-spacing: .05em;
+    margin: 0 0 10px; font-size: 10.5px; line-height: 1.45;
     color: var(--muted);
+  }
+  /* Honest, not apologetic. The label reads as a product stage rather than a warning. */
+  .beta-tag {
+    display: inline-block; margin-right: 6px; padding: 2px 6px;
+    border: 1px solid rgba(210, 153, 34, 0.5); border-radius: 4px;
+    color: #d29922; font-size: 9px; font-weight: 700; letter-spacing: .1em;
+  }
+  .bet-field { display: block; margin-bottom: 10px; }
+  .bet-label {
+    display: block; margin-bottom: 4px;
+    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
+  }
+  .bet-balance {
+    margin: -4px 0 10px; font-family: var(--font-mono); font-size: 12px;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .stake-row { display: flex; gap: 5px; }
+  .stake-chip {
+    flex: 1; margin: 0; padding: 6px 0; min-width: 0;
+    background: rgba(10, 14, 12, 0.6); border: 1px solid var(--line);
+    border-radius: 6px; color: var(--muted);
+    font-family: var(--font-mono); font-size: 11px; cursor: pointer;
+  }
+  .stake-chip:hover { border-color: rgba(110, 226, 116, 0.4); color: var(--text); }
+  .stake-chip.is-on {
+    border-color: var(--accent); color: var(--accent);
+    background: rgba(110, 226, 116, 0.10);
   }
   #leaderboard li { justify-content: space-between; }
   #leaderboard .credits { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
@@ -1816,8 +1844,28 @@
              of stacking into a scroll. Every id is unchanged; only the grouping is new. -->
         <div class="card-body">
           <div class="markets-lead">
-            <p class="demo-note" id="marketsDemoNote">Demo credits — no real money.</p>
-            <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+            <!-- Framed as what it is: an open experiment on play credits, running while
+                 the real thing is built. Saying so plainly is what lets it look finished
+                 without claiming to be something it is not. -->
+            <p class="demo-note" id="marketsDemoNote">
+              <span class="beta-tag">EXPERIMENT</span>
+              Play credits, not money. We are watching how people bet before real
+              settlement ships.
+            </p>
+            <label class="bet-field" for="whoami">
+              <span class="bet-label">Betting as</span>
+              <input id="whoami" maxlength="24" placeholder="pick a handle" autocomplete="off">
+            </label>
+            <div class="bet-balance" id="betBalance">1000 credits</div>
+            <label class="bet-field" for="stake">
+              <span class="bet-label">Stake</span>
+              <div class="stake-row" id="stakeRow">
+                <button type="button" class="stake-chip" data-stake="10">10</button>
+                <button type="button" class="stake-chip is-on" data-stake="25">25</button>
+                <button type="button" class="stake-chip" data-stake="50">50</button>
+                <button type="button" class="stake-chip" data-stake="100">100</button>
+              </div>
+            </label>
           </div>
           <div id="markets"></div>
           <div class="markets-board">
@@ -3350,9 +3398,36 @@ function marketIcon(kind) {
     `<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v8H2z"/><path d="M6 1v6"/><path d="M10 1v6"/><path d="M14 1v6"/></svg>`;
 }
 
+// The stake the chips are showing. Changing it re-labels every YES/NO button, so what a
+// click will cost is on the button rather than somewhere else on the panel.
+let betStake = 25;
+
+const stakeRow = document.getElementById("stakeRow");
+if (stakeRow) {
+  stakeRow.addEventListener("click", (event) => {
+    const chip = event.target.closest(".stake-chip");
+    if (!chip) return;
+    betStake = Number(chip.dataset.stake) || 25;
+    for (const other of stakeRow.querySelectorAll(".stake-chip")) {
+      other.classList.toggle("is-on", other === chip);
+    }
+    if (lastBook) renderMarkets(lastBook);
+  });
+}
+
 function renderMarkets(book) {
   lastBook = book;
   const me = whoami.value.trim();
+
+  // Real balance for a real handle. Before anyone picks one it shows the starting stake
+  // rather than a blank, so the panel reads as a working ledger rather than an empty form.
+  const balanceEl = document.getElementById("betBalance");
+  if (balanceEl) {
+    const balance = me && book.balances && me in book.balances ? book.balances[me] : null;
+    balanceEl.textContent = balance === null
+      ? "1000 credits to start"
+      : `${balance} credits`;
+  }
   const mine = (entry) => (me && entry.positions[me]) || null;
   marketsEl.innerHTML = "";
 
@@ -3377,8 +3452,8 @@ function renderMarkets(book) {
       `<div class="market-status ${statusClass}">${statusText}</div>` +
       (open
         ? `<div class="market-actions">
-             <button class="yes" data-id="${entry.id}" data-side="yes">YES · 25</button>
-             <button class="no"  data-id="${entry.id}" data-side="no">NO · 25</button>
+             <button class="yes" data-id="${entry.id}" data-side="yes">YES · ${betStake}</button>
+             <button class="no"  data-id="${entry.id}" data-side="no">NO · ${betStake}</button>
            </div>`
         : "") +
       (held ? `<div class="market-held">You: ${held.yes} YES / ${held.no} NO</div>` : "") +
@@ -3420,7 +3495,7 @@ marketsEl.addEventListener("click", async (event) => {
   if (!button) return;
   const user = whoami.value.trim();
   if (!user) {
-    whoami.placeholder = "enter a name first";
+    whoami.placeholder = "pick a handle first";
     whoami.focus();
     return;
   }
@@ -3430,7 +3505,7 @@ marketsEl.addEventListener("click", async (event) => {
     const response = await fetch(`/markets/${button.dataset.id}/positions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user, side: button.dataset.side, stake: 25 }),
+      body: JSON.stringify({ user, side: button.dataset.side, stake: betStake }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
