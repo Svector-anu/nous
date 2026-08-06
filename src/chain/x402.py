@@ -17,12 +17,64 @@ without changing the world or the api routes.
 from __future__ import annotations
 
 import logging
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
 from typing import Protocol
 
 from .rpc import Rpc
-from .settings import x402_recipient
+from .settings import USDG_DECIMALS, usdg_address, x402_recipient
 
 logger = logging.getLogger("neociv")
+
+# keccak256("Transfer(address,address,uint256)") — the topic every ERC-20 transfer logs.
+TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+
+def _units(price: str, decimals: int) -> int:
+    """Turn a human price like "0.10" into integer token units.
+
+    Decimal rather than float: 0.10 has no exact binary representation, and rounding a
+    payment threshold down by one unit is the kind of bug that only shows up in an
+    argument with a user.
+    """
+    try:
+        return int((Decimal(str(price)) * (10**decimals)).to_integral_value(ROUND_FLOOR))
+    except (InvalidOperation, ValueError):
+        return -1
+
+
+def _topic_address(topic: str) -> str:
+    """Event topics are 32 bytes; an address is the low 20. Compare like with like."""
+    cleaned = (topic or "").lower().removeprefix("0x")
+    return "0x" + cleaned[-40:] if len(cleaned) >= 40 else ""
+
+
+def transferred_to(receipt: dict, token: str, recipient: str) -> int:
+    """Total tokens moved to `recipient` by `token` in this transaction.
+
+    Reads the receipt's own logs rather than the transaction's `to` field, because a
+    token payment is a call to the *contract* — the recipient never appears as `to`.
+    Sums rather than taking the first match: one transaction may split a payment across
+    several transfers, and each of them counts.
+    """
+    if not token or not recipient:
+        return 0
+    token = token.lower()
+    recipient = recipient.lower()
+    total = 0
+    for log in receipt.get("logs") or []:
+        if (log.get("address") or "").lower() != token:
+            continue
+        topics = log.get("topics") or []
+        # topics: [event, from, to]. A malformed log is skipped, never guessed at.
+        if len(topics) < 3 or (topics[0] or "").lower() != TRANSFER_TOPIC:
+            continue
+        if _topic_address(topics[2]) != recipient:
+            continue
+        try:
+            total += int(log.get("data") or "0x0", 16)
+        except ValueError:
+            continue
+    return total
 
 
 class PaymentProof:
@@ -91,13 +143,14 @@ class HeaderVerifier:
 
 
 class ChainVerifier:
-    """Verifies a transaction receipt against the configured recipient and chain.
+    """Verifies a transaction receipt against the configured recipient, token and price.
 
-    The price and currency checks are placeholders: on-chain verification would parse
-    the transaction input data or event logs to confirm the amount and token match what
-    the api expects. That needs the USDG contract ABI and is deferred — the seam is here
-    and the hard part (fetching the receipt, checking the recipient, and remembering
-    what is spent) works now.
+    Checks the receipt's USDG Transfer logs, not the transaction's `to` field. A token
+    payment is a call to the token contract, so the recipient never appears as `to` —
+    matching on it both rejected genuine USDG payments and accepted any bare transfer
+    regardless of size.
+
+    A payment whose amount cannot be established is refused rather than assumed good.
     """
 
     def __init__(
@@ -105,6 +158,7 @@ class ChainVerifier:
     ) -> None:
         self.rpc = rpc if rpc is not None else Rpc(testnet=testnet)
         self.chain_id = chain_id
+        self.testnet = testnet
         self._spent: set[str] = set()
 
     async def verify(self, proof: PaymentProof, price: str, currency: str) -> bool:
@@ -132,14 +186,30 @@ class ChainVerifier:
         # A receipt exists but status != 1 means the transaction reverted.
         if receipt.get("status") != "0x1":
             return False
-        # The transaction went somewhere else.
-        to_address = (receipt.get("to") or "").strip().lower()
-        if to_address != recipient.lower():
+
+        token = usdg_address(self.testnet)
+        if not token:
+            # Refusing is the point. Without a token contract the amount cannot be read,
+            # and a payment of unknown size is not a payment — the previous behaviour
+            # accepted one wei as readily as the asking price.
+            logger.warning(
+                "no USDG contract configured for chain %s; set USDG_CONTRACT_ADDRESS",
+                self.chain_id,
+            )
             return False
 
-        # Placeholder: a real check would decode the input data or event logs to confirm
-        # the amount and currency match `price` and `currency`. For now, any successful
-        # transfer to the recipient address passes.
+        required = _units(price, USDG_DECIMALS)
+        if required <= 0:
+            logger.warning("x402 price %r is not a usable amount", price)
+            return False
+
+        paid = transferred_to(receipt, token, recipient)
+        if paid < required:
+            # Logged at info: underpaying is a normal client error, not a fault here.
+            logger.info(
+                "x402 payment %s short: %d of %d units to %s", proof.tx_hash, paid, required, recipient
+            )
+            return False
         return True
 
     def record_spent(self, proof: PaymentProof) -> None:

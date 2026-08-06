@@ -14,7 +14,16 @@ from starlette.testclient import TestClient
 
 from src.api.server import create_app
 from src.chain import escrow
-from src.chain.x402 import ChainVerifier, HeaderVerifier, PaymentProof, build_verifier
+from src.chain.settings import USDG_MAINNET
+from src.chain.x402 import (
+    TRANSFER_TOPIC,
+    ChainVerifier,
+    HeaderVerifier,
+    PaymentProof,
+    _units,
+    build_verifier,
+    transferred_to,
+)
 from src.world.components import EscrowBook, ForceDecisionQueue
 from src.world.config import WorldConfig
 from src.world.tick import create_world
@@ -108,14 +117,112 @@ def test_the_chain_verifier_refuses_without_a_recipient(monkeypatch):
     assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is False
 
 
+def _transfer_log(to: str, units: int, token: str = USDG_MAINNET) -> dict:
+    """One ERC-20 Transfer log, shaped the way a node returns it.
+
+    `to` is an indexed parameter, so it arrives as a 32-byte topic with the address in
+    the low 20 bytes; the amount is unindexed and arrives in `data`.
+    """
+    return {
+        "address": token,
+        "topics": [
+            TRANSFER_TOPIC,
+            "0x" + "0" * 24 + "a" * 40,          # from — irrelevant to the check
+            "0x" + "0" * 24 + to.removeprefix("0x"),
+        ],
+        "data": hex(units),
+    }
+
+
+def _paid_receipt(to: str, units: int, token: str = USDG_MAINNET) -> dict:
+    """A successful USDG payment. `to` on the receipt is the *token contract*, which is
+    what a real token transfer looks like — the recipient appears only in the logs."""
+    return {"status": "0x1", "to": token, "logs": [_transfer_log(to, units, token)]}
+
+
 def test_the_chain_verifier_accepts_a_successful_transfer(monkeypatch):
     recipient = "0x" + "c" * 40
     monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
-    rpc = _StubRpc(receipt={"status": "0x1", "to": recipient})
+    # 0.10 USDG at 6 decimals = 100000 units.
+    rpc = _StubRpc(receipt=_paid_receipt(recipient, 100_000))
     verifier = ChainVerifier(rpc=rpc)
 
     assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is True
     assert rpc.asked == [TX]
+
+
+def test_a_payment_smaller_than_the_price_is_refused(monkeypatch):
+    """The hole this closes: the verifier used to accept any successful transfer to the
+    recipient, so one unit of USDG bought a decision priced at 0.10."""
+    recipient = "0x" + "c" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=_paid_receipt(recipient, 1)))
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is False
+
+
+def test_paying_more_than_asked_is_still_a_payment(monkeypatch):
+    recipient = "0x" + "c" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=_paid_receipt(recipient, 250_000)))
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is True
+
+
+def test_transfers_in_one_transaction_add_up(monkeypatch):
+    """A payment split across two transfers is still the full amount."""
+    recipient = "0x" + "c" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    receipt = {
+        "status": "0x1",
+        "to": USDG_MAINNET,
+        "logs": [_transfer_log(recipient, 60_000), _transfer_log(recipient, 40_000)],
+    }
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=receipt))
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is True
+
+
+def test_a_transfer_of_some_other_token_does_not_count(monkeypatch):
+    """Anyone can mint a worthless token and send a lot of it. Only USDG pays."""
+    recipient = "0x" + "c" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    fake = "0x" + "e" * 40
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=_paid_receipt(recipient, 10**12, token=fake)))
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is False
+
+
+def test_a_transfer_to_somebody_else_does_not_count(monkeypatch):
+    """A real USDG transfer in the same transaction, but not to us."""
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=_paid_receipt("0x" + "d" * 40, 100_000)))
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is False
+
+
+def test_without_a_token_contract_the_amount_cannot_be_checked_so_it_is_refused(monkeypatch):
+    """Paxos publishes no testnet USDG, so a testnet verifier has no contract to read.
+    Refusing beats accepting a payment of unknown size."""
+    recipient = "0x" + "c" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    monkeypatch.delenv("USDG_CONTRACT_ADDRESS", raising=False)
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=_paid_receipt(recipient, 100_000)), testnet=True)
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is False
+
+
+def test_a_testnet_token_can_be_named_in_the_environment(monkeypatch):
+    recipient = "0x" + "c" * 40
+    token = "0x" + "9" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    monkeypatch.setenv("USDG_CONTRACT_ADDRESS", token)
+    receipt = _paid_receipt(recipient, 100_000, token=token)
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=receipt), testnet=True)
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is True
+
+
+def test_the_price_converts_without_float_error(monkeypatch):
+    """0.10 has no exact binary form. Rounding it down by one unit would let every
+    payment underpay by a hair and still pass."""
+    assert _units("0.10", 6) == 100_000
+    assert _units("1", 6) == 1_000_000
+    assert _units("0.000001", 6) == 1
+    assert _units("not a price", 6) == -1
 
 
 def test_the_chain_verifier_refuses_a_reverted_transaction(monkeypatch):
