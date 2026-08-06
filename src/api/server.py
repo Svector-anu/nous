@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -174,6 +176,62 @@ def _nonce_in(message: str) -> str:
     return ""
 
 
+# Deployment switches an operator can flip without starting a new world.
+#
+# The rest of WorldConfig is simulation rules and is restored from the save verbatim, which
+# is correct — changing them mid-world would break replay. But these decide whether *this
+# deployment* accepts wallets and payments, and a world persisted before the flags existed
+# would otherwise be stuck forever on the defaults it was created under. There is no way to
+# turn payments on for a running world except this.
+#
+# Credentials are not here. Addresses and rpc urls stay in chain/settings.py, read straight
+# from the environment, because WorldConfig is written into world_meta verbatim.
+CHAIN_FLAG_ENV = {
+    "chain_identity_enabled": "CHAIN_IDENTITY_ENABLED",
+    "x402_enabled": "X402_ENABLED",
+    "real_money_enabled": "REAL_MONEY_ENABLED",
+}
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
+
+
+def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
+    """Return `config` with deployment flags overridden from the environment, and a list
+    of what changed.
+
+    WorldConfig is frozen, so this replaces rather than mutates — which is the right shape
+    anyway: the caller decides whether to adopt the result.
+
+    Unset means "leave it alone", not "false" — an operator who sets only X402_ENABLED
+    must not silently switch identity off. An unparseable value is ignored and logged
+    rather than guessed at, because guessing wrong here turns real payments on or off.
+    """
+    overrides: dict[str, object] = {}
+    changed: list[str] = []
+
+    for field, name in CHAIN_FLAG_ENV.items():
+        raw = os.getenv(name, "").strip().lower()
+        if not raw:
+            continue
+        if raw in _TRUE:
+            value = True
+        elif raw in _FALSE:
+            value = False
+        else:
+            logger.warning("%s=%r is not a boolean; leaving %s unchanged", name, raw, field)
+            continue
+        if getattr(config, field) != value:
+            overrides[field] = value
+            changed.append(f"{field}={value}")
+
+    verifier = os.getenv("X402_VERIFIER", "").strip().lower()
+    if verifier in ("header", "chain") and config.x402_verifier != verifier:
+        overrides["x402_verifier"] = verifier
+        changed.append(f"x402_verifier={verifier}")
+
+    return (replace(config, **overrides) if overrides else config), changed
+
+
 def create_app(
     config: WorldConfig | None = None,
     db_path: Path | None = None,
@@ -192,6 +250,17 @@ def create_app(
             world = create_world(world_config)
             store.save(world)
             logger.info("created new world with seed %d", world_config.seed)
+
+        # After load: a resumed world carries the flags it was saved with, and this is
+        # the only way to change them without starting over.
+        world.config, changed = apply_chain_env(world.config)
+        if changed:
+            logger.info("chain flags from environment: %s", ", ".join(changed))
+        # Built from the world's config, not the module default, so an env override of
+        # the verifier actually takes effect.
+        app.state.x402 = build_verifier(
+            world.config.x402_verifier, chain_id=world.config.chain_id
+        )
 
         world.advisor = build_advisor(world.config)
         logger.info("clan advisor: %s", type(world.advisor).__name__)
@@ -230,6 +299,8 @@ def create_app(
     # other's challenges, sessions or spent payments.
     app.state.nonces = siwe.NonceStore()
     app.state.sessions = SessionStore()
+    # A default so the attribute always exists; lifespan replaces it with one built from
+    # the *loaded* world's config, which is what an env override actually changes.
     app.state.x402 = build_verifier(
         world_config.x402_verifier,
         chain_id=world_config.chain_id,
