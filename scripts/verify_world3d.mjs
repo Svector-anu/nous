@@ -975,6 +975,41 @@ await page.evaluate(() => {
   document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
 });
 
+// --- 11d. paying on chain: the calldata must be exactly right --------------------
+// A wrong offset here sends real money to the wrong address, and no amount of testing
+// downstream would catch it. Asserted against a known-good encoding rather than by
+// driving a wallet, which the gate has no way to do.
+const pay = await page.evaluate(async () => {
+  const p = window.__pay;
+  const to = "0x1111111111111111111111111111111111111111";
+  const data = p.encodeTransfer(to, "100000");
+  // 402 handling: a response that is not payable must be returned as-is, never paid.
+  const notPayable = await p.fetchWithPayment("/chain/config");
+  return {
+    data,
+    selector: data.slice(0, 10),
+    length: data.length,
+    addressWord: data.slice(10, 74),
+    amountWord: data.slice(74, 138),
+    passesThroughNon402: notPayable.status,
+  };
+});
+check(
+  "an erc-20 transfer is encoded exactly",
+  // 4-byte selector + two 32-byte words = 4 + 32 + 32 bytes = 138 hex chars with 0x.
+  pay.selector === "0xa9059cbb" &&
+    pay.length === 138 &&
+    pay.addressWord === "0".repeat(24) + "1".repeat(40) &&
+    // 100000 = 0x186a0, right-aligned in its word.
+    pay.amountWord === "0".repeat(59) + "186a0",
+  `selector=${pay.selector} len=${pay.length} addr=…${pay.addressWord.slice(-6)} amt=…${pay.amountWord.slice(-6)}`
+);
+check(
+  "a response that is not a 402 is passed straight through",
+  pay.passesThroughNon402 === 200,
+  `status ${pay.passesThroughNon402}`
+);
+
 // --- 11c. ambient sound: silent by default, and never required -------------------
 // The bed is synthesised, so there is nothing to download and nothing to hear in a
 // headless browser. What matters is asserted instead: that it stays off until asked,

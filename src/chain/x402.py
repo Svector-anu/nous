@@ -29,7 +29,7 @@ logger = logging.getLogger("neociv")
 TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 
-def _units(price: str, decimals: int) -> int:
+def price_units(price: str, decimals: int) -> int:
     """Turn a human price like "0.10" into integer token units.
 
     Decimal rather than float: 0.10 has no exact binary representation, and rounding a
@@ -198,7 +198,7 @@ class ChainVerifier:
             )
             return False
 
-        required = _units(price, USDG_DECIMALS)
+        required = price_units(price, USDG_DECIMALS)
         if required <= 0:
             logger.warning("x402 price %r is not a usable amount", price)
             return False

@@ -15,8 +15,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from ..chain import escrow, siwe, x402
+from ..chain import escrow, siwe
+from ..chain import settings as chain_settings
+from ..chain import x402
 from ..chain.x402 import PaymentProof, build_verifier
+from ..chain.x402 import price_units
 from ..persistence.sqlite_store import SqliteWorldStore
 from ..world.components import Agent, Clan, ClanRef, ForceDecisionQueue, Position, RestQueue
 from ..world.config import WorldConfig
@@ -706,14 +709,32 @@ def create_app(
             logger.warning("x402 verifier failed for clan %d: %r", clan_id, error)
 
         if not verified:
+            # Everything a wallet needs to construct the payment itself. Price and
+            # currency alone are not actionable: without the recipient, the token
+            # contract and the chain id, a client cannot build the transfer, and the
+            # 402 is a locked door with no keyhole.
+            recipient = chain_settings.x402_recipient()
+            token = chain_settings.usdg_address(testnet=False)
             raise HTTPException(
                 status_code=402,
                 detail={
                     "payment": {
                         "scheme": "x402",
                         "network": world.config.chain_name,
+                        "chain_id": world.config.chain_id,
                         "amount": world.config.x402_price,
                         "currency": world.config.x402_currency,
+                        # Integer token units — what transfer() actually takes. Sending
+                        # the decimal string alone invites a client to guess at decimals.
+                        "amount_units": str(
+                            price_units(world.config.x402_price, chain_settings.USDG_DECIMALS)
+                        ),
+                        "decimals": chain_settings.USDG_DECIMALS,
+                        "recipient": recipient,
+                        "token": token,
+                        # False means the operator has not finished configuring payment;
+                        # the viewer shows why rather than offering a button that cannot work.
+                        "payable": bool(recipient and token),
                     },
                     "clan_id": clan_id,
                 },
@@ -722,6 +743,9 @@ def create_app(
                     "X402-Version": "0.1",
                     "X402-Price": world.config.x402_price,
                     "X402-Currency": world.config.x402_currency,
+                    "X402-Chain-Id": str(world.config.chain_id),
+                    "X402-Recipient": recipient,
+                    "X402-Token": token,
                 },
             )
 

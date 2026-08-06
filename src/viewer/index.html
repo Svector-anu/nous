@@ -2353,6 +2353,9 @@ function setWalletSession(address, session) {
 // flag is on *and* the signature library imported, so a half-configured deployment shows
 // a disabled button with a reason rather than one that fails silently on click.
 function applyChainConfig(config) {
+  // Kept even when the button is absent: the payment flow reads the explorer url from
+  // here to tell a wallet where the chain can be browsed.
+  wallet.chain = config || null;
   if (!walletBtn) return;
   wallet.ready = Boolean(config && config.ready);
   const enabled = Boolean(config && config.identity_enabled);
@@ -2449,7 +2452,99 @@ if (walletBtn) {
 }
 
 // Test seam: the gate has no wallet extension, so it drives these directly.
+// --- paying on Robinhood Chain ------------------------------------------------
+// The server answers 402 with everything a wallet needs to build the payment itself:
+// recipient, token contract, chain id and the amount in integer units. The transaction
+// is sent by the visitor's own wallet — this app never holds a key and never moves
+// anyone's money. Entirely optional: nobody has to connect a wallet to watch or bet.
+
+// ERC-20 transfer(address,uint256). The selector is the first 4 bytes of
+// keccak256("transfer(address,uint256)"); both arguments are padded to 32 bytes.
+const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
+
+function encodeTransfer(to, units) {
+  const address = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  const amount = BigInt(units).toString(16).padStart(64, "0");
+  return ERC20_TRANSFER_SELECTOR + address + amount;
+}
+
+/** Ask the wallet to move to Robinhood Chain, adding it if it is unknown. */
+async function ensureChain(provider, chainId, chainName, explorer) {
+  const hexChain = "0x" + Number(chainId).toString(16);
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: hexChain }],
+    });
+  } catch (error) {
+    // 4902 is "unrecognised chain" — the only case worth offering to add it for.
+    if (error && error.code === 4902) {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: hexChain,
+          chainName,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"],
+          blockExplorerUrls: [explorer],
+        }],
+      });
+    } else {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Pay a 402 and retry the request that raised it.
+ *
+ * `payment` is the block the server sent back. Returns the retried response, so a
+ * caller handles success and failure in one place rather than tracking a hash itself.
+ */
+async function payAndRetry(url, payment, options = {}) {
+  const provider = window.ethereum;
+  if (!provider) throw new Error("no wallet");
+  if (!payment || !payment.payable) throw new Error("payments are not configured");
+
+  const [from] = await provider.request({ method: "eth_requestAccounts" });
+  await ensureChain(provider, payment.chain_id, payment.network, wallet.chain?.explorer_url);
+
+  const txHash = await provider.request({
+    method: "eth_sendTransaction",
+    params: [{
+      from,
+      to: payment.token,
+      data: encodeTransfer(payment.recipient, payment.amount_units),
+    }],
+  });
+
+  // The retry carries the hash; the server reads the receipt itself and checks the
+  // token, the recipient and the amount. Nothing here is trusted.
+  return fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), "X402-Transaction-Hash": txHash },
+  });
+}
+
+/**
+ * Call an endpoint, and if it answers 402, offer to pay and try once more.
+ *
+ * One retry only: a loop that keeps paying on repeated 402s would spend real money
+ * on a server bug.
+ */
+async function fetchWithPayment(url, options = {}) {
+  const first = await fetch(url, options);
+  if (first.status !== 402) return first;
+  const body = await first.json().catch(() => null);
+  const payment = body?.detail?.payment;
+  if (!payment || !payment.payable) return first;
+  return payAndRetry(url, payment, options);
+}
+
 window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, state: wallet };
+// Test seam: the gate has no wallet extension, so the encoding and the 402 handling are
+// asserted directly rather than by driving MetaMask.
+window.__pay = { encodeTransfer, fetchWithPayment, ERC20_TRANSFER_SELECTOR };
 
 // --- ambient sound ----------------------------------------------------------
 // Off until asked for. Browsers refuse to start audio without a gesture anyway, so the

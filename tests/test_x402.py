@@ -20,7 +20,7 @@ from src.chain.x402 import (
     ChainVerifier,
     HeaderVerifier,
     PaymentProof,
-    _units,
+    price_units,
     build_verifier,
     transferred_to,
 )
@@ -219,10 +219,10 @@ def test_a_testnet_token_can_be_named_in_the_environment(monkeypatch):
 def test_the_price_converts_without_float_error(monkeypatch):
     """0.10 has no exact binary form. Rounding it down by one unit would let every
     payment underpay by a hair and still pass."""
-    assert _units("0.10", 6) == 100_000
-    assert _units("1", 6) == 1_000_000
-    assert _units("0.000001", 6) == 1
-    assert _units("not a price", 6) == -1
+    assert price_units("0.10", 6) == 100_000
+    assert price_units("1", 6) == 1_000_000
+    assert price_units("0.000001", 6) == 1
+    assert price_units("not a price", 6) == -1
 
 
 def test_the_chain_verifier_refuses_a_reverted_transaction(monkeypatch):
@@ -295,6 +295,40 @@ def test_an_unpaid_request_gets_a_402_and_changes_nothing(tmp_path):
         world = app.state.simulation.world
         queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
         assert queue.pending == []
+
+
+def test_the_402_tells_a_wallet_how_to_pay(tmp_path, monkeypatch):
+    """A price alone is not actionable. Without the recipient, the token contract and
+    the chain id, a wallet cannot build the transfer and the 402 is a locked door with
+    no keyhole."""
+    recipient = "0x" + "c" * 40
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", recipient)
+    config = WorldConfig(
+        agent_count=4, resource_count=8, llm_force_decision_enabled=True, x402_enabled=True
+    )
+    with TestClient(create_app(config, tmp_path / "x402.db")) as client:
+        payment = client.post("/clans/1/force-decision").json()["detail"]["payment"]
+
+        assert payment["recipient"] == recipient
+        assert payment["token"] == USDG_MAINNET
+        assert payment["chain_id"] == 4663
+        assert payment["decimals"] == 6
+        # The amount a wallet actually passes to transfer(): 0.10 USDG at 6 decimals.
+        assert payment["amount_units"] == "100000"
+        assert payment["payable"] is True
+
+
+def test_the_402_says_so_when_payment_is_not_configured(tmp_path, monkeypatch):
+    """An operator who enabled x402 without naming a recipient gets `payable: false`,
+    so the viewer explains itself instead of offering a button that cannot work."""
+    monkeypatch.delenv("X402_RECIPIENT_ADDRESS", raising=False)
+    config = WorldConfig(
+        agent_count=4, resource_count=8, llm_force_decision_enabled=True, x402_enabled=True
+    )
+    with TestClient(create_app(config, tmp_path / "x402.db")) as client:
+        payment = client.post("/clans/1/force-decision").json()["detail"]["payment"]
+        assert payment["recipient"] == ""
+        assert payment["payable"] is False
 
 
 def test_a_paid_request_is_queued(tmp_path):
