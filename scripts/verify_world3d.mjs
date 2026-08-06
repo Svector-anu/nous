@@ -816,6 +816,32 @@ check(
     walletUi.anonymousHeaders.Authorization === undefined,
   `label="${walletUi.idle.label}", disabled=${walletUi.idle.disabled}, auth=${walletUi.anonymousHeaders.Authorization}`
 );
+// Every wallet failure used to read "Cancelled" or "Failed". A locked wallet and a
+// rejected signature both raise 4001, so the case the user caused and the case they
+// cannot even see said the same thing — and these paths only run when a wallet
+// misbehaves, which is exactly the code nobody notices breaking.
+const trouble = await page.evaluate(() => {
+  const t = window.__wallet.walletTrouble;
+  const of = (e) => { const r = t(e); return { label: r.label, hint: r.hint }; };
+  return {
+    locked: of({ code: 4001, message: "wallet must has at least one account" }),
+    rejected: of({ code: 4001, message: "User rejected the request." }),
+    pending: of({ code: -32002, message: "Request already pending" }),
+    disconnected: of({ code: 4900, message: "disconnected" }),
+  };
+});
+check(
+  "a locked wallet is not reported as a cancelled one",
+  trouble.locked.label === "Unlock wallet" && trouble.rejected.label === "Cancelled" &&
+    trouble.locked.hint !== trouble.rejected.hint,
+  `locked="${trouble.locked.label}", rejected="${trouble.rejected.label}"`
+);
+check(
+  "each wallet failure explains what to do about it",
+  [trouble.locked, trouble.rejected, trouble.pending, trouble.disconnected]
+    .every((t) => t.hint.length > 30 && /\b(open|install|finish|sign)/i.test(t.hint)),
+  `hints: ${[trouble.locked, trouble.pending, trouble.disconnected].map((t) => t.label).join(", ")}`
+);
 check(
   "a connected wallet shows its address and authorizes requests",
   walletUi.connected.connected === true && walletUi.connected.label === "0xabcd…ef01" &&

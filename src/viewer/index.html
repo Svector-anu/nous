@@ -2479,6 +2479,61 @@ function walletBusy(busy, text) {
 
 // Say what went wrong in the button itself for a beat, then go back. A spectator who
 // dismissed a wallet prompt should not have to open a console to find out.
+/**
+ * Turn a wallet error into something a person can act on.
+ *
+ * Every failure used to arrive as "Cancelled" or "Failed", which is wrong often enough
+ * to be worse than nothing: a locked wallet and a rejected signature both raise 4001, so
+ * the one case the user causes and the one they cannot even see read identically. The
+ * code alone is not enough — the message has to be inspected too.
+ */
+function walletTrouble(error) {
+  const code = error && error.code;
+  const text = String((error && error.message) || "").toLowerCase();
+
+  // A locked or empty wallet reports 4001 as readily as a genuine rejection does.
+  if (text.includes("account") && (text.includes("least one") || text.includes("no account"))) {
+    return {
+      label: "Unlock wallet",
+      hint: "Your wallet has no account available. Open the extension, unlock it or " +
+            "create an account, then try again.",
+    };
+  }
+  if (code === -32002) {
+    return {
+      label: "Check wallet",
+      hint: "Your wallet already has a request open. Finish or dismiss it — the popup " +
+            "sometimes opens behind this window.",
+    };
+  }
+  if (code === 4100 || code === 4900 || code === 4901) {
+    return {
+      label: "Unlock wallet",
+      hint: "Your wallet is locked or not connected to this site. Open the extension and " +
+            "connect, then try again.",
+    };
+  }
+  if (code === 4001) {
+    return {
+      label: "Cancelled",
+      hint: "Sign-in cancelled. Signing proves the wallet is yours — it costs nothing, " +
+            "moves nothing, and grants no advantage in the world.",
+    };
+  }
+  // Last, not first: an error carrying a clear message says more than the absence of a
+  // provider does, and checking for the provider up front swallowed all of them.
+  if (!window.ethereum) {
+    return {
+      label: "No wallet",
+      hint: "No wallet extension found. Install MetaMask, then reload this page.",
+    };
+  }
+  return {
+    label: "Failed",
+    hint: `Wallet error: ${(error && error.message) || "unknown"}`.slice(0, 160),
+  };
+}
+
 function walletFailed(text) {
   walletLabel.textContent = text;
   setTimeout(renderWallet, 2600);
@@ -2530,8 +2585,11 @@ async function connectWallet() {
     const proven = await verifyResponse.json();
     setWalletSession(proven.address, proven.session);
   } catch (error) {
-    // Rejecting the wallet prompt lands here and is a normal outcome, not a fault.
-    walletFailed(error && error.code === 4001 ? "Cancelled" : "Failed");
+    const trouble = walletTrouble(error);
+    walletFailed(trouble.label);
+    // The button is 90 pixels wide; "Cancelled" cannot explain a locked wallet. Whatever
+    // went wrong, say it in a sentence somebody can act on without opening a console.
+    showHint(trouble.hint, 9000);
   } finally {
     walletBtn.classList.remove("busy");
     walletBtn.disabled = false;
@@ -2642,7 +2700,7 @@ async function fetchWithPayment(url, options = {}) {
   return payAndRetry(url, payment, options);
 }
 
-window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, state: wallet };
+window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, walletTrouble, state: wallet };
 // Test seam: the gate has no wallet extension, so the encoding and the 402 handling are
 // asserted directly rather than by driving MetaMask.
 window.__pay = { encodeTransfer, fetchWithPayment, ERC20_TRANSFER_SELECTOR };
