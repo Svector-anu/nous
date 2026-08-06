@@ -245,6 +245,107 @@ curl -X POST localhost:8000/markets/3/positions -H 'Content-Type: application/js
      -d '{"user":"ana","side":"yes","stake":25}'
 ```
 
+## switches
+
+everything ships off. a fresh clone runs the world, the markets and the viewer with no
+keys, no accounts and no spend — that is the default and it stays supported.
+
+turn things on in `.env` (gitignored; copy `.env.example`). the settings below are read
+**after the world loads**, which matters: a saved world restores its own config, so
+editing `src/world/config.py` does nothing to a world that already exists. the env is the
+only way to change a running one.
+
+### watch only — the default
+
+nothing to set. `python -m src.main`, open the page, done. no llm, no wallet, no payments.
+markets run on play credits.
+
+### give clan leaders a mind
+
+```bash
+LLM_ENABLED=true
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-opus-4-8
+LLM_MAX_CALLS_PER_SESSION=2000     # optional, default 200
+```
+
+credentials come from the sdk's own environment, never from config — `WorldConfig` is
+written into `world_meta` verbatim, and a config that can hold a key will eventually leak
+one. for anthropic that is `ANTHROPIC_AUTH_TOKEN`, plus `ANTHROPIC_BASE_URL` if you front
+it with a compatible gateway.
+
+only clan leaders are ever consulted, and only every `llm_min_ticks_between_calls` (300)
+ticks. ordinary agents never call anything. the rules still choose a goal on the same tick,
+so a slow or failing model costs you nothing but the reasoning.
+
+**the spend cap is durable.** `AdvisorState.calls_made` is world state, saved to sqlite —
+restarting does not reset it. that is deliberate: it used to live in memory, where a crash
+loop could spend without limit. so the cap is a total for the world's life, and raising it
+is the only way to buy more calls.
+
+`LLM_MAX_CALLS_PER_SESSION=0` stops spending on a running world without a restart.
+
+### let people claim their agents
+
+```bash
+CHAIN_IDENTITY_ENABLED=true
+```
+
+adds the wallet button. a visitor proves an address with a signed eip-4361 message and the
+server recovers the signer — the nonce is read out of the signed text, not a request field,
+so one signature cannot be replayed against a fresh challenge.
+
+claiming an agent means only that wallet may rest or delete it. unclaimed agents stay open
+to anyone, which is what keeps the world playable without a wallet. a claimed agent gets no
+advantage in-world — a test pins that the world's `state_hash` is identical with and
+without the label.
+
+needs `eth-account` (already in requirements). without it the button shows as disabled
+rather than failing on click.
+
+### take payments
+
+```bash
+X402_ENABLED=true
+X402_VERIFIER=chain
+X402_RECIPIENT_ADDRESS=0xYourAddressOnChain4663
+FORCE_DECISION_ENABLED=true
+```
+
+a paid action answers `402` with everything a wallet needs — recipient, the usdg contract,
+chain id, decimals, and the amount in integer units — and the viewer builds the transfer
+from that. the payment is sent by the visitor's own wallet; nous holds no keys.
+
+on retry the server reads the transaction receipt back off the chain and checks the usdg
+transfer logs: right token, right recipient, enough of it. underpaying is refused, and the
+same transaction cannot be spent twice.
+
+`X402_VERIFIER=header` trusts an upstream proxy's verdict instead — useful behind a gateway
+that settles off-chain, and the default so nothing accidentally talks to a chain.
+
+what a payment buys: a clan reconsiders its goal on the next tick. it works with or without
+an llm, because the rules are the floor — so a paid decision is real on a world that costs
+nothing to run.
+
+### what stays off
+
+```bash
+REAL_MONEY_ENABLED=false
+```
+
+prediction credits are play money. turning this on would mean deposits and payouts, and
+nothing here signs a transaction — `escrow` records what is owed and waits for an operator's
+settlement job that does not exist yet. leave it false.
+
+### checking what is on
+
+```bash
+curl localhost:8000/chain/config
+```
+
+reports the flags the server actually resolved. the boot screen reads the same endpoint, so
+its "live on robinhood chain" badge cannot outlive the configuration that makes it true.
+
 ## layout
 
 ```
@@ -609,10 +710,10 @@ the simulation running normally.
 | control | default | what it bounds |
 |:--|:--|:--|
 | `llm_enabled` | `False` | nothing runs unless explicitly turned on |
-| `llm_provider` | `anthropic` | which backend, or `none` |
+| `llm_provider` | `dgrid` | which backend, or `none`. settable from env |
 | `llm_min_ticks_between_calls` | 300 | how often one clan may be consulted |
 | `llm_max_inflight` | 2 | concurrent requests |
-| `llm_max_calls_per_session` | 200 | total spend for the life of the process |
+| `llm_max_calls_per_session` | 200 | total spend for the life of the **world** — durable, so a restart does not reset it |
 | `llm_timeout_seconds` | 30 | a stalled call falls back to rules |
 | `llm_log_limit` | 200 | the decision log is bounded like everything else |
 | `llm_max_recovery_attempts` | 2 | retries for a request interrupted by a restart |
