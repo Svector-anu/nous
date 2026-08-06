@@ -1161,6 +1161,23 @@
      sound is on. Swapping the whole svg would flicker on every toggle. */
   /* Volume lives in Settings rather than on the map: the toggle is the thing you reach
      for mid-watch, the level is set once. */
+  .claim-agent {
+    margin: 0; padding: 5px 10px; min-height: 0;
+    background: rgba(110, 226, 116, 0.10);
+    border: 1px solid rgba(110, 226, 116, 0.45);
+    border-radius: 6px; color: var(--accent);
+    font-size: 11px; cursor: pointer;
+  }
+  .claim-agent:hover { background: rgba(110, 226, 116, 0.18); }
+  .claim-agent:disabled { opacity: .6; cursor: default; }
+  /* Proof rather than a promise: the row says it is yours once the chain label lands. */
+  .my-agent-owned {
+    display: inline-flex; align-items: center; padding: 5px 9px;
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--accent); border: 1px solid rgba(110, 226, 116, 0.3);
+    border-radius: 6px; background: rgba(110, 226, 116, 0.06);
+  }
+
   .settings-slider {
     display: flex; align-items: center; gap: 10px;
     width: 100%; padding: 6px 2px; font-size: 12px; color: var(--muted);
@@ -2842,7 +2859,7 @@ function renderMyAgents(snapshot) {
   // Only what the row displays. Position deliberately excluded: it changes every tick and
   // is not shown, and the handlers below read it live rather than from the closure.
   const key = mine
-    .map((a) => [a.id, a.name, simpleAgentStatus(a), a.rank, a.clan, a.rest_mode ? 1 : 0].join(":"))
+    .map((a) => [a.id, a.name, simpleAgentStatus(a), a.rank, a.clan, a.rest_mode ? 1 : 0, a.owner ? 1 : 0].join(":"))
     .join("|");
   if (key === lastMyAgentsKey) return;
   lastMyAgentsKey = key;
@@ -2880,6 +2897,14 @@ function renderMyAgents(snapshot) {
       `<button class="find-agent" aria-label="Locate" title="Locate">${AGENT_ICONS.locate}<span>Locate</span></button>` +
       `<button class="rest-agent" aria-label="${restLabel}" title="${restLabel}">${restIcon}<span>${restLabel}</span></button>` +
       `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
+      // Only for an agent nobody has claimed, and only while a wallet is connected.
+      // A claimed one shows who owns it instead, because "claim" on something already
+      // yours is a button that cannot do anything.
+      (agent.owner
+        ? `<span class="my-agent-owned" title="${escapeHtml(agent.owner)}">yours</span>`
+        : (wallet.session
+            ? `<button class="claim-agent" aria-label="Claim" title="Claim this agent for your wallet">Claim</button>`
+            : "")) +
       `</div>`;
 
     // The row now outlives the snapshot it was built from, so the handlers read the agent
@@ -2900,6 +2925,23 @@ function renderMyAgents(snapshot) {
     item.querySelector(".rest-agent").addEventListener("click", () =>
       setRest(agent.id, !current().rest_mode)
     );
+    item.querySelector(".claim-agent")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "…";
+      try {
+        const response = await fetch(`/agents/${agent.id}/link`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ address: wallet.address, session: wallet.session }),
+        });
+        // The link is queued and applies on the next tick, so the row redraws itself
+        // when the snapshot carrying the owner arrives rather than being faked here.
+        button.textContent = response.ok ? "claimed" : "refused";
+      } catch {
+        button.textContent = "failed";
+      }
+    });
     const copyBtn = item.querySelector(".copy-agent");
     copyBtn.addEventListener("click", () => {
       const now = current();
@@ -3601,6 +3643,10 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
       deployStatus.textContent = `${name} arrives next tick`;
       document.getElementById("agentName").value = "";
       document.getElementById("agentPersonality").value = "";
+      // A deploy is queued, so the agent has no id yet — it appears on the next tick.
+      // Claiming waits for it rather than guessing, which is why this is not awaited:
+      // the deploy has already succeeded and the claim is a follow-up, not a condition.
+      claimWhenItArrives(name);
     } else {
       deployStatus.className = "bad";
       deployStatus.textContent = body.detail || "deploy failed";
@@ -3611,6 +3657,43 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
   }
 });
 
+
+/**
+ * Claim a freshly deployed agent for the connected wallet.
+ *
+ * The button says "claim your agents", and until now signing in was all it did — the
+ * link endpoint existed and nothing ever called it. So a claimed agent was not actually
+ * claimed, and anyone could rest or delete it.
+ *
+ * A deploy returns no id: spawning is queued and the agent exists from the next tick. So
+ * this watches the snapshots the viewer already receives for a user agent of that name
+ * carrying no owner, and links that one. Bounded, because an agent that never arrives
+ * must not leave a watcher running for the rest of the session.
+ */
+async function claimWhenItArrives(name, attempts = 12) {
+  if (!wallet.session || !wallet.address) return;
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const mine = (lastSnapshot?.agents || []).filter(
+      (a) => a.user && a.name === name && !a.owner
+    );
+    if (!mine.length) continue;
+    try {
+      const response = await fetch(`/agents/${mine[0].id}/link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: wallet.address, session: wallet.session }),
+      });
+      if (response.ok) {
+        deployStatus.className = "good";
+        deployStatus.textContent = `${name} is yours`;
+      }
+    } catch {
+      /* the agent still exists and still plays; it is simply unclaimed */
+    }
+    return;
+  }
+}
 
 // --- onboarding & menu flow -------------------------------------------------
 //
