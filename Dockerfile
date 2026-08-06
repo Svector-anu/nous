@@ -20,8 +20,11 @@ COPY scripts/ ./scripts/
 
 # The world lives here. This path must be the volume mount point or every deploy starts a
 # new civilization at day 1 — src/api/server.py resolves DEFAULT_DB_PATH to <repo>/data.
+#
+# Deliberately no VOLUME instruction: railway rejects it outright ("docker VOLUME is not
+# supported, use Railway Volumes"), and every platform worth deploying to declares mounts
+# in its own config rather than in the image. the directory just needs to exist.
 RUN mkdir -p /app/data
-VOLUME ["/app/data"]
 
 EXPOSE 8080
 

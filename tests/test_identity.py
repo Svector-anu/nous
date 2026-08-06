@@ -414,3 +414,36 @@ def test_ownership_is_not_enforced_while_identity_is_disabled(tmp_path):
         agent_id = _deploy(world)
         world.get(agent_id, Agent).owner_address = "0x" + "a" * 40
         assert client.post(f"/agents/{agent_id}/rest", json={"rest": True}).status_code == 202
+
+
+# --- the message has to name the site the user is on --------------------------
+
+
+def test_the_challenge_names_the_host_the_browser_is_on(tmp_path):
+    """eip-4361 binds a signature to a domain, and a wallet compares the one in the
+    message against the page that asked. a mismatch is what a phishing site looks like,
+    so metamask warns and the user cancels — which is what "cancelled" meant."""
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=4, chain_identity_enabled=True),
+        tmp_path / "siwe.db",
+    )
+    with TestClient(app, base_url="https://nous.city") as client:
+        message = client.post("/chain/nonce", json={"address": "0x" + "a" * 40}).json()["message"]
+
+    assert message.startswith("nous.city wants you to sign in")
+    assert "URI: https://nous.city" in message
+    assert "https://nous\n" not in message  # the old hardcoded value
+
+
+def test_a_local_challenge_is_not_claimed_to_be_https(tmp_path):
+    """A wallet checking the uri against the page would fail on https for a plain-http
+    development server."""
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=4, chain_identity_enabled=True),
+        tmp_path / "siwe.db",
+    )
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
+        message = client.post("/chain/nonce", json={"address": "0x" + "a" * 40}).json()["message"]
+
+    assert message.startswith("127.0.0.1 wants you to sign in")
+    assert "URI: http://127.0.0.1" in message

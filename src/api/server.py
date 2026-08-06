@@ -469,8 +469,12 @@ def create_app(
         )
 
     @app.post("/chain/nonce")
-    async def chain_nonce(request: NonceRequest) -> JSONResponse:
-        """Issue a single-use challenge for the wallet to sign."""
+    async def chain_nonce(request: NonceRequest, http_request: Request) -> JSONResponse:
+        """Issue a single-use challenge for the wallet to sign.
+
+        `http_request` is the http request, distinct from the pydantic body — the message
+        has to name the host the browser is actually on.
+        """
         world_cfg = app.state.simulation.world.config
         if not world_cfg.chain_identity_enabled:
             raise HTTPException(403, "wallet identity is not enabled")
@@ -480,11 +484,20 @@ def create_app(
             raise HTTPException(422, "address is not a well-formed 0x address")
 
         challenge = app.state.nonces.issue(address)
+        # The domain has to be the site the user is actually on. eip-4361 binds a signature
+        # to a domain, and a wallet compares the one in the message against the page that
+        # asked — a mismatch is what a phishing site looks like, so metamask warns and the
+        # user cancels. hardcoding "nous" meant every deployment except a host literally
+        # called "nous" produced a message the wallet distrusted.
+        origin = http_request.headers.get("origin", "")
+        host = origin.split("://", 1)[-1] if origin else (http_request.url.hostname or "nous")
+        scheme = "http" if host.startswith(("localhost", "127.0.0.1")) else "https"
         message = siwe.build_message(
-            domain="nous",
+            domain=host,
             address=address or "0x…",
             nonce=challenge.nonce,
             chain_id=world_cfg.chain_id,
+            uri=f"{scheme}://{host}",
         )
         return JSONResponse(
             {"nonce": challenge.nonce, "message": message, "chain_id": world_cfg.chain_id},
