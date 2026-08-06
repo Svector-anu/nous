@@ -190,6 +190,9 @@ CHAIN_FLAG_ENV = {
     "chain_identity_enabled": "CHAIN_IDENTITY_ENABLED",
     "x402_enabled": "X402_ENABLED",
     "real_money_enabled": "REAL_MONEY_ENABLED",
+    # Named for the llm because that is where it started, but a forced decision no longer
+    # needs one: leadership drains the queue and the rule-based goal choice does the work.
+    "llm_force_decision_enabled": "FORCE_DECISION_ENABLED",
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
