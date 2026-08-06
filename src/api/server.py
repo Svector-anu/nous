@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import secrets
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,11 +15,16 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from ..chain import escrow, siwe
+from ..chain import settings as chain_settings
+from ..chain import x402
+from ..chain.x402 import PaymentProof, build_verifier
+from ..chain.x402 import price_units
 from ..persistence.sqlite_store import SqliteWorldStore
 from ..world.components import Agent, Clan, ClanRef, ForceDecisionQueue, Position, RestQueue
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
-from ..world.systems import leadership, markets, resting, spawning
+from ..world.systems import identity, leadership, markets, resting, spawning
 from ..world.tick import Simulation, create_world
 
 
@@ -43,10 +50,82 @@ class RestRequest(BaseModel):
     rest: bool = Field(..., description="true to rest, false to resume normal behaviour")
 
 
+class NonceRequest(BaseModel):
+    """Ask for a challenge to sign. The address is a hint for the message text; the
+    signature is what actually proves anything."""
+
+    address: str = Field(default="", description="wallet address the user intends to prove")
+
+
+class VerifyRequest(BaseModel):
+    """A signed challenge. The server recovers the address from the signature — it never
+    trusts the `address` field on its own."""
+
+    address: str = Field(..., description="claimed wallet address")
+    message: str = Field(..., description="the exact message that was signed")
+    signature: str = Field(..., description="signature produced by the wallet")
+
+
+class LinkRequest(BaseModel):
+    """Attach a verified wallet address to a user-deployed agent as a label.
+
+    Linking confers nothing in-world. A linked agent starves like every other agent.
+    """
+
+    address: str = Field(..., description="verified wallet address")
+    session: str = Field(..., description="session token returned by /chain/verify")
+
+
 logger = logging.getLogger("neociv")
 
 VIEWER_INDEX = Path(__file__).resolve().parent.parent / "viewer" / "index.html"
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "world.db"
+
+# A proven wallet is remembered for this long, then must be proven again.
+SESSION_TTL_SECONDS = 24 * 60 * 60
+MAX_SESSIONS = 512
+
+
+class SessionStore:
+    """Session token -> proven address. In memory, bounded, expiring.
+
+    Not persisted: a restart signs everyone out, which costs one click and avoids
+    keeping a table of long-lived bearer tokens on disk. The *link* itself is durable
+    world state; the session is only the proof that let you make it.
+    """
+
+    def __init__(self, ttl: float = SESSION_TTL_SECONDS, limit: int = MAX_SESSIONS) -> None:
+        self.ttl = ttl
+        self.limit = limit
+        self._sessions: dict[str, tuple[str, float]] = {}
+
+    def open(self, address: str, now: float | None = None) -> str:
+        moment = time.time() if now is None else now
+        token = secrets.token_urlsafe(24)
+        self._sessions[token] = (siwe.normalise(address), moment)
+        self._prune(moment)
+        return token
+
+    def address(self, token: str, now: float | None = None) -> str:
+        moment = time.time() if now is None else now
+        entry = self._sessions.get((token or "").strip())
+        if entry is None:
+            return ""
+        address, issued = entry
+        if moment - issued > self.ttl:
+            self._sessions.pop(token, None)
+            return ""
+        return address
+
+    def _prune(self, now: float) -> None:
+        stale = [t for t, (_, issued) in self._sessions.items() if now - issued > self.ttl]
+        for token in stale:
+            self._sessions.pop(token, None)
+        while len(self._sessions) > self.limit:
+            self._sessions.pop(next(iter(self._sessions)), None)
+
+    def __len__(self) -> int:
+        return len(self._sessions)
 
 
 class ConnectionManager:
@@ -80,6 +159,19 @@ class ConnectionManager:
             except Exception:
                 logger.debug("dropping a websocket that failed to receive", exc_info=True)
                 self.disconnect(websocket)
+
+
+def _nonce_in(message: str) -> str:
+    """Pull the nonce out of an EIP-4361 message.
+
+    The nonce must come from the signed text rather than a separate request field. If a
+    caller could name the nonce independently of what was signed, one wallet's signature
+    could be replayed against a freshly issued challenge.
+    """
+    for line in (message or "").splitlines():
+        if line.startswith("Nonce: "):
+            return line[len("Nonce: ") :].strip()
+    return ""
 
 
 def create_app(
@@ -134,6 +226,14 @@ def create_app(
             logger.info("saved world at tick %d on shutdown", simulation.world.tick)
 
     app = FastAPI(title="Nous", lifespan=lifespan)
+    # Per-app rather than module-level so two apps in one test process cannot see each
+    # other's challenges, sessions or spent payments.
+    app.state.nonces = siwe.NonceStore()
+    app.state.sessions = SessionStore()
+    app.state.x402 = build_verifier(
+        world_config.x402_verifier,
+        chain_id=world_config.chain_id,
+    )
     # The viewer is plain files: the focus-3d module and a vendored copy of three.js.
     # Vendored rather than fetched from a cdn so the viewer works offline, which is the
     # same rule the procedural-materials reference holds itself to.
@@ -153,15 +253,35 @@ def create_app(
             response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
         return response
 
+    # The Nous mark: ring, four cardinal ticks, four-pointed star. Same shape the boot
+    # screen and top bar carry, redrawn on a 32-unit grid rather than reused verbatim —
+    # the 24-unit version uses 1.3 stroke and long thin ticks, which mush into grey at
+    # the 16px a browser tab actually renders. Heavier strokes and a larger star survive
+    # the downscale; the silhouette stays the same.
     _FAVICON = (
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'>"
-        "<rect width='16' height='16' fill='#0d1117'/>"
-        "<circle cx='8' cy='8' r='4' fill='#58a6ff'/>"
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>"
+        "<rect width='32' height='32' rx='7' fill='#080c10'/>"
+        "<g stroke='#6ee274' stroke-width='2.2' stroke-linecap='round' fill='none'>"
+        "<circle cx='16' cy='16' r='8.6'/>"
+        "<path d='M16 2.4v3.2M16 26.4v3.2M2.4 16h3.2M26.4 16h3.2'/>"
+        "</g>"
+        "<path d='M16 10.8l1.9 3.3 3.3 1.9-3.3 1.9-1.9 3.3-1.9-3.3-3.3-1.9 3.3-1.9z'"
+        " fill='#6ee274'/>"
         "</svg>"
     )
 
     @app.get("/favicon.ico")
     async def favicon() -> Response:
+        return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+    @app.get("/favicon.svg")
+    async def favicon_svg() -> Response:
+        """Same mark under the extension browsers expect for an svg icon.
+
+        `/favicon.ico` serves svg bytes, which every current browser accepts because the
+        content type is what it honours — but a `.svg` url is what a `<link rel="icon">`
+        should point at, and some tooling sniffs the extension rather than the header.
+        """
         return Response(_FAVICON, media_type="image/svg+xml", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     @app.get("/")
@@ -196,6 +316,134 @@ def create_app(
                 "error": error,
             },
             status_code=200 if running else 503,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    # --- chain identity ------------------------------------------------------
+    #
+    # Linking a wallet is a label, not a privilege. Nothing in src/world reads
+    # `owner_address` to decide what an agent does, and nothing may: ownership without
+    # in-world advantage is a settled decision (NEXT.md, "do not reopen"). These routes
+    # exist so a spectator can prove which deployed agents are theirs — which is also
+    # what a future ownership check on rest/delete will bind to.
+
+    @app.get("/chain/config")
+    async def chain_config() -> JSONResponse:
+        """What the viewer needs to render a connect button, and whether it should.
+
+        `ready` is deliberately conservative: identity has to be enabled *and* the
+        signature library actually importable, so an operator who enabled the flag
+        without installing eth-account sees a disabled button rather than a dead one.
+        """
+        world_cfg = app.state.simulation.world.config
+        return JSONResponse(
+            {
+                "chain_id": world_cfg.chain_id,
+                "chain_name": world_cfg.chain_name,
+                "explorer_url": world_cfg.chain_explorer_url,
+                "identity_enabled": world_cfg.chain_identity_enabled,
+                "signature_verification_available": siwe.available(),
+                "ready": world_cfg.chain_identity_enabled and siwe.available(),
+                "x402_enabled": world_cfg.x402_enabled,
+                "x402_price": world_cfg.x402_price,
+                "x402_currency": world_cfg.x402_currency,
+                # Stated plainly so the viewer never has to guess whether money is real.
+                "real_money_enabled": world_cfg.real_money_enabled,
+                "markets_are_demo": not world_cfg.real_money_enabled,
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.post("/chain/nonce")
+    async def chain_nonce(request: NonceRequest) -> JSONResponse:
+        """Issue a single-use challenge for the wallet to sign."""
+        world_cfg = app.state.simulation.world.config
+        if not world_cfg.chain_identity_enabled:
+            raise HTTPException(403, "wallet identity is not enabled")
+
+        address = request.address.strip()
+        if address and not siwe.is_address(address):
+            raise HTTPException(422, "address is not a well-formed 0x address")
+
+        challenge = app.state.nonces.issue(address)
+        message = siwe.build_message(
+            domain="nous",
+            address=address or "0x…",
+            nonce=challenge.nonce,
+            chain_id=world_cfg.chain_id,
+        )
+        return JSONResponse(
+            {"nonce": challenge.nonce, "message": message, "chain_id": world_cfg.chain_id},
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.post("/chain/verify")
+    async def chain_verify(request: VerifyRequest) -> JSONResponse:
+        """Recover the signer from the signature and open a session.
+
+        The claimed address is never trusted on its own — it only has to *match* what the
+        signature recovers to. The nonce is consumed here, so one challenge opens at most
+        one session.
+        """
+        world_cfg = app.state.simulation.world.config
+        if not world_cfg.chain_identity_enabled:
+            raise HTTPException(403, "wallet identity is not enabled")
+        if not siwe.available():
+            raise HTTPException(503, "signature verification is unavailable on this server")
+        if not siwe.is_address(request.address):
+            raise HTTPException(422, "address is not a well-formed 0x address")
+
+        nonce = _nonce_in(request.message)
+        if not nonce:
+            raise HTTPException(422, "message does not carry a nonce")
+        if app.state.nonces.consume(nonce) is None:
+            raise HTTPException(401, "challenge is unknown or expired")
+        if not siwe.verify(request.message, request.signature, request.address):
+            raise HTTPException(401, "signature does not match the claimed address")
+
+        address = siwe.normalise(request.address)
+        token = app.state.sessions.open(address)
+        return JSONResponse(
+            {
+                "address": address,
+                "session": token,
+                "agents": identity.agents_owned_by(app.state.simulation.world, address),
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.post("/agents/{agent_id}/link", status_code=202)
+    async def link_agent(agent_id: int, request: LinkRequest) -> JSONResponse:
+        """Attach a proven wallet address to a deployed agent, applied on the next tick.
+
+        Refuses to relabel an agent that already carries a *different* address, so a
+        second visitor cannot take someone else's agent by linking over it.
+        """
+        world = app.state.simulation.world
+        if not world.config.chain_identity_enabled:
+            raise HTTPException(403, "wallet identity is not enabled")
+
+        proven = app.state.sessions.address(request.session)
+        if not proven:
+            raise HTTPException(401, "session is unknown or expired")
+        if proven != siwe.normalise(request.address):
+            raise HTTPException(403, "session does not own that address")
+
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        if agent.owner_address and agent.owner_address != proven:
+            raise HTTPException(409, f"agent {agent_id} is already linked to another wallet")
+
+        identity.enqueue(world, agent_id, proven)
+        return JSONResponse(
+            {
+                "queued": True,
+                "agent_id": agent_id,
+                "address": proven,
+                "applies_at_tick": world.tick + 1,
+            },
+            status_code=202,
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
@@ -357,13 +605,35 @@ def create_app(
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
+    def _authorize_agent(agent: Agent, agent_id: int, http_request: Request) -> None:
+        """Only the linked owner may control a linked agent.
+
+        Unlinked agents stay open to anyone, which is what keeps the demo playable
+        without a wallet. The moment an agent carries an address, that address is the
+        only thing allowed to rest or delete it.
+        """
+        world = app.state.simulation.world
+        if not world.config.chain_identity_enabled or not agent.owner_address:
+            return
+        token = http_request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        proven = app.state.sessions.address(token) if token else ""
+        if proven != agent.owner_address:
+            raise HTTPException(403, f"agent {agent_id} is linked to another wallet")
+
     @app.post("/agents/{agent_id}/rest", status_code=202)
-    async def set_rest(agent_id: int, request: RestRequest) -> JSONResponse:
-        """Queue a rest-mode toggle for a user-deployed agent. Applied on the next tick."""
+    async def set_rest(
+        agent_id: int, request: RestRequest, http_request: Request
+    ) -> JSONResponse:
+        """Queue a rest-mode toggle for a user-deployed agent. Applied on the next tick.
+
+        When identity is enabled and the agent is linked, only its owner may toggle it.
+        """
         world = app.state.simulation.world
         agent = world.try_get(agent_id, Agent)
         if agent is None or not agent.user_deployed:
             raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, http_request)
+
         if world.first(RestQueue) is None:
             raise HTTPException(503, "world is not ready")
         resting.enqueue(world, agent_id, request.rest)
@@ -379,17 +649,22 @@ def create_app(
         )
 
     @app.delete("/agents/{agent_id}", status_code=200)
-    async def delete_agent(agent_id: int) -> JSONResponse:
+    async def delete_agent(agent_id: int, http_request: Request) -> JSONResponse:
         """Remove a user-deployed agent from the world.
 
         This is an administrative seam for cleaning up test agents; it does not
         represent a simulation event. The agent is removed from any clan and then
         destroyed. Markets opened on the agent's survival resolve as NO.
+
+        When identity is enabled and the agent is linked, only its owner may delete it —
+        deletion is irreversible, so this is the check that matters most.
         """
         world = app.state.simulation.world
         agent = world.try_get(agent_id, Agent)
         if agent is None or not agent.user_deployed:
             raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, http_request)
+
         for entity, clan in world.store(Clan):
             clan.remove(agent_id)
         world.destroy_entity(agent_id)
@@ -400,43 +675,94 @@ def create_app(
 
     @app.post("/clans/{clan_id}/force-decision", status_code=202)
     async def force_decision(clan_id: int, request: Request) -> JSONResponse:
-        """x402 seam: pay to force an LLM leader decision.
+        """x402 pay-to-force-decision: verify payment, then queue the request.
 
-        When payment is not verified the endpoint returns a 402 with the x402 protocol
-        headers. A verified payment is recorded as a queued force decision so the future
-        implementation does not need a world schema change.
+        The verifier checks proof against the configured price and recipient. A verified
+        payment is remembered so the same proof cannot buy two decisions — the spent set
+        is bounded by `x402_spent_limit` and lives in `ForceDecisionQueue.spent`.
         """
         world = app.state.simulation.world
         if not world.config.llm_force_decision_enabled:
             raise HTTPException(403, "force decision is not enabled")
+        if not world.config.x402_enabled:
+            raise HTTPException(403, "x402 is not enabled")
 
-        if request.headers.get("X402-Payment-Verified") != "true":
+        proof = PaymentProof(
+            tx_hash=request.headers.get("X402-Transaction-Hash", ""),
+            header_value=request.headers.get("X402-Payment-Verified", ""),
+        )
+        verifier = app.state.x402
+
+        entity = world.first(ForceDecisionQueue)
+        if entity is None:
+            raise HTTPException(503, "world is not ready")
+        queue_comp = world.get(entity, ForceDecisionQueue)
+
+        # Check spent set first — no point verifying what has already been honoured.
+        if verifier.is_spent(proof):
+            raise HTTPException(409, "this payment has already been used")
+
+        verified = False
+        try:
+            verified = await verifier.verify(proof, world.config.x402_price, world.config.x402_currency)
+        except Exception as error:  # noqa: BLE001 - a verifier failure is a denial
+            logger.warning("x402 verifier failed for clan %d: %r", clan_id, error)
+
+        if not verified:
+            # Everything a wallet needs to construct the payment itself. Price and
+            # currency alone are not actionable: without the recipient, the token
+            # contract and the chain id, a client cannot build the transfer, and the
+            # 402 is a locked door with no keyhole.
+            recipient = chain_settings.x402_recipient()
+            token = chain_settings.usdg_address(testnet=False)
             raise HTTPException(
                 status_code=402,
                 detail={
                     "payment": {
                         "scheme": "x402",
-                        "network": "base",
-                        "amount": "0.10",
-                        "currency": "USD",
+                        "network": world.config.chain_name,
+                        "chain_id": world.config.chain_id,
+                        "amount": world.config.x402_price,
+                        "currency": world.config.x402_currency,
+                        # Integer token units — what transfer() actually takes. Sending
+                        # the decimal string alone invites a client to guess at decimals.
+                        "amount_units": str(
+                            price_units(world.config.x402_price, chain_settings.USDG_DECIMALS)
+                        ),
+                        "decimals": chain_settings.USDG_DECIMALS,
+                        "recipient": recipient,
+                        "token": token,
+                        # False means the operator has not finished configuring payment;
+                        # the viewer shows why rather than offering a button that cannot work.
+                        "payable": bool(recipient and token),
                     },
                     "clan_id": clan_id,
                 },
                 headers={
                     "X402-Payment-Required": "true",
                     "X402-Version": "0.1",
-                    "X402-Price": "0.10",
+                    "X402-Price": world.config.x402_price,
+                    "X402-Currency": world.config.x402_currency,
+                    "X402-Chain-Id": str(world.config.chain_id),
+                    "X402-Recipient": recipient,
+                    "X402-Token": token,
                 },
             )
 
-        entity = world.first(ForceDecisionQueue)
-        if entity is None:
-            raise HTTPException(503, "world is not ready")
-        queue = world.get(entity, ForceDecisionQueue)
+        # Record as spent before queuing, so a crash between here and the next tick does
+        # not let the same proof through twice.
+        verifier.record_spent(proof)
+        fingerprint = proof.fingerprint()
+        if fingerprint and fingerprint not in queue_comp.spent:
+            queue_comp.spent.append(fingerprint)
+            limit = max(1, world.config.x402_spent_limit)
+            while len(queue_comp.spent) > limit:
+                queue_comp.spent.pop(0)
+
         # Cap the queue so the seam cannot be used as an unbounded accumulator.
-        if len(queue.pending) >= 16:
-            queue.pending.pop(0)
-        queue.pending.append({"clan_id": clan_id, "tick": world.tick})
+        if len(queue_comp.pending) >= 16:
+            queue_comp.pending.pop(0)
+        queue_comp.pending.append({"clan_id": clan_id, "tick": world.tick, "proof": fingerprint})
         return JSONResponse(
             {
                 "queued": True,

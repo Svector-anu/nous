@@ -12,7 +12,12 @@
 <meta name="twitter:title" content="Nous — a living world of autonomous agents">
 <meta name="twitter:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
 <title>Nous — a living world of autonomous agents</title>
-<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAxNiAxNic+PHJlY3Qgd2lkdGg9JzE2JyBoZWlnaHQ9JzE2JyBmaWxsPScjMGQxMTE3Jy8+PGNpcmNsZSBjeD0nOCcgY3k9JzgnIHI9JzQnIGZpbGw9JyM1OGE2ZmYnLz48L3N2Zz4=">
+<!-- The Nous mark, same bytes the server hands back from /favicon.svg. Inline so the
+     tab icon is right on the first paint and survives the file being opened directly.
+     Drawn on a 32-unit grid: the 24-unit version in the boot lockup uses a 1.3 stroke
+     that mushes into grey at the 16px a tab actually renders. -->
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23080c10'/%3E%3Cg stroke='%236ee274' stroke-width='2.2' stroke-linecap='round' fill='none'%3E%3Ccircle cx='16' cy='16' r='8.6'/%3E%3Cpath d='M16 2.4v3.2M16 26.4v3.2M2.4 16h3.2M26.4 16h3.2'/%3E%3C/g%3E%3Cpath d='M16 10.8l1.9 3.3 3.3 1.9-3.3 1.9-1.9 3.3-1.9-3.3-3.3-1.9 3.3-1.9z' fill='%236ee274'/%3E%3C/svg%3E">
+<link rel="alternate icon" href="/favicon.ico">
 <style>
   /* Palette sampled from the design reference (nav.png). Every panel, card and dock
      button reads these, so the top bar and the rest of the UI share one brand rather
@@ -32,11 +37,18 @@
        inset and a breathing gap below it. */
     --topbar-h: 104px;
     --topbar-clear: calc(var(--topbar-h) + 24px);
-    /* The bottom dock mirrors the top bar: a floating card inset from the window edges.
-       Its height lives here once, and --dock-clear is the room every panel leaves below
-       itself so it never slides under the dock (inset + height + a breathing gap). */
+    /* Navigation is a vertical rail down the left edge, per the design reference: a
+       floating card inset from the window, icon over label, hairlines between items.
+       Its width lives here once and --rail-clear is the room every panel leaves to its
+       right so nothing slides underneath it. */
+    --rail-w: 88px;
+    --rail-clear: calc(var(--rail-w) + 24px);
+    /* Nothing occupies the bottom edge now that the rail is vertical, so panels only
+       leave the same 12px inset the rail itself uses. --dock-h stays because the mobile
+       layout still lays the rail out as a bottom bar, where a height is what matters. */
     --dock-h: 62px;
-    --dock-clear: calc(var(--dock-h) + 26px);
+    --dock-clear: 12px;
+    --strip-bottom: 12px;
     --font-ui: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --font-bubble: ui-rounded, "Comic Sans MS", "Chalkboard SE", "Chalkboard", "Marker Felt", sans-serif;
@@ -179,6 +191,14 @@
   #markets .out.no   { border-color: #f85149; color: #f85149; }
   #markets .out.void { border-color: var(--muted); color: var(--muted); }
   #whoami { margin-bottom: 8px; }
+  /* The backend is explicit that these are demo credits with no real currency
+     (components.py BookState.balances, server.py PositionRequest). The card has to
+     say so too, or a spectator sees "YES · 25" and a leaderboard and reasonably
+     infers money. */
+  .demo-note {
+    margin: 0 0 9px; font-size: 10.5px; letter-spacing: .05em;
+    color: var(--muted);
+  }
   #leaderboard li { justify-content: space-between; }
   #leaderboard .credits { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   #legend li.clickable { cursor: pointer; }
@@ -192,18 +212,84 @@
   }
   #onboarding.hidden { opacity: 0; pointer-events: none; }
   #onboarding.hidden .screen { display: none !important; }
+  #onboarding.hidden #onboardingSky { display: none; }
   #onboarding .screen {
     position: absolute; inset: 0;
     display: none;
     opacity: 0;
     transition: opacity 0.4s ease;
     pointer-events: auto;
-    background: rgba(6, 10, 16, 0.72);
-    backdrop-filter: blur(2px);
+    background: transparent;
   }
   #onboarding .screen.active {
     display: flex; align-items: center; justify-content: center;
     opacity: 1;
+  }
+
+  /* === Cinematic backdrop ==================================================
+     Drawn entirely in CSS and inline SVG rather than shipped as artwork: the
+     repo has no CDN and no build step, and a photographic sky would be megabytes
+     for something the eye reads as "vast and quiet". Vector also stays sharp at
+     any resolution and re-themes from --accent for free. */
+  #onboardingSky {
+    position: absolute; inset: 0; overflow: hidden;
+    background:
+      radial-gradient(120% 90% at 50% 108%, rgba(24,42,30,0.55) 0%, rgba(8,12,16,0) 60%),
+      linear-gradient(180deg, #05080b 0%, #070c11 42%, #080f11 72%, #060a0c 100%);
+  }
+  /* The planet: one circle, mostly off-screen. The inset shadow carves the night
+     side so only a crescent of atmosphere catches the light, which is what sells
+     the scale — a fully-lit disc reads as a ball, a crescent reads as a world. */
+  #onboardingSky .planet {
+    position: absolute;
+    top: -84vmax; left: 50%; transform: translateX(-32%);
+    width: 118vmax; height: 118vmax; border-radius: 50%;
+    background:
+      radial-gradient(circle at 32% 74%, rgba(58,86,66,0.30) 0%, rgba(12,20,18,0.86) 42%, #05080a 68%);
+    box-shadow:
+      inset -26px 34px 120px rgba(150,220,175,0.16),
+      inset 8px -10px 180px rgba(0,0,0,0.92),
+      0 0 190px rgba(110,226,116,0.11);
+  }
+  /* Atmospheric rim: a hairline of lit air along the limb. */
+  #onboardingSky .planet::after {
+    content: ""; position: absolute; inset: -1px; border-radius: 50%;
+    background: transparent;
+    box-shadow: inset -3px 5px 26px rgba(186,246,205,0.30);
+  }
+  #onboardingSky .stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.85; }
+  /* Layered ridges. Each band is flatter and lighter than the one behind it, which
+     is aerial perspective — the cheapest convincing depth cue there is. */
+  #onboardingSky .ridge { position: absolute; left: 0; right: 0; bottom: 0; width: 100%; display: block; }
+  #onboardingSky .ridge--far  { height: 46vh; opacity: 0.55; }
+  #onboardingSky .ridge--mid  { height: 38vh; opacity: 0.80; }
+  #onboardingSky .ridge--near { height: 30vh; opacity: 1; }
+  /* Valley haze: light pooling where the settlement sits, so the eye lands there. */
+  #onboardingSky .haze {
+    position: absolute; left: 50%; bottom: 4vh; transform: translateX(-50%);
+    width: 78vw; height: 26vh; pointer-events: none;
+    background: radial-gradient(60% 100% at 50% 100%, rgba(226,178,96,0.16) 0%, rgba(226,178,96,0.05) 38%, rgba(0,0,0,0) 72%);
+    filter: blur(22px);
+  }
+  /* Settlement windows. Amber against all that green-black is the only warm colour
+     on screen, so a handful of dots reads as "people live down there". */
+  #onboardingSky .ember {
+    position: absolute; width: 2px; height: 2px; border-radius: 50%;
+    background: #ffd7a0;
+    box-shadow: 0 0 6px 1px rgba(255,190,120,0.85);
+    animation: emberFlicker 4s ease-in-out infinite;
+  }
+  @keyframes emberFlicker {
+    0%, 100% { opacity: 0.30; }
+    50%      { opacity: 0.95; }
+  }
+  /* A slow vignette keeps the corners quiet so UI always wins the contrast fight. */
+  #onboardingSky .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(78% 62% at 50% 46%, rgba(0,0,0,0) 40%, rgba(0,0,0,0.62) 100%);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #onboardingSky .ember { animation: none; opacity: 0.7; }
   }
 
   /* Wide cinematic panels */
@@ -218,7 +304,106 @@
     position: relative;
   }
 
-  /* Splash */
+  /* === Boot screen =========================================================
+     The socket takes a moment to connect and the first snapshot to arrive. That
+     wait used to be a dark page with "connecting" in a corner; now it is the
+     first thing the product says. The stages are driven by real socket state,
+     never a fake timer — a progress bar that lies is worse than none. */
+  #onboarding-boot .boot-wrap,
+  #onboarding-splash .splash-wrap {
+    position: relative; z-index: 1;
+    display: flex; flex-direction: column; align-items: center;
+    text-align: center; padding: 0 24px; width: 100%;
+  }
+  .brandLockup { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .brandLockup .mark {
+    width: 92px; height: 92px; color: var(--accent);
+    filter: drop-shadow(0 0 26px rgba(110,226,116,0.45));
+  }
+  .brandLockup .mark svg { width: 100%; height: 100%; display: block; }
+  .brandLockup .word {
+    font-family: var(--font-mono);
+    font-size: 62px; font-weight: 500; letter-spacing: .34em;
+    text-transform: uppercase; color: #f4f7f5; margin: 0;
+    text-indent: .34em; /* letter-spacing pads the right edge; recentre the word */
+    text-shadow: 0 0 40px rgba(150,220,175,0.28);
+  }
+  .boot-bar {
+    position: relative; width: min(520px, 74vw); height: 3px;
+    margin: 44px 0 20px; border-radius: 2px;
+    background: rgba(255,255,255,0.09); overflow: hidden;
+  }
+  .boot-bar .fill {
+    position: absolute; inset: 0 auto 0 0; width: 0%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, rgba(110,226,116,0.55), #9dfba4);
+    box-shadow: 0 0 16px rgba(110,226,116,0.75);
+    transition: width 0.55s cubic-bezier(.4,0,.2,1);
+  }
+  .boot-status {
+    font-size: 14px; color: #aab3ac; letter-spacing: .04em; margin: 0 0 26px;
+    min-height: 1.2em; /* reserve the line so stage changes do not nudge the layout */
+  }
+  .boot-stages { display: flex; align-items: center; gap: 26px; flex-wrap: wrap; justify-content: center; }
+  .boot-stage {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-size: 12.5px; color: #6c7570;
+    transition: color .45s ease;
+  }
+  .boot-stage .pip {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #2b332d; transition: background .45s ease, box-shadow .45s ease;
+  }
+  .boot-stage.done { color: #cfd8d2; }
+  .boot-stage.done .pip { background: var(--accent); box-shadow: 0 0 9px rgba(110,226,116,0.9); }
+
+  /* Splash — the hero. No panel chrome: the backdrop is the design, and a card
+     around it would shrink the world back into a dialog. */
+  #onboarding-splash .splash-wrap { gap: 0; }
+  .splash-eyebrow {
+    margin: 22px 0 0;
+    font-size: 13px; letter-spacing: .40em; text-transform: uppercase;
+    color: #93a89a;
+  }
+  .splash-eyebrow i { font-style: normal; color: var(--accent); opacity: .8; margin: 0 10px; }
+  .splash-lede {
+    margin: 26px 0 0; max-width: 46ch;
+    font-size: 16.5px; line-height: 1.65; color: #b8c0ba;
+  }
+  .enter-btn {
+    margin: 46px 0 0; width: auto; padding: 15px 42px;
+    display: inline-flex; align-items: center; gap: 14px;
+    font-size: 14px; font-weight: 600; letter-spacing: .17em; text-transform: uppercase;
+    color: #eafbec;
+    background: linear-gradient(180deg, rgba(24,52,32,0.92), rgba(14,32,20,0.92));
+    border: 1px solid rgba(110,226,116,0.55);
+    border-radius: 999px;
+    box-shadow: 0 0 0 1px rgba(110,226,116,0.10), 0 12px 40px rgba(0,0,0,0.55), inset 0 1px 0 rgba(190,250,205,0.14);
+    transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease;
+  }
+  .enter-btn:hover {
+    border-color: rgba(150,240,160,0.9);
+    box-shadow: 0 0 26px rgba(110,226,116,0.34), 0 12px 40px rgba(0,0,0,0.55);
+    transform: translateY(-1px);
+  }
+  .enter-btn svg { width: 17px; height: 17px; }
+  .splash-hint {
+    margin: 20px 0 0; font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: #5f6a63; animation: pulse 2.8s ease-in-out infinite;
+  }
+  /* Staggered reveal: the eye should land on the mark, then the word, then the
+     invitation — not all three at once. */
+  .reveal { opacity: 0; transform: translateY(14px); animation: revealUp .9s cubic-bezier(.2,.7,.3,1) forwards; }
+  .reveal--1 { animation-delay: .10s; }
+  .reveal--2 { animation-delay: .30s; }
+  .reveal--3 { animation-delay: .52s; }
+  .reveal--4 { animation-delay: .74s; }
+  @keyframes revealUp { to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { animation: none; opacity: 1; transform: none; }
+  }
+
+  /* Splash (legacy panel styles, still used by the menu) */
   .splash-panel {
     max-width: 640px;
     text-align: center;
@@ -498,6 +683,29 @@
     width: 7px; height: 7px; border-radius: 50%;
     background: var(--accent); box-shadow: 0 0 7px rgba(110,226,116,0.95);
   }
+  /* Wallet control. Same shell as .icon-btn but it carries a label, because an icon
+     alone cannot say "connect" unambiguously. Hidden entirely while wallet identity is
+     off, so a disabled feature costs the map no chrome at all. */
+  #walletBtn {
+    display: none;
+    align-items: center; gap: 7px;
+    height: 44px; padding: 0 14px;
+    border-radius: 12px;
+    background: #12171b;
+    border: 1px solid rgba(48, 58, 50, 0.7);
+    color: #b9c0c6; cursor: pointer;
+    font-family: inherit; font-size: 12px; letter-spacing: 0.04em;
+    white-space: nowrap;
+    transition: color .18s ease, border-color .18s ease, background .18s ease;
+  }
+  #walletBtn.show { display: inline-flex; }
+  #walletBtn svg { width: 16px; height: 16px; flex: 0 0 auto; }
+  #walletBtn:hover:not(:disabled) { color: var(--accent); border-color: rgba(110,226,116,0.4); background: #171d21; }
+  #walletBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+  /* Connected: the address is the label, so the green reads as "you are known here". */
+  #walletBtn.connected { color: var(--accent); border-color: rgba(110,226,116,0.45); }
+  #walletBtn.connected svg { color: var(--accent); }
+  #walletBtn.busy { opacity: 0.6; cursor: progress; }
   #thinkingStatus {
     padding: 4px 10px; border-radius: 12px;
     font-size: 12px; color: var(--text);
@@ -661,31 +869,81 @@
   }
   .sidebar-header .card-close:hover { color: var(--text); }
 
-  /* Bottom panel strip — reference panels, translucent */
+  /* Bottom panel strip — floats above the dock as its own card, inset to the same
+     gutters so it reads as a sibling of the dock rather than a slab welded to it.
+     The strip itself is only a layout box: the visible surface is the card inside. */
   #bottomStrip {
     position: fixed;
-    left: 0; right: 0; bottom: var(--dock-clear); height: 140px;
+    /* Tall enough that an open market shows its YES/NO buttons without scrolling inside
+       its own card. A market is the one thing here a spectator has to be able to act on. */
+    left: var(--rail-clear); right: 12px; bottom: var(--strip-bottom); height: 276px;
     display: none; gap: 10px;
-    padding: 10px;
     overflow-x: auto;
-    background: rgba(10, 14, 12, 0.35);
-    border-top: 1px solid rgba(48, 58, 50, 0.35);
+    background: none;
     z-index: 40;
   }
   #bottomStrip.open { display: flex; }
-  body.agents-open #bottomStrip { right: 320px; }
+  body.agents-open #bottomStrip { right: 332px; }
   #bottomStrip .floating-card {
     flex: 1 1 220px;
     min-width: 220px;
     max-height: 100%;
-    background: rgba(13, 19, 15, 0.78);
-    border-color: rgba(48, 58, 50, 0.45);
-    backdrop-filter: blur(8px) saturate(1.1);
+    /* Same fill, border and blur as the dock, so the two read as one system. */
+    background: linear-gradient(180deg, rgba(12, 17, 22, 0.96) 0%, rgba(10, 14, 18, 0.94) 100%);
+    border: 1px solid rgba(48, 58, 50, 0.75);
+    border-radius: var(--radius);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(14px) saturate(1.1);
   }
   /* Each strip card is gated by .open so opening one (e.g. World) never
      reveals its neighbours. The strip container is shown by syncBottomStrip(). */
   #bottomStrip .floating-card { display: none; }
   #bottomStrip .floating-card.open { display: flex; }
+
+  /* A panel in the strip is wide and short. Stacked vertically its content ran past the
+     bottom edge and cut a market in half mid-sentence, so in the strip the body lays out
+     as columns and each column scrolls on its own axis. */
+  #bottomStrip .floating-card .card-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #bottomStrip #marketsCard .card-body {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 20px;
+    padding: 4px 16px 16px;
+  }
+  #bottomStrip #marketsCard .markets-lead {
+    flex: 0 0 176px;
+    display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  /* The markets themselves are the long axis: a row that scrolls sideways, so adding a
+     market makes the list longer rather than pushing the next one out of sight. */
+  #bottomStrip #marketsCard #markets {
+    flex: 1 1 auto;
+    display: flex; flex-direction: row;
+    gap: 12px;
+    min-width: 0;
+    overflow-x: auto; overflow-y: hidden;
+    padding-bottom: 4px;
+  }
+  #bottomStrip #marketsCard #markets .market {
+    flex: 0 0 264px;
+    margin-bottom: 0;
+    display: flex; flex-direction: column;
+    overflow-y: auto;
+  }
+  #bottomStrip #marketsCard .markets-board {
+    flex: 0 0 188px;
+    min-width: 0;
+    overflow-y: auto;
+    border-left: 1px solid var(--line);
+    padding-left: 18px;
+  }
+  #bottomStrip #marketsCard .markets-board .card-subtitle { margin-top: 0; }
   #bottomStrip .floating-card.collapsed .card-body { display: none; }
   .card-tools {
     display: inline-flex; align-items: center; gap: 4px;
@@ -852,6 +1110,29 @@
   #worldLogCard .feed-kind.goalChange { color: #a371f7; }
   #worldLogCard .feed-kind.arrival { color: #6ee274; }
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
+  /* Same green as the leader flash on the map, so the two read as one event. */
+  #worldLogCard .feed-kind.leader { color: #6ee274; }
+
+  /* One icon carries both states: the crossed lines show while muted, the waves once
+     sound is on. Swapping the whole svg would flicker on every toggle. */
+  /* Volume lives in Settings rather than on the map: the toggle is the thing you reach
+     for mid-watch, the level is set once. */
+  .settings-slider {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 6px 2px; font-size: 12px; color: var(--muted);
+  }
+  .settings-slider input[type="range"] {
+    flex: 1 1 auto; min-width: 0; accent-color: var(--accent); cursor: pointer;
+  }
+  .settings-slider-value {
+    min-width: 2.2em; text-align: right; font-variant-numeric: tabular-nums;
+    color: var(--accent);
+  }
+
+  #soundToggle .sound-on-wave { display: none; }
+  #soundToggle.sounding { color: var(--accent); border-color: rgba(110, 226, 116, 0.45); }
+  #soundToggle.sounding .sound-off-slash { display: none; }
+  #soundToggle.sounding .sound-on-wave { display: inline; }
 
   /* Agent inspector card (a #bottomStrip card; visibility gated by .open there) */
   #agentCards { width: auto; flex-direction: column; }
@@ -1038,21 +1319,32 @@
 
   /* Bottom dock */
   #bottomDock {
-    position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 50;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
-    height: var(--dock-h);
-    padding: 0 12px;
+    /* Height hugs the eight items rather than stretching to the window. Pinned to both
+       edges the rail spread them over the full viewport, which read as a sidebar holding
+       nothing; the reference draws a compact card. max-height keeps it scrollable if a
+       short window cannot fit the list. */
+    position: fixed; left: 12px; top: var(--topbar-clear); bottom: auto; right: auto; z-index: 50;
+    width: var(--rail-w);
+    height: auto;
+    max-height: calc(100vh - var(--topbar-clear) - 24px);
+    display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start;
+    gap: 0;
+    padding: 4px 7px;
+    overflow-y: auto;
     background: linear-gradient(180deg, rgba(12,17,22,0.96) 0%, rgba(10,14,18,0.94) 100%);
     border: 1px solid rgba(48, 58, 50, 0.75);
     border-radius: var(--radius);
-    /* Mirror of the top bar's corner bloom — a faint green glow, this time off the
-       bottom-left corner so the two cards frame the world symmetrically. */
-    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 40px -26px 60px -46px rgba(110,226,116,0.30);
+    /* Mirror of the top bar's corner bloom — a faint green glow, off the top-left corner
+       so the rail and the bar frame the world from the same side. */
+    box-shadow: 0 18px 44px rgba(0,0,0,0.55), inset 30px 34px 60px -46px rgba(110,226,116,0.30);
     backdrop-filter: blur(14px) saturate(1.1);
+    scrollbar-width: none;
   }
+  #bottomDock::-webkit-scrollbar { display: none; }
   .dock-btn {
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 8px 18px; margin: 0; width: auto;
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 10px 2px; margin: 0; width: 100%; flex: 0 0 auto;
     background: transparent; border: 1px solid transparent;
     border-radius: 10px; color: var(--muted); font: inherit;
     cursor: pointer; font-size: 10px;
@@ -1063,7 +1355,18 @@
   .dock-icon { width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; }
   .dock-icon svg { width: 100%; height: 100%; }
   .dock-label { font-size: 10px; letter-spacing: .02em; font-weight: 500; }
-  .dock-divider { width: 1px; height: 34px; margin: 0 6px; background: var(--line); flex-shrink: 0; }
+  /* A hairline between every item, inset from the rail's edges exactly as the reference
+     draws them. Done as a pseudo-element on the button rather than as real borders,
+     because .dock-btn already carries a transparent border that the active state turns
+     green — a second border there would fight it. */
+  #bottomDock .dock-btn + .dock-btn::before,
+  #bottomDock .dock-divider + .dock-btn::before {
+    content: ""; position: absolute; top: 0; left: 14%; right: 14%;
+    height: 1px; background: rgba(48, 58, 50, 0.6);
+  }
+  /* The group break between watching the world and acting on it. Same hairline, drawn
+     wider so the two halves of the rail read as separate. */
+  .dock-divider { width: auto; height: 1px; margin: 6px 6px; background: var(--line); flex-shrink: 0; }
 
   /* Controls panel rows (panel box defined once in the overlay-visibility block) */
   #controlsPanel .card-body { display: flex; flex-direction: column; gap: 9px; }
@@ -1182,7 +1485,13 @@
        and the corner HUD still names the followed subject. */
     /* Mobile bars are full-bleed and flush to the edges, so the clear is just the bar
        height (no floating inset or gap to account for). */
-    :root { --topbar-h: 52px; --topbar-clear: 52px; --dock-h: 56px; --dock-clear: 56px; }
+    /* The bar is back along the bottom here, so --dock-clear goes back to meaning its
+       height and --rail-clear collapses: nothing occupies the left edge on a phone. */
+    :root {
+      --topbar-h: 52px; --topbar-clear: 52px;
+      --dock-h: 56px; --dock-clear: 56px;
+      --rail-w: 0px; --rail-clear: 0px;
+    }
     #topBar {
       top: 0; left: 0; right: 0;
       border-radius: 0; border-left: none; border-right: none; border-top: none;
@@ -1204,6 +1513,11 @@
     .icon-btn { width: 34px; height: 34px; border-radius: 9px; }
     .icon-btn svg { width: 16px; height: 16px; }
     #topBar .topActions { gap: 6px; }
+    /* Icon only on a phone: a text label here is what tips the bar into horizontal
+       overflow. The address stays reachable through the button's title. */
+    #walletBtn { height: 34px; padding: 0 9px; border-radius: 9px; }
+    #walletBtn svg { width: 16px; height: 16px; }
+    #walletBtn #walletLabel { display: none; }
     /* No shelf on a phone, so the HUD carries the framing and the hints again. */
     #hud { display: flex; }
     #hud .title, #hud .hud-hints { display: inline; }
@@ -1256,6 +1570,31 @@
     }
     #bottomStrip .floating-card.open { display: flex; }
 
+    /* Undo the desktop column layout: at 390px three columns would be 130px each. The
+       sheet is tall and narrow here, which is the shape stacking was made for. */
+    #bottomStrip #marketsCard .card-body {
+      flex-direction: column;
+      gap: 0;
+      padding: 12px 16px 16px;
+      overflow-y: auto;
+    }
+    #bottomStrip #marketsCard .markets-lead { flex: 0 0 auto; }
+    #bottomStrip #marketsCard #markets {
+      flex-direction: column;
+      overflow-x: visible; overflow-y: visible;
+      gap: 0;
+    }
+    #bottomStrip #marketsCard #markets .market {
+      flex: 0 0 auto;
+      margin-bottom: 10px;
+      overflow-y: visible;
+    }
+    #bottomStrip #marketsCard .markets-board {
+      flex: 0 0 auto;
+      border-left: none; padding-left: 0;
+      overflow-y: visible;
+    }
+
     #agentCards, #deployPanel, #legendPanel, #settingsPanel, #controlsPanel, #objectivesCard {
       position: fixed; top: auto; left: 0; right: 0; bottom: var(--dock-clear);
       width: 100%; max-height: 50vh;
@@ -1278,14 +1617,21 @@
     #hud .meta { font-size: 10px; }
     #hud .meta:last-child { display: none; }
 
+    /* A vertical rail would eat a third of a 390px screen, so on a phone navigation
+       goes back to a bottom bar. Same buttons, same handlers — only the axis changes. */
     #bottomDock {
-      left: 0; right: 0; bottom: 0; transform: none;
+      left: 0; right: 0; bottom: 0; top: auto; transform: none;
+      width: auto; height: var(--dock-h);
+      flex-direction: row; align-items: center; justify-content: center;
+      overflow-y: visible;
       padding: 6px 4px; gap: 2px;
       border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0;
       border-top: 1px solid var(--line);
       box-shadow: none;
     }
-    .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; }
+    .dock-btn { flex: 1; padding: 6px 2px; gap: 2px; min-width: 0; width: auto; }
+    #bottomDock .dock-btn + .dock-btn::before,
+    #bottomDock .dock-divider + .dock-btn::before { display: none; }
     .dock-divider { display: none; }
     .dock-icon { width: 22px; height: 22px; }
     .dock-label { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
@@ -1347,7 +1693,9 @@
         </div>
       </div>
       <div class="topActions">
+        <button id="walletBtn" type="button" title="Connect a wallet" aria-label="Connect a wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Connect</span></button>
         <button id="cinemaToggle" class="icon-btn" title="Full world view (C)" aria-label="Full world view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg></button>
+        <button id="soundToggle" class="icon-btn" type="button" title="Ambient sound (off)" aria-label="Ambient sound" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line class="sound-off-slash" x1="23" y1="9" x2="17" y2="15"/><line class="sound-off-slash" x1="17" y1="9" x2="23" y2="15"/><path class="sound-on-wave" d="M15.5 8.5a5 5 0 0 1 0 7"/><path class="sound-on-wave" d="M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <button id="alertsToggle" class="icon-btn has-dot" title="Recent events" aria-label="Recent events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
         <button id="panelsToggle" class="icon-btn" title="Panels" aria-label="Panels"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="15" y2="12"/><line x1="4" y1="17" x2="18" y2="17"/></svg></button>
       </div>
@@ -1458,17 +1806,24 @@
         </div>
       </div>
       <div class="floating-card" id="marketsCard">
-        <h3 class="card-title">BETS
+        <h3 class="card-title">PREDICTIONS
           <span class="card-tools">
             <button class="card-collapse" title="Collapse" aria-label="Collapse">−</button>
             <button class="card-close" title="Close" aria-label="Close">×</button>
           </span>
         </h3>
+        <!-- Three columns, so a panel that is wide and short reads left to right instead
+             of stacking into a scroll. Every id is unchanged; only the grouping is new. -->
         <div class="card-body">
-          <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+          <div class="markets-lead">
+            <p class="demo-note" id="marketsDemoNote">Demo credits — no real money.</p>
+            <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+          </div>
           <div id="markets"></div>
-          <h3 class="card-subtitle">LEADERBOARD</h3>
-          <ul id="leaderboard"></ul>
+          <div class="markets-board">
+            <h3 class="card-subtitle">LEADERBOARD</h3>
+            <ul id="leaderboard"></ul>
+          </div>
         </div>
       </div>
       <div class="floating-card" id="messagesCard">
@@ -1556,6 +1911,15 @@
       <button id="autoCamera" data-on="1" class="secondary settings-item">camera: cinematic</button>
       <button id="mode" class="secondary settings-item">colour: clan</button>
 
+      <p class="settings-group">Sound</p>
+      <button id="settingsSound" class="secondary settings-item">music: off</button>
+      <label class="settings-slider" for="musicVolume">
+        <span>Volume</span>
+        <input id="musicVolume" type="range" min="0" max="100" step="1" value="75"
+               aria-label="Music volume">
+        <span id="musicVolumeValue" class="settings-slider-value">75</span>
+      </label>
+
       <p class="settings-group">Help</p>
       <button id="settingsShowTours" class="secondary settings-item">Camera tours</button>
       <button id="settingsShowControls" class="secondary settings-item">Keyboard controls</button>
@@ -1607,7 +1971,7 @@
     <button class="dock-btn" data-panel="worldOverviewCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></span><span class="dock-label">World</span></button>
     <button class="dock-btn" data-panel="messagesCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span><span class="dock-label">Chat</span></button>
     <button class="dock-btn" data-panel="worldLogCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></span><span class="dock-label">Log</span></button>
-    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Bets</span></button>
+    <button class="dock-btn" data-panel="marketsCard"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span><span class="dock-label">Predictions</span></button>
     <span class="dock-divider" aria-hidden="true"></span>
     <button class="dock-btn" data-panel="deployPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span><span class="dock-label">Deploy</span></button>
     <button class="dock-btn" data-panel="legendPanel"><span class="dock-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span><span class="dock-label">Clans</span></button>
@@ -1621,13 +1985,58 @@
   </div>
 
   <div id="onboarding">
+    <!-- Cinematic backdrop, shared by every onboarding screen. Pure CSS/SVG: no
+         artwork ships with the repo, so this costs bytes rather than megabytes. -->
+    <div id="onboardingSky" aria-hidden="true">
+      <div class="planet"></div>
+      <canvas class="stars" id="onboardingStars"></canvas>
+      <svg class="ridge ridge--far" viewBox="0 0 1440 420" preserveAspectRatio="none">
+        <path fill="#0a1216" d="M0 420V207Q0 207 51 213Q103 219 154 225Q206 231 257 259Q309 288 360 303Q411 319 463 330Q514 342 566 361Q617 380 669 375Q720 369 771 363Q823 357 874 344Q926 331 977 335Q1029 340 1080 318Q1131 296 1183 284Q1234 273 1286 240Q1337 207 1389 201L1440 195V420Z"/>
+      </svg>
+      <svg class="ridge ridge--mid" viewBox="0 0 1440 380" preserveAspectRatio="none">
+        <path fill="#070e11" d="M0 380V118Q0 118 60 137Q120 156 180 168Q240 179 300 219Q360 259 420 276Q480 294 540 313Q600 333 660 337Q720 340 780 321Q840 301 900 308Q960 314 1020 283Q1080 251 1140 231Q1200 210 1260 183Q1320 156 1380 125L1440 95V380Z"/>
+      </svg>
+      <svg class="ridge ridge--near" viewBox="0 0 1440 300" preserveAspectRatio="none">
+        <path fill="#04080a" d="M0 300V61Q0 61 72 77Q144 94 216 123Q288 152 360 184Q432 216 504 233Q576 251 648 261Q720 272 792 271Q864 271 936 242Q1008 213 1080 191Q1152 170 1224 139Q1296 108 1368 86L1440 64V300Z"/>
+      </svg>
+      <div class="haze"></div>
+      <div class="vignette"></div>
+    </div>
+
+    <!-- Boot: real connection progress, not a decorative timer -->
+    <div id="onboarding-boot" class="screen active">
+      <div class="boot-wrap">
+        <div class="brandLockup">
+          <span class="mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.4"/><line x1="12" y1="1.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.6"/><line x1="1.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.6" y2="12"/><path d="M12 8.4l1.1 2.5 2.5 1.1-2.5 1.1L12 15.6l-1.1-2.5L8.4 12l2.5-1.1z" fill="currentColor" stroke="none"/></svg>
+          </span>
+          <p class="word">Nous</p>
+        </div>
+        <div class="boot-bar"><span class="fill" id="bootFill"></span></div>
+        <p class="boot-status" id="bootStatus">Booting civilization…</p>
+        <div class="boot-stages">
+          <span class="boot-stage" id="bootStage-world"><span class="pip"></span>Loading world</span>
+          <span class="boot-stage" id="bootStage-agents"><span class="pip"></span>Initializing agents</span>
+          <span class="boot-stage" id="bootStage-systems"><span class="pip"></span>Preparing systems</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Splash -->
-    <div id="onboarding-splash" class="screen active">
-      <div class="panel splash-panel">
-        <div class="brand"></div>
-        <h1 class="hero">NOUS</h1>
-        <p class="subtitle" id="splash-subtitle">A Living AI Civilization</p>
-        <p class="press-hint">Press Any Key to Begin</p>
+    <div id="onboarding-splash" class="screen">
+      <div class="splash-wrap">
+        <div class="brandLockup reveal reveal--1">
+          <span class="mark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="7.4"/><line x1="12" y1="1.4" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22.6"/><line x1="1.4" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22.6" y2="12"/><path d="M12 8.4l1.1 2.5 2.5 1.1-2.5 1.1L12 15.6l-1.1-2.5L8.4 12l2.5-1.1z" fill="currentColor" stroke="none"/></svg>
+          </span>
+          <p class="word">Nous</p>
+        </div>
+        <p class="splash-eyebrow reveal reveal--2">Observe <i>•</i> Influence <i>•</i> Evolve</p>
+        <p class="splash-lede reveal reveal--3" id="splash-subtitle">Step into a living civilization where autonomous agents build, trade and survive.</p>
+        <button class="enter-btn reveal reveal--4" id="splash-enter">Enter Nous
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
+        </button>
+        <p class="splash-hint reveal reveal--4">or press any key</p>
       </div>
     </div>
 
@@ -1731,6 +2140,9 @@ window.addEventListener("error", (event) => {
 <script type="module">
 import { WorldView, densestCluster } from "/static/world3d.js";
 import { Director, busiestPlace, findEvents } from "/static/director.js";
+import {
+  Ambience, moodFor, supported as audioSupported, DEFAULT_VOLUME, clampVolume,
+} from "/static/audio.js";
 
 // Half-extent in world units to hold in frame when flying to a settlement.
 const TILE_SPAN = 18;
@@ -1881,11 +2293,366 @@ function escapeHtml(text) {
   return node.innerHTML;
 }
 
+// --- wallet identity --------------------------------------------------------
+// Sign-In With Ethereum, as a single control in the top bar. This proves who you are;
+// it buys no advantage in the world. A linked agent answers only to its owner, which is
+// the only thing the session is actually used for.
+//
+// Note this never touches the network: the wallet signs a text message and the server
+// recovers the address from the signature. No RPC, no gas, no transaction.
+
+const walletBtn = document.getElementById("walletBtn");
+const walletLabel = document.getElementById("walletLabel");
+const WALLET_SESSION_KEY = "nous.wallet.session";
+const WALLET_ADDRESS_KEY = "nous.wallet.address";
+
+// The session is a bearer token, so it lives in sessionStorage rather than
+// localStorage: it dies with the tab instead of persisting on disk.
+const wallet = {
+  ready: false,
+  address: sessionStorage.getItem(WALLET_ADDRESS_KEY) || "",
+  session: sessionStorage.getItem(WALLET_SESSION_KEY) || "",
+};
+
+function shortAddress(address) {
+  return address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "";
+}
+
+// Every authenticated call goes through here, so there is one place that decides
+// whether a request carries identity.
+function walletAuthHeaders() {
+  return wallet.session ? { Authorization: `Bearer ${wallet.session}` } : {};
+}
+
+function renderWallet() {
+  if (!walletBtn) return;
+  walletBtn.classList.toggle("connected", Boolean(wallet.address));
+  if (wallet.address) {
+    walletLabel.textContent = shortAddress(wallet.address);
+    walletBtn.title = `${wallet.address} — click to disconnect`;
+  } else {
+    walletLabel.textContent = "Connect";
+    walletBtn.title = "Connect a wallet";
+  }
+}
+
+function setWalletSession(address, session) {
+  wallet.address = address || "";
+  wallet.session = session || "";
+  if (wallet.session) {
+    sessionStorage.setItem(WALLET_SESSION_KEY, wallet.session);
+    sessionStorage.setItem(WALLET_ADDRESS_KEY, wallet.address);
+  } else {
+    sessionStorage.removeItem(WALLET_SESSION_KEY);
+    sessionStorage.removeItem(WALLET_ADDRESS_KEY);
+  }
+  renderWallet();
+}
+
+// The server is the authority on whether this feature exists at all. `ready` means the
+// flag is on *and* the signature library imported, so a half-configured deployment shows
+// a disabled button with a reason rather than one that fails silently on click.
+function applyChainConfig(config) {
+  // Kept even when the button is absent: the payment flow reads the explorer url from
+  // here to tell a wallet where the chain can be browsed.
+  wallet.chain = config || null;
+  if (!walletBtn) return;
+  wallet.ready = Boolean(config && config.ready);
+  const enabled = Boolean(config && config.identity_enabled);
+  // Feature off entirely: show nothing. A dead control is worse than no control.
+  walletBtn.classList.toggle("show", enabled);
+  walletBtn.disabled = enabled && !wallet.ready;
+  if (walletBtn.disabled) {
+    walletLabel.textContent = "Wallet off";
+    walletBtn.title = "Signature verification is unavailable on this server";
+  } else {
+    renderWallet();
+  }
+}
+
+function walletBusy(busy, text) {
+  walletBtn.classList.toggle("busy", busy);
+  walletBtn.disabled = busy;
+  if (text) walletLabel.textContent = text;
+}
+
+// Say what went wrong in the button itself for a beat, then go back. A spectator who
+// dismissed a wallet prompt should not have to open a console to find out.
+function walletFailed(text) {
+  walletLabel.textContent = text;
+  setTimeout(renderWallet, 2600);
+}
+
+async function connectWallet() {
+  const provider = window.ethereum;
+  if (!provider) {
+    walletBtn.title = "No wallet extension found in this browser";
+    walletFailed("No wallet");
+    return;
+  }
+  walletBusy(true, "Connecting…");
+  try {
+    const accounts = await provider.request({ method: "eth_requestAccounts" });
+    const address = (accounts && accounts[0]) || "";
+    if (!address) {
+      walletFailed("No account");
+      return;
+    }
+
+    const nonceResponse = await fetch("/chain/nonce", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address }),
+    });
+    if (!nonceResponse.ok) {
+      walletFailed("Unavailable");
+      return;
+    }
+    const challenge = await nonceResponse.json();
+
+    walletBusy(true, "Sign in wallet…");
+    // personal_sign takes the message first and the signer second.
+    const signature = await provider.request({
+      method: "personal_sign",
+      params: [challenge.message, address],
+    });
+
+    const verifyResponse = await fetch("/chain/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, message: challenge.message, signature }),
+    });
+    if (!verifyResponse.ok) {
+      walletFailed("Refused");
+      return;
+    }
+    const proven = await verifyResponse.json();
+    setWalletSession(proven.address, proven.session);
+  } catch (error) {
+    // Rejecting the wallet prompt lands here and is a normal outcome, not a fault.
+    walletFailed(error && error.code === 4001 ? "Cancelled" : "Failed");
+  } finally {
+    walletBtn.classList.remove("busy");
+    walletBtn.disabled = false;
+  }
+}
+
+if (walletBtn) {
+  walletBtn.addEventListener("click", () => {
+    if (wallet.address) setWalletSession("", "");
+    else connectWallet();
+  });
+  renderWallet();
+  fetch("/chain/config")
+    .then((response) => (response.ok ? response.json() : null))
+    .then(applyChainConfig)
+    .catch(() => {
+      /* the world still watches fine without a wallet */
+    });
+}
+
+// Test seam: the gate has no wallet extension, so it drives these directly.
+// --- paying on Robinhood Chain ------------------------------------------------
+// The server answers 402 with everything a wallet needs to build the payment itself:
+// recipient, token contract, chain id and the amount in integer units. The transaction
+// is sent by the visitor's own wallet — this app never holds a key and never moves
+// anyone's money. Entirely optional: nobody has to connect a wallet to watch or bet.
+
+// ERC-20 transfer(address,uint256). The selector is the first 4 bytes of
+// keccak256("transfer(address,uint256)"); both arguments are padded to 32 bytes.
+const ERC20_TRANSFER_SELECTOR = "0xa9059cbb";
+
+function encodeTransfer(to, units) {
+  const address = to.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+  const amount = BigInt(units).toString(16).padStart(64, "0");
+  return ERC20_TRANSFER_SELECTOR + address + amount;
+}
+
+/** Ask the wallet to move to Robinhood Chain, adding it if it is unknown. */
+async function ensureChain(provider, chainId, chainName, explorer) {
+  const hexChain = "0x" + Number(chainId).toString(16);
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: hexChain }],
+    });
+  } catch (error) {
+    // 4902 is "unrecognised chain" — the only case worth offering to add it for.
+    if (error && error.code === 4902) {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: hexChain,
+          chainName,
+          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+          rpcUrls: ["https://rpc.mainnet.chain.robinhood.com"],
+          blockExplorerUrls: [explorer],
+        }],
+      });
+    } else {
+      throw error;
+    }
+  }
+}
+
+/**
+ * Pay a 402 and retry the request that raised it.
+ *
+ * `payment` is the block the server sent back. Returns the retried response, so a
+ * caller handles success and failure in one place rather than tracking a hash itself.
+ */
+async function payAndRetry(url, payment, options = {}) {
+  const provider = window.ethereum;
+  if (!provider) throw new Error("no wallet");
+  if (!payment || !payment.payable) throw new Error("payments are not configured");
+
+  const [from] = await provider.request({ method: "eth_requestAccounts" });
+  await ensureChain(provider, payment.chain_id, payment.network, wallet.chain?.explorer_url);
+
+  const txHash = await provider.request({
+    method: "eth_sendTransaction",
+    params: [{
+      from,
+      to: payment.token,
+      data: encodeTransfer(payment.recipient, payment.amount_units),
+    }],
+  });
+
+  // The retry carries the hash; the server reads the receipt itself and checks the
+  // token, the recipient and the amount. Nothing here is trusted.
+  return fetch(url, {
+    ...options,
+    headers: { ...(options.headers || {}), "X402-Transaction-Hash": txHash },
+  });
+}
+
+/**
+ * Call an endpoint, and if it answers 402, offer to pay and try once more.
+ *
+ * One retry only: a loop that keeps paying on repeated 402s would spend real money
+ * on a server bug.
+ */
+async function fetchWithPayment(url, options = {}) {
+  const first = await fetch(url, options);
+  if (first.status !== 402) return first;
+  const body = await first.json().catch(() => null);
+  const payment = body?.detail?.payment;
+  if (!payment || !payment.payable) return first;
+  return payAndRetry(url, payment, options);
+}
+
+window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, state: wallet };
+// Test seam: the gate has no wallet extension, so the encoding and the 402 handling are
+// asserted directly rather than by driving MetaMask.
+window.__pay = { encodeTransfer, fetchWithPayment, ERC20_TRANSFER_SELECTOR };
+
+// --- ambient sound ----------------------------------------------------------
+// Off until asked for. Browsers refuse to start audio without a gesture anyway, so the
+// choice is really between "silent until clicked" and "broken until clicked".
+const SOUND_KEY = "nous.sound";
+const VOLUME_KEY = "nous.volume";
+const soundToggle = document.getElementById("soundToggle");
+const settingsSound = document.getElementById("settingsSound");
+const volumeSlider = document.getElementById("musicVolume");
+const volumeValue = document.getElementById("musicVolumeValue");
+
+let soundWanted = false;
+let storedVolume = DEFAULT_VOLUME;
+try {
+  soundWanted = localStorage.getItem(SOUND_KEY) === "on";
+  const saved = localStorage.getItem(VOLUME_KEY);
+  if (saved !== null) storedVolume = clampVolume(parseFloat(saved));
+} catch {
+  /* private mode: the preference simply does not persist */
+}
+const ambience = new Ambience(storedVolume);
+
+function renderSound() {
+  const on = ambience.enabled;
+  if (soundToggle) {
+    soundToggle.classList.toggle("sounding", on);
+    soundToggle.setAttribute("aria-pressed", on ? "true" : "false");
+    soundToggle.title = on ? `Music (${ambience.mood})` : "Music (off)";
+  }
+  if (settingsSound) settingsSound.textContent = on ? `music: ${ambience.mood}` : "music: off";
+  const percent = Math.round(ambience.volume * 100);
+  if (volumeSlider && volumeSlider.value !== String(percent)) volumeSlider.value = String(percent);
+  if (volumeValue) volumeValue.textContent = String(percent);
+}
+
+function setVolume(fraction) {
+  ambience.setVolume(fraction);
+  try {
+    localStorage.setItem(VOLUME_KEY, String(ambience.volume));
+  } catch {
+    /* the level still applies for this session */
+  }
+  renderSound();
+}
+
+if (volumeSlider) {
+  volumeSlider.addEventListener("input", () => setVolume(volumeSlider.value / 100));
+}
+// The settings row is a second door to the same switch, for anyone who never guesses that
+// the speaker icon in the bar is clickable.
+if (settingsSound) settingsSound.addEventListener("click", () => setSound(!ambience.enabled));
+
+function updateAmbience(snapshot) {
+  // moodFor is pure and cheap, and setMood is a no-op while silent — so this costs
+  // nothing measurable when sound is off, which is the default and the common case.
+  ambience.setMood(moodFor(snapshot));
+  if (ambience.enabled) renderSound();
+}
+
+async function setSound(on) {
+  if (on) await ambience.enable();
+  else ambience.disable();
+  try {
+    localStorage.setItem(SOUND_KEY, ambience.enabled ? "on" : "off");
+  } catch {
+    /* nothing to do: the toggle still works for this session */
+  }
+  renderSound();
+}
+
+{
+  if (!audioSupported()) {
+    // No web audio here at all. A control that cannot do anything is worse than no
+    // control, so every door to it says why and stops taking input.
+    for (const control of [soundToggle, settingsSound, volumeSlider]) {
+      if (control) control.disabled = true;
+    }
+    if (soundToggle) soundToggle.title = "Music (not supported by this browser)";
+    if (settingsSound) settingsSound.textContent = "music: unsupported";
+  } else {
+    if (soundToggle) soundToggle.addEventListener("click", () => setSound(!ambience.enabled));
+    if (soundWanted) {
+      // Remembered from last visit, but a stored preference is not a gesture: the context
+      // would start suspended and stay silent. Wait for the first real interaction.
+      const resume = () => {
+        window.removeEventListener("pointerdown", resume);
+        window.removeEventListener("keydown", resume);
+        setSound(true);
+      };
+      window.addEventListener("pointerdown", resume, { once: true });
+      window.addEventListener("keydown", resume, { once: true });
+    }
+  }
+  renderSound();
+}
+
+// Test seam: the gate runs without a speaker, so the mood mapping and the toggle state
+// are asserted directly rather than by listening.
+window.__audio = {
+  ambience, moodFor, setSound, setVolume, supported: audioSupported, DEFAULT_VOLUME,
+};
+
 async function setRest(agentId, rest) {
   try {
     const response = await fetch(`/agents/${agentId}/rest`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Carries the session when there is one: a linked agent answers only to its owner.
+      headers: { "Content-Type": "application/json", ...walletAuthHeaders() },
       body: JSON.stringify({ rest }),
     });
     if (!response.ok) {
@@ -2201,6 +2968,7 @@ const WORLD_LOG_ICONS = {
   goalChange: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12L2.5 9.5"/></svg>`,
   arrival: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   fleeing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  leader: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l4 4 5-7 5 7 4-4v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
 };
 
 const worldLog = document.getElementById("worldLog");
@@ -2532,7 +3300,7 @@ function renderMarkets(book) {
     const node = document.createElement("div");
     node.className = "market";
     const statusClass = open ? "open" : "closed";
-    const statusText = open ? "Open for bets" : "Betting closed";
+    const statusText = open ? "Open" : "Closed";
     node.innerHTML =
       `<div class="market-icon">${marketIcon()}</div>` +
       `<div class="market-main">` +
@@ -2663,6 +3431,7 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
 const onboardingEl = document.getElementById("onboarding");
 const splashScreen = document.getElementById("onboarding-splash");
 const menuScreen = document.getElementById("onboarding-menu");
+const bootScreen = document.getElementById("onboarding-boot");
 const slide1 = document.getElementById("onboarding-slide-1");
 const slide2 = document.getElementById("onboarding-slide-2");
 const slide3 = document.getElementById("onboarding-slide-3");
@@ -2671,17 +3440,18 @@ const splashSubtitle = document.getElementById("splash-subtitle");
 let introDone =
   localStorage.getItem("neociv.intro") === "done" ||
   new URLSearchParams(location.search).has("skipIntro");
-let onboardingState = "splash";
+let onboardingState = "boot";
 let hintsActive = false;
 
 function showScreen(id) {
-  for (const el of [splashScreen, menuScreen, slide1, slide2, slide3]) {
+  for (const el of [bootScreen, splashScreen, menuScreen, slide1, slide2, slide3]) {
     el.classList.remove("active");
   }
   document.getElementById(id).classList.add("active");
   onboardingState = id.replace("onboarding-", "");
 }
 
+function showBoot() { showScreen("onboarding-boot"); }
 function showSplash() { showScreen("onboarding-splash"); }
 function showMenu() { showScreen("onboarding-menu"); }
 function showSlide1() { showScreen("onboarding-slide-1"); }
@@ -2702,7 +3472,109 @@ function enterGameplay() {
 function updateSplashCount(snapshot) {
   if (introDone && onboardingState !== "splash") return;
   splashSubtitle.textContent =
-    `${snapshot.stats.agents} people are alive. Nobody controls them.`;
+    `${snapshot.stats.agents} people are alive down there. Nobody controls them.`;
+}
+
+// --- onboarding backdrop ------------------------------------------------------
+//
+// Stars and settlement embers are painted once from a fixed seed rather than
+// animated per frame: the world behind this screen is already asking for the GPU,
+// and a starfield that costs a rAF loop to look static is a bad trade.
+
+function paintOnboardingSky() {
+  const canvas = document.getElementById("onboardingStars");
+  if (!canvas) return;
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth || window.innerWidth;
+  const h = canvas.clientHeight || window.innerHeight;
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  // Deterministic: the same sky every load, so it reads as a place rather than noise.
+  let seed = 20260805;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+
+  const count = Math.round((w * h) / 5200);
+  for (let i = 0; i < count; i++) {
+    const x = rand() * w;
+    // Stars thin out toward the horizon, where the haze and ridges take over.
+    const y = rand() * h * 0.72;
+    const r = rand() * 0.9 + 0.25;
+    const a = (1 - y / (h * 0.72)) * 0.6 + 0.08;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(214,232,220,${a.toFixed(3)})`;
+    ctx.fill();
+  }
+}
+
+function placeOnboardingEmbers() {
+  const sky = document.getElementById("onboardingSky");
+  if (!sky || sky.querySelector(".ember")) return;
+  let seed = 991;
+  const rand = () => {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    return seed / 4294967296;
+  };
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < 46; i++) {
+    const ember = document.createElement("span");
+    ember.className = "ember";
+    // Clustered around the valley floor so they read as one settlement.
+    ember.style.left = `${28 + rand() * 44}%`;
+    ember.style.bottom = `${5 + rand() * 13}%`;
+    ember.style.animationDelay = `${(rand() * 4).toFixed(2)}s`;
+    ember.style.opacity = (0.35 + rand() * 0.5).toFixed(2);
+    frag.appendChild(ember);
+  }
+  sky.appendChild(frag);
+}
+
+// --- boot sequence ------------------------------------------------------------
+//
+// Driven by real state: the socket opening, the first snapshot landing, and the
+// world view mounting. A bar that advances on a timer would be a lie, and would
+// finish while the page was still blank.
+
+const BOOT_STAGES = ["world", "agents", "systems"];
+const bootFill = document.getElementById("bootFill");
+const bootStatusEl = document.getElementById("bootStatus");
+// Set once the handoff is scheduled, so late snapshots cannot rewind the bar.
+let bootSealed = false;
+
+function setBootStage(reached, label) {
+  if (bootSealed) return;
+  const index = BOOT_STAGES.indexOf(reached);
+  BOOT_STAGES.forEach((name, i) => {
+    const el = document.getElementById(`bootStage-${name}`);
+    if (el) el.classList.toggle("done", i <= index);
+  });
+  if (bootFill) bootFill.style.width = `${((index + 1) / BOOT_STAGES.length) * 100}%`;
+  if (bootStatusEl && label) bootStatusEl.textContent = label;
+}
+
+// Hand off to the splash once the world is actually up. The stages are real, but
+// the last one needs a beat to register as "done" rather than flashing past on a
+// fast connection — anticipation is the point of this screen.
+let bootFinishing = false;
+function finishBoot() {
+  if (bootFinishing) return;
+  bootFinishing = true;
+  setTimeout(() => {
+    setBootStage("systems", "Ready.");
+    bootSealed = true;
+    if (introDone) return;   // skipIntro / returning player: already hidden
+    setTimeout(() => {
+      if (onboardingState === "boot") showSplash();
+    }, 700);
+  }, 260);
 }
 
 // Splash: any key or click advances to menu
@@ -2711,6 +3583,21 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     showMenu();
   }
+});
+
+document.getElementById("splash-enter").addEventListener("click", (e) => {
+  e.stopPropagation();
+  showMenu();
+});
+
+// Paint the backdrop once, and repaint on resize so the starfield stays crisp.
+paintOnboardingSky();
+placeOnboardingEmbers();
+setBootStage("world", "Connecting to the world…");
+let skyResizeTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(skyResizeTimer);
+  skyResizeTimer = setTimeout(paintOnboardingSky, 180);
 });
 
 splashScreen.addEventListener("click", () => {
@@ -2822,6 +3709,19 @@ function setStatDelta(id, current, previous) {
 // Debug seam for the browser gate (like window.__director): lets verify_world3d.mjs assert the
 // top-bar derivations deterministically without waiting on live snapshots.
 window.__topbar = { setStatDelta, setFollowFromLabel };
+
+// Debug seam for the browser gate. The three events a spectator must not miss — a death, a
+// raid, a succession — are rare and unschedulable in a live world, so the gate drives a pair
+// of hand-built snapshots through the real detector and the real log renderer rather than
+// waiting for the simulation to happen to produce one.
+window.__events = {
+  findEvents,
+  feed: (before, after) => {
+    previousWorldSnapshot = before;
+    processWorldLog(after);
+    return worldLogEntries.slice();
+  },
+};
 
 function dayNumber(tick) {
   // The simulation counts 200 ticks per day; the sidebar already shows "day".
@@ -2938,6 +3838,10 @@ function updateThinking(advisor) {
 function render(snapshot) {
   lastSnapshot = snapshot;
   ensureMounted(snapshot);
+  // The first snapshot is the moment the world genuinely exists, so the boot
+  // sequence advances here rather than on a timer.
+  setBootStage("agents", `Initializing ${snapshot.stats.agents} agents…`);
+  finishBoot();
   updateSplashCount(snapshot);
   updateThinking(snapshot.advisor);
 
@@ -2965,6 +3869,7 @@ function render(snapshot) {
   renderInspector(snapshot);
   processMessages(snapshot);
   processWorldLog(snapshot);
+  updateAmbience(snapshot);
   renderWorldSummary(snapshot);
   if (worldView.active) {
     worldView.update(snapshot);
@@ -3192,6 +4097,7 @@ function connect() {
     retryDelay = 500;
     statusEl.textContent = "live";
     statusEl.className = "live";
+    setBootStage("world", "Loading the world…");
   };
   socket.onmessage = (event) => render(JSON.parse(event.data));
   socket.onclose = () => {

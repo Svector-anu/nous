@@ -22,6 +22,7 @@ const SHOT_SECONDS = { establish: 8, orbit: 7, push: 6, follow: 7, survey: 9, vi
 const SCORE = {
   raid: 100,        // a raid resolved this tick
   death: 70,        // somebody died
+  leader: 55,       // a clan changed hands
   fleeing: 45,      // an agent running for its life
   building: 30,     // a hut went up
   arrival: 34,      // a user-deployed agent turned up
@@ -85,6 +86,25 @@ export function findEvents(previous, snapshot) {
       if (had.has(building.id)) continue;
       events.push({ kind: "building", score: SCORE.building, x: building.x, y: building.y,
         label: "a hut goes up" });
+    }
+
+    // A succession is the only major event with nothing to see: the same people stand in
+    // the same field, and only the name at the top has changed. Without a line in the log
+    // it passes completely unnoticed, so it is reported from the clan record rather than
+    // from anything visible on the map.
+    const names = new Map(snapshot.agents.map((a) => [a.id, a.name]));
+    const leaders = new Map(previous.clans.map((c) => [c.id, c.leader]));
+    for (const clan of snapshot.clans) {
+      if (!clan.centre || !clan.leader) continue;
+      // Only clans that existed last tick: a clan appearing with a leader already in place
+      // is a founding, not a succession.
+      if (!leaders.has(clan.id)) continue;
+      if (leaders.get(clan.id) === clan.leader) continue;
+      events.push({
+        kind: "leader", score: SCORE.leader, x: clan.centre[0], y: clan.centre[1],
+        agent: clan.leader,
+        label: `${names.get(clan.leader) ?? "someone"} now leads clan ${clan.id}`,
+      });
     }
 
     const goals = new Map(previous.clans.map((c) => [c.id, c.goal]));

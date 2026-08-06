@@ -86,6 +86,12 @@ class Agent:
     raids_won: int = 0
     raids_lost: int = 0
     spawn_tick: int = 0
+    # A linked wallet address, lowercased, or "" for the overwhelming majority of agents.
+    # This is a *label*: nothing in src/world/systems reads it, and nothing may. Ownership
+    # is not advantage — a registered agent starves exactly like the rest (NEXT.md, "do
+    # not reopen"). It lives on the component rather than in a side table so it survives
+    # a save without a second persistence path.
+    owner_address: str = ""
 
     def clear_target(self) -> None:
         self.target_entity = None
@@ -359,13 +365,50 @@ class RestQueue:
 
 @dataclass
 class ForceDecisionQueue:
-    """Placeholder for x402 / pay-to-force-decision requests.
+    """Paid pay-to-force-decision requests waiting for a fixed tick.
 
-    Currently the API only records the request; the seam is here so the future
-    payment path does not need a schema change.
+    The api verifies payment and appends; the world applies the *recorded* request on a
+    later tick. That ordering is the whole point: what history depends on is this queue
+    entry, never the http request or the rpc call that produced it, so a replay does not
+    need the network and a settlement that arrives late still lands at a definite tick.
+
+    `spent` remembers proofs that have already been honoured so the same payment cannot
+    buy two decisions. Bounded by `x402_spent_limit`.
     """
 
     pending: list[dict] = field(default_factory=list)
+    spent: list[str] = field(default_factory=list)
+
+
+@dataclass
+class IdentityQueue:
+    """Wallet-link requests waiting for a fixed tick to be applied.
+
+    Linking is an input to the world in exactly the way a deployment or a rest toggle is.
+    The signature is verified at the api boundary — nothing inside the simulation touches
+    a network or a curve — and only the verified outcome queues here.
+
+    Bounded by `identity_queue_limit`.
+    """
+
+    pending: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class EscrowBook:
+    """Real-money deposits and payout intents, held by a single world entity.
+
+    Deliberately inert unless `real_money_enabled`. The demo credit book (`MarketBook`)
+    is untouched by this and stays demo — the two never share a balance.
+
+    This records *intent*, and only ever from settled world state. It never sends value:
+    a payout is an entry an operator's settlement job reads and marks paid, because a
+    transfer inside the tick loop would put the network on the critical path of history.
+    """
+
+    deposits: dict[str, int] = field(default_factory=dict)
+    payouts: list[dict] = field(default_factory=list)
+    next_id: int = 1
 
 
 @dataclass

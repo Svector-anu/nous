@@ -14,6 +14,23 @@ package-lock.json
 # research media — raw video files, not project assets
 *.mp4
 
+# The beds in src/viewer/beds/ are CC0, so they are tracked: the world should have music
+# on a fresh clone rather than only on the machine that downloaded them. Anything you add
+# under a licence that forbids redistribution belongs here instead.
+
+# design references and screenshots — pasted in to describe intent, not project assets.
+# They are large, they date instantly, and none of them are read at runtime.
+Screenshot*
+*.jpg
+*.jpeg
+inspo.png
+nav.png
+
+# agent scratch: local tool config and any notes an agent writes for itself.
+# Only AGENTS.md and CLAUDE.md are tracked docs; the rest drifts out of date.
+.claude/
+CHAIN_SHIP.md
+
 # secrets: real keys live here, .env.example is the tracked template
 .env
 .env.*

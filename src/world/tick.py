@@ -13,7 +13,9 @@ from .components import (
     Clan,
     ClanRef,
     DecisionLog,
+    EscrowBook,
     ForceDecisionQueue,
+    IdentityQueue,
     Inbox,
     Inventory,
     MarketBook,
@@ -35,6 +37,7 @@ from .systems import (
     build,
     combat,
     fsm,
+    identity,
     leadership,
     markets,
     messaging,
@@ -62,6 +65,9 @@ def build_registry() -> SystemRegistry:
     one-tick lag."""
     registry = SystemRegistry()
     registry.register("spawning", spawning.run)
+    # Straight after spawning: a label attaches to an agent on the same tick it becomes
+    # visible. Writes only Agent.owner_address, which no system reads.
+    registry.register("identity", identity.run)
     registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
     registry.register("trade", trade.run)
@@ -99,6 +105,8 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), AdvisorState())
     world.add(world.create_entity(), RestQueue())
     world.add(world.create_entity(), ForceDecisionQueue())
+    world.add(world.create_entity(), IdentityQueue())
+    world.add(world.create_entity(), EscrowBook())
     world.add(world.create_entity(), MarketBook())
 
     for _ in range(config.resource_count):
@@ -222,6 +230,7 @@ class Simulation:
                         else "member"
                     ),
                     "rest_mode": agent.rest_mode,
+                    "owner": agent.owner_address,
                 }
             )
 

@@ -363,7 +363,13 @@ const picking = await page.evaluate((TORSO_Y) => {
     else if (got === null) missed++;
     else {
       const other = positions.get(got);
-      if (other && range(other) <= range(q) + 1e-6) nearerWon++;
+      // A ray hits a surface; `range` measures to a torso centre. An agent standing
+      // shoulder to shoulder with the one aimed at can present a nearer surface while its
+      // centre sits marginally farther, so anything inside a body width is legitimate
+      // geometry rather than a mismapped instance. A humanoid here is about 0.3 world
+      // units across the shoulders (TILE * 0.076 either side of the spine, TILE = 2).
+      const BODY_WIDTH = 0.36;
+      if (other && range(other) <= range(q) + BODY_WIDTH) nearerWon++;
       else fartherWon++;
     }
   }
@@ -374,21 +380,21 @@ const picking = await page.evaluate((TORSO_Y) => {
 // *further away* than the one aimed at, which is the signature of a broken instanceId to
 // agent-id mapping and would hide behind a plain "mostly correct" assertion.
 //
-// Misses are environmental, not a fault: the world ticks once a second while this loop
-// projects and raycasts forty-odd agents, so some of them genuinely walk out from under the
-// cursor mid-loop. The invariant that actually detects a broken instanceId mapping is
-// fartherWon === 0, which is asserted exactly; the miss budget is loose on purpose so this
-// check fails for real reasons rather than for the sim being alive.
-// `fartherWon` compares distance to torso *centres*, but a hit can land anywhere on a body:
-// two agents standing close can have the nearest hit belong to the marginally farther
-// centre, which is legitimate geometry rather than a fault. Measured across four runs the
-// count sits at 0-2 of ~50. A genuinely broken instanceId mapping shows up as a large
-// fraction, not one in fifty, so the bar is a small proportion rather than exactly zero.
+// Misses used to be written off as the sim being alive, which was wrong — this whole loop
+// runs inside one synchronous evaluate, so no frame renders and no snapshot lands while it
+// is going. They were a real bug: InstancedMesh caches its bounding sphere on first raycast
+// and never refreshes it, so once agents wandered out of that stale sphere the ray
+// early-outed and clicking a plainly visible agent did nothing. With the sphere invalidated
+// on every pose the miss count is 0, so it is now asserted as 0 rather than budgeted.
+//
+// `fartherWon` stays a small proportion rather than exactly zero: it compares torso centres
+// while a ray hits a surface, and the BODY_WIDTH tolerance above absorbs the honest cases.
+// A genuinely broken instanceId mapping shows up as a large fraction, not one in forty.
 check(
   "clicking an agent never resolves to one behind it",
-  picking.fartherWon <= Math.max(2, picking.onScreen * 0.06) &&
+  picking.fartherWon <= Math.max(1, picking.onScreen * 0.04) &&
     picking.onScreen > 5 &&
-    picking.missed <= Math.max(3, picking.onScreen * 0.25),
+    picking.missed === 0,
   `${picking.exact}/${picking.onScreen} exact, ${picking.nearerWon} occluded by a nearer agent, ` +
     `${picking.fartherWon} resolved to a farther agent, ${picking.missed} moved out from under the cursor`
 );
@@ -489,10 +495,15 @@ const seized = await reading();
 check("dragging takes control immediately", seized.enabled === false);
 await page.waitForTimeout(2500);
 const stillHeld = await reading();
+const drift = (a, b) =>
+  ["theta", "phi", "distance", "x", "z"]
+    .map((k) => `${k}=${Math.abs(a[k] - b[k]).toExponential(1)}`)
+    .join(" ");
 check(
   "the camera stays put while you hold it",
   !moved(seized, stillHeld),
-  "a drifting camera after letting go means the goal was not pinned"
+  `a drifting camera after letting go means the goal was not pinned — ` +
+    `${drift(seized, stillHeld)}, director ${seized.enabled}->${stillHeld.enabled}`
 );
 
 // Autopilot leaks nothing: it drives flyTo every frame for a long stretch.
@@ -618,7 +629,26 @@ const nav = await page.evaluate(() => {
   return {
     afterWorld, afterBets, afterToggleOff,
     dockButtons: document.querySelectorAll("#bottomDock .dock-btn").length,
-    hasLeftNav: !!document.getElementById("leftNav"),
+    // Navigation is one rail down the left edge. What matters is that it is a single
+    // vertical group — the old failure was navigation split across two places, which is
+    // why this asserts the shape rather than merely counting buttons.
+    rail: (() => {
+      const dock = document.getElementById("bottomDock");
+      const box = dock.getBoundingClientRect();
+      const first = dock.querySelector(".dock-btn").getBoundingClientRect();
+      const last = [...dock.querySelectorAll(".dock-btn")].pop().getBoundingClientRect();
+      return {
+        vertical: box.height > box.width,
+        onLeft: box.left < window.innerWidth / 2,
+        // Stacked, not laid out side by side.
+        stacked: last.top > first.top,
+        width: box.width,
+        // Hugs its items rather than stretching down the whole window. Pinned top and
+        // bottom it spread eight buttons over the full viewport and read as an empty
+        // sidebar. Measured as a fraction of the window so it holds at any height.
+        heightFraction: box.height / window.innerHeight,
+      };
+    })(),
   };
 });
 check(
@@ -637,9 +667,15 @@ check(
   `still visible: ${nav.afterToggleOff.join(", ") || "none"}`
 );
 check(
-  "navigation is a single 8-button dock with no left rail",
-  nav.hasLeftNav === false && nav.dockButtons === 8,
-  `leftNav=${nav.hasLeftNav}, dockButtons=${nav.dockButtons}`
+  "navigation is one vertical 8-button rail down the left edge",
+  nav.dockButtons === 8 && nav.rail.vertical && nav.rail.onLeft && nav.rail.stacked,
+  `buttons=${nav.dockButtons}, vertical=${nav.rail.vertical}, onLeft=${nav.rail.onLeft}, ` +
+    `stacked=${nav.rail.stacked}, width=${nav.rail.width.toFixed(0)}px`
+);
+check(
+  "the rail hugs its items instead of stretching down the window",
+  nav.rail.heightFraction < 0.8,
+  `rail is ${(nav.rail.heightFraction * 100).toFixed(0)}% of window height`
 );
 
 // Top bar: stat deltas and the "Following X" chip are pure derivations exposed on
@@ -717,6 +753,396 @@ check(
   "the follow chip clears the shelf status and the control hints",
   topbar.layout.chipWidth > 0 && !topbar.layout.overlapsStatus && !topbar.layout.overlapsHints,
   `width=${topbar.layout.chipWidth}, status=${topbar.layout.overlapsStatus}, hints=${topbar.layout.overlapsHints}`
+);
+
+// --- 11a. the wallet control --------------------------------------------------
+// There is no wallet extension in this browser, so the states are driven through
+// window.__wallet rather than through a real signature. What is asserted is the part the
+// spectator sees: a feature that is off costs the bar no chrome, a half-configured server
+// says so instead of failing silently, and a connected wallet actually authorizes calls.
+const walletUi = await page.evaluate(() => {
+  const w = window.__wallet;
+  const button = document.getElementById("walletBtn");
+  const label = document.getElementById("walletLabel");
+  const read = () => ({
+    shown: button.classList.contains("show"),
+    disabled: button.disabled,
+    label: label.textContent,
+    connected: button.classList.contains("connected"),
+  });
+
+  w.setWalletSession("", "");
+  w.applyChainConfig({ identity_enabled: false, ready: false });
+  const off = read();
+
+  w.applyChainConfig({ identity_enabled: true, ready: false });
+  const halfConfigured = read();
+
+  w.applyChainConfig({ identity_enabled: true, ready: true });
+  const idle = read();
+  const anonymousHeaders = w.walletAuthHeaders();
+
+  w.setWalletSession("0xabcdef0123456789abcdef0123456789abcdef01", "session-token-xyz");
+  const connected = read();
+  const authHeaders = w.walletAuthHeaders();
+
+  // Disconnecting must actually drop the token, or "log out" is a lie.
+  w.setWalletSession("", "");
+  const afterDisconnect = { ...read(), headers: w.walletAuthHeaders() };
+
+  w.applyChainConfig({ identity_enabled: false, ready: false });
+  return { off, halfConfigured, idle, connected, anonymousHeaders, authHeaders, afterDisconnect };
+});
+check(
+  "the wallet control stays out of the bar while wallet identity is off",
+  walletUi.off.shown === false,
+  `shown=${walletUi.off.shown}`
+);
+check(
+  "a server that cannot verify signatures shows a disabled wallet button, not a dead one",
+  walletUi.halfConfigured.shown === true && walletUi.halfConfigured.disabled === true &&
+    walletUi.halfConfigured.label === "Wallet off",
+  `shown=${walletUi.halfConfigured.shown}, disabled=${walletUi.halfConfigured.disabled}, label="${walletUi.halfConfigured.label}"`
+);
+check(
+  "a ready server offers Connect and sends no authorization",
+  walletUi.idle.shown === true && walletUi.idle.disabled === false &&
+    walletUi.idle.label === "Connect" && walletUi.anonymousHeaders.Authorization === undefined,
+  `label="${walletUi.idle.label}", disabled=${walletUi.idle.disabled}, auth=${walletUi.anonymousHeaders.Authorization}`
+);
+check(
+  "a connected wallet shows its address and authorizes requests",
+  walletUi.connected.connected === true && walletUi.connected.label === "0xabcd…ef01" &&
+    walletUi.authHeaders.Authorization === "Bearer session-token-xyz",
+  `label="${walletUi.connected.label}", auth=${walletUi.authHeaders.Authorization}`
+);
+check(
+  "disconnecting drops the session token",
+  walletUi.afterDisconnect.connected === false && walletUi.afterDisconnect.label === "Connect" &&
+    walletUi.afterDisconnect.headers.Authorization === undefined,
+  `label="${walletUi.afterDisconnect.label}", auth=${walletUi.afterDisconnect.headers.Authorization}`
+);
+
+// --- 11b. the three events a spectator must not miss ----------------------------
+// A death, a fight and a succession are rare and cannot be scheduled, so waiting for the
+// live world to produce one would make this gate flaky. Instead a pair of hand-built
+// snapshots is pushed through the real detector, the real log renderer and the real flash
+// spawner. Nothing here is a mock: window.__events.feed calls processWorldLog, and
+// view.update is the same method the websocket calls.
+const spectator = await page.evaluate(() => {
+  const agent = (id, name, extra = {}) => ({
+    id, name, x: 10 + id, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0, wood: 0,
+    clan: 1, user: false, personality: "steady", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "", ...extra,
+  });
+  const snap = (agents, clans, tick) => ({
+    tick, day: 1, agents, buildings: [], resources: [], clans,
+    grid: { width: 64, height: 64 },
+  });
+  const clan = (leader) => ({ id: 1, size: 2, goal: "gather food", leader, centre: [12, 10] });
+
+  const before = snap([agent(1, "Ada"), agent(2, "Bo")], [clan(1)], 1);
+  const kindsOf = (entries) => entries.map((e) => e.kind);
+
+  // 1. a death: the agent is simply absent from the next snapshot.
+  const died = window.__events.feed(before, snap([agent(2, "Bo")], [clan(2)], 2));
+
+  // 2. a raid: the winner's raids_won goes up.
+  const raided = window.__events.feed(
+    before,
+    snap([agent(1, "Ada", { raids_won: 1 }), agent(2, "Bo")], [clan(1)], 2)
+  );
+
+  // 3. a succession: same people, same place, new leader.
+  const led = window.__events.feed(before, snap([agent(1, "Ada"), agent(2, "Bo")], [clan(2)], 2));
+
+  // The flashes are counted on the real view. update() is what the socket calls.
+  const view = window["__world"];
+  view.update(before);
+  const flashesBefore = view.flashSprites.length;
+  view.update(snap([agent(2, "Bo")], [clan(2)], 2));
+  const flashesAfter = view.flashSprites.length;
+
+  return {
+    died: { kinds: kindsOf(died), label: died.find((e) => e.kind === "death")?.label },
+    raided: { kinds: kindsOf(raided), label: raided.find((e) => e.kind === "raid")?.label },
+    led: { kinds: kindsOf(led), label: led.find((e) => e.kind === "leader")?.label },
+    logText: document.getElementById("worldLog").textContent,
+    flashGain: flashesAfter - flashesBefore,
+    configured: Object.keys(view.flashTextures),
+  };
+});
+check(
+  "a death is reported in plain English",
+  spectator.died.kinds.includes("death") && /died/.test(spectator.died.label || ""),
+  `kinds=[${spectator.died.kinds}] label="${spectator.died.label}"`
+);
+check(
+  "a raid is reported in plain English",
+  spectator.raided.kinds.includes("raid") && /raid/.test(spectator.raided.label || ""),
+  `kinds=[${spectator.raided.kinds}] label="${spectator.raided.label}"`
+);
+check(
+  "a new clan leader is reported by name",
+  spectator.led.kinds.includes("leader") && /Bo now leads clan 1/.test(spectator.led.label || ""),
+  `kinds=[${spectator.led.kinds}] label="${spectator.led.label}"`
+);
+check(
+  "the world log actually renders the event text",
+  /now leads clan/.test(spectator.logText),
+  `log="${spectator.logText.replace(/\s+/g, " ").trim().slice(0, 80)}"`
+);
+check(
+  "death and succession have their own map flashes",
+  spectator.configured.includes("death") && spectator.configured.includes("leader"),
+  `configured: ${spectator.configured.join(", ")}`
+);
+check(
+  "a death and a succession put flashes on the map",
+  spectator.flashGain >= 2,
+  `${spectator.flashGain} new flashes (expected a death and a leader change)`
+);
+
+// Hand the view and the log back a real snapshot. Without this the next socket message is
+// diffed against a two-agent fixture, which would report the whole population as dead.
+await page.evaluate(async () => {
+  const real = await (await fetch("/state")).json();
+  window["__world"].update(real);
+  window.__events.feed(real, real);
+});
+
+// --- 11bis. a strip panel is long and horizontal, and nothing is cut off ----------
+// The failure this catches: PREDICTIONS opened as a full-width panel whose content was
+// stacked vertically, so a market was sliced in half by the bottom edge and the
+// leaderboard was never reachable at all.
+const strip = await page.evaluate(() => {
+  document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
+  const card = document.getElementById("marketsCard");
+  const body = card.querySelector(".card-body");
+  const markets = document.getElementById("markets");
+  const board = card.querySelector(".markets-board");
+  const dock = document.getElementById("bottomDock");
+  const box = (el) => el.getBoundingClientRect();
+  const cardBox = box(card);
+  const styles = getComputedStyle(body);
+  // Every market must fit inside the body, not just the first — the first one to render
+  // is often a short settled card, so testing only that one passed while open markets
+  // had their YES/NO buttons sliced off by the bottom edge.
+  const all = [...markets.querySelectorAll(".market")];
+  const bodyBottom = box(body).bottom;
+  const overflowBottom = all.reduce((worst, m) => Math.max(worst, box(m).bottom - bodyBottom), -Infinity);
+  // Measuring the card's box is not enough: with overflow-y on the card, the box fits
+  // neatly while the YES/NO buttons inside are scrolled out of sight. What a spectator
+  // actually loses is content, so compare each card's content height to its visible one.
+  const hiddenInside = all.reduce((worst, m) => Math.max(worst, m.scrollHeight - m.clientHeight), 0);
+  return {
+    wide: cardBox.width > 700,
+    row: styles.flexDirection === "row",
+    marketsRow: getComputedStyle(markets).flexDirection === "row",
+    boardVisible: board ? box(board).width > 0 : false,
+    // Clear of the rail: with navigation down the left edge, a panel that started at
+    // the window edge would sit underneath it.
+    gapToDock: cardBox.left - box(dock).right,
+    overflowBottom,
+    hiddenInside,
+    hasMarket: all.length > 0,
+    marketCount: all.length,
+  };
+});
+check(
+  "an open strip panel is long and horizontal",
+  strip.wide === true && strip.row === true && strip.marketsRow === true,
+  `width>700=${strip.wide}, body=row:${strip.row}, markets=row:${strip.marketsRow}`
+);
+check(
+  "the panel clears the rail instead of sliding under it",
+  strip.gapToDock > 8,
+  `${strip.gapToDock.toFixed(1)}px between rail and panel`
+);
+check(
+  "no market is cut off by the bottom of the panel",
+  strip.hasMarket === false || (strip.overflowBottom <= 1 && strip.hiddenInside <= 1),
+  `worst of ${strip.marketCount}: ${strip.overflowBottom.toFixed(0)}px past the body, ` +
+    `${strip.hiddenInside.toFixed(0)}px hidden inside the card`
+);
+check(
+  "the leaderboard is reachable, not pushed out of the panel",
+  strip.boardVisible === true,
+  `leaderboard column visible: ${strip.boardVisible}`
+);
+await page.evaluate(() => {
+  document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
+});
+
+// --- 11d. paying on chain: the calldata must be exactly right --------------------
+// A wrong offset here sends real money to the wrong address, and no amount of testing
+// downstream would catch it. Asserted against a known-good encoding rather than by
+// driving a wallet, which the gate has no way to do.
+const pay = await page.evaluate(async () => {
+  const p = window.__pay;
+  const to = "0x1111111111111111111111111111111111111111";
+  const data = p.encodeTransfer(to, "100000");
+  // 402 handling: a response that is not payable must be returned as-is, never paid.
+  const notPayable = await p.fetchWithPayment("/chain/config");
+  return {
+    data,
+    selector: data.slice(0, 10),
+    length: data.length,
+    addressWord: data.slice(10, 74),
+    amountWord: data.slice(74, 138),
+    passesThroughNon402: notPayable.status,
+  };
+});
+check(
+  "an erc-20 transfer is encoded exactly",
+  // 4-byte selector + two 32-byte words = 4 + 32 + 32 bytes = 138 hex chars with 0x.
+  pay.selector === "0xa9059cbb" &&
+    pay.length === 138 &&
+    pay.addressWord === "0".repeat(24) + "1".repeat(40) &&
+    // 100000 = 0x186a0, right-aligned in its word.
+    pay.amountWord === "0".repeat(59) + "186a0",
+  `selector=${pay.selector} len=${pay.length} addr=…${pay.addressWord.slice(-6)} amt=…${pay.amountWord.slice(-6)}`
+);
+check(
+  "a response that is not a 402 is passed straight through",
+  pay.passesThroughNon402 === 200,
+  `status ${pay.passesThroughNon402}`
+);
+
+// --- 11c. ambient sound: silent by default, and never required -------------------
+// The bed is synthesised, so there is nothing to download and nothing to hear in a
+// headless browser. What matters is asserted instead: that it stays off until asked,
+// that the mood mapping tracks the world, and that the graph really starts and stops.
+const audioIdle = await page.evaluate(() => {
+  const a = window.__audio;
+  const agents = (n, state) => Array.from({ length: n }, (_, i) => ({ id: i + 1, state }));
+  return {
+    supported: a.supported(),
+    enabled: a.ambience.enabled,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    pressed: document.getElementById("soundToggle").getAttribute("aria-pressed"),
+    // Pure mapping, asserted without a speaker.
+    calm: a.moodFor({ agents: agents(10, "IDLE") }),
+    active: a.moodFor({ agents: [...agents(6, "GATHER"), ...agents(4, "IDLE")] }),
+    tense: a.moodFor({ agents: [...agents(9, "IDLE"), ...agents(1, "FLEE")] }),
+    empty: a.moodFor({ agents: [] }),
+  };
+});
+check(
+  "ambient sound is off until a spectator asks for it",
+  audioIdle.enabled === false && audioIdle.sounding === false && audioIdle.pressed === "false",
+  `enabled=${audioIdle.enabled}, sounding=${audioIdle.sounding}, pressed=${audioIdle.pressed}`
+);
+check(
+  "the bed follows what the world is doing",
+  audioIdle.calm === "calm" && audioIdle.active === "active" &&
+    audioIdle.tense === "tense" && audioIdle.empty === "calm",
+  `idle=${audioIdle.calm}, working=${audioIdle.active}, fleeing=${audioIdle.tense}, empty=${audioIdle.empty}`
+);
+
+// A real click, because a stored preference is not a gesture and a context started
+// without one stays suspended and silent.
+await page.click("#soundToggle");
+// Wait for the graph to exist before timing the fade. Loading and decoding the beds takes
+// however long it takes, so a fixed sleep would read the ramp part-way up on a slow decode
+// and call the music quiet when it is merely still arriving.
+await page.waitForFunction(() => window.__audio.ambience.enabled === true, { timeout: 20000 });
+await page.waitForTimeout(1500);
+const audioOn = await page.evaluate(() => {
+  const a = window.__audio;
+  return {
+    enabled: a.ambience.enabled,
+    running: a.ambience.ctx ? a.ambience.ctx.state : null,
+    voices: a.ambience.voices.length,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+    master: a.ambience.master ? a.ambience.master.gain.value : 0,
+    hasLimiter: !!a.ambience.limiter,
+    defaultVolume: a.DEFAULT_VOLUME,
+    usingBeds: a.ambience.usingBeds,
+    bedCount: a.ambience.bedNodes ? Object.keys(a.ambience.bedNodes).length : 0,
+  };
+});
+check(
+  "turning sound on builds a running audio graph",
+  audioOn.enabled === true && audioOn.sounding === true && audioOn.running !== "closed" &&
+    // Either path is a valid graph: real loops when the manifest names them, the synth
+    // when it does not. Asserting only one would go red the moment the beds changed.
+    (audioOn.usingBeds ? audioOn.bedCount === 3 : audioOn.voices >= 3),
+  `enabled=${audioOn.enabled}, ctx=${audioOn.running}, beds=${audioOn.usingBeds}, ` +
+    `bedCount=${audioOn.bedCount}, voices=${audioOn.voices}, stored=${audioOn.stored}`
+);
+// The shipped manifest names three CC0 loops, so this deployment must actually be playing
+// them. If it silently fell back to the synth the music would be wrong and nothing else
+// here would notice.
+check(
+  "the shipped loops are what plays, not the fallback synth",
+  audioOn.usingBeds === true && audioOn.bedCount === 3,
+  `usingBeds=${audioOn.usingBeds}, loaded=${audioOn.bedCount}`
+);
+check(
+  "the choice is remembered",
+  audioOn.stored === "on",
+  `localStorage nous.sound = ${audioOn.stored}`
+);
+// The whole point of the loudness pass: the master must actually sit high, and it must be
+// safe to do so. A high master with no limiter is how the old bed would have clipped.
+check(
+  "the music plays loud enough to hear, through a limiter",
+  audioOn.master >= 0.7 && audioOn.hasLimiter === true,
+  `master gain ${audioOn.master}, limiter ${audioOn.hasLimiter}, default ${audioOn.defaultVolume}`
+);
+
+const volume = await page.evaluate(async () => {
+  const a = window.__audio;
+  const slider = document.getElementById("musicVolume");
+  a.setVolume(0.3);
+  const lowered = a.ambience.volume;
+  // The graph is retargeted rather than set, so read the destination the ramp is heading
+  // for instead of racing it.
+  slider.value = "90";
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 120));
+  return {
+    lowered,
+    fromSlider: a.ambience.volume,
+    shown: document.getElementById("musicVolumeValue").textContent,
+    stored: (() => { try { return localStorage.getItem("nous.volume"); } catch { return null; } })(),
+    muteStillWorks: (() => { a.ambience.setVolume(0); return a.ambience.volume === 0; })(),
+  };
+});
+check(
+  "the volume control moves the music and is remembered",
+  Math.abs(volume.lowered - 0.3) < 1e-6 && Math.abs(volume.fromSlider - 0.9) < 1e-6 &&
+    volume.shown === "90" && Math.abs(parseFloat(volume.stored) - 0.9) < 1e-6,
+  `set=${volume.lowered}, slider=${volume.fromSlider}, shown=${volume.shown}, stored=${volume.stored}`
+);
+check(
+  "the volume control reaches silence",
+  volume.muteStillWorks === true,
+  `zero accepted: ${volume.muteStillWorks}`
+);
+
+await page.click("#soundToggle");
+await page.waitForTimeout(300);
+const audioOff = await page.evaluate(() => {
+  const a = window.__audio;
+  // The world must keep running with sound fully off — this is the path every visitor
+  // who never touches the button takes.
+  a.ambience.setMood("tense");
+  return {
+    enabled: a.ambience.enabled,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+    live: document.getElementById("status").textContent.trim(),
+  };
+});
+check(
+  "turning it off silences it and the world carries on",
+  audioOff.enabled === false && audioOff.sounding === false && audioOff.stored === "off" &&
+    audioOff.live === "live",
+  `enabled=${audioOff.enabled}, stored=${audioOff.stored}, status=${audioOff.live}`
 );
 
 // --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------

@@ -47,7 +47,7 @@ structured messaging, resource transfer, clans, clan goals with soft influence,
 user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
 the phase 3 spatial index got pulled forward because it was the only thing genuinely
 blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 354 tests on local `main`, no remote.
+self-directing camera. 484 tests on local `main`, no remote.
 
 still deliberately absent: hard territory ownership, births, economy.
 
@@ -142,8 +142,43 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 354 tests, ~126s
+.venv/bin/python -m pytest tests/ -q      # 484 tests, ~115s
 ```
+
+**music.** off until you press the speaker in the top bar, because browsers refuse to start
+audio without a gesture anyway. what plays is synthesised in the browser — a dark
+phrygian score, ambient hip-hop under halftime trap, with three arrangements the world
+picks between: `calm` when little is happening, `active` once most agents are working,
+`tense` the moment anyone is fleeing. no audio file ships and nothing is fetched, so it
+cannot slow the page down and there is no licence to worry about. volume lives in settings
+and is remembered; default 0.75 into a limiter.
+
+three real loops ship in `src/viewer/beds/`, all **CC0 / public domain**, so they can be
+redistributed with the repo and need no attribution:
+
+| bed | track | author | licence |
+|---|---|---|---|
+| `calm.mp3` | [Medieval: The Old Tower Inn](https://opengameart.org/content/medieval-the-old-tower-inn) | RandomMind | CC0 |
+| `active.mp3` | [Medieval: Market Day](https://opengameart.org/content/medieval-market-day) | RandomMind | CC0 |
+| `tense.mp3` | [Medieval: Battle](https://opengameart.org/content/medieval-battle) | RandomMind | CC0 |
+
+all three are by the same composer on purpose. the beds crossfade into one another, so
+three tracks from three writers would disagree on key and instrumentation the moment the
+world changed mood; one hand across the set means a blend rather than a collision.
+
+to swap any of them, drop a file in and rename it in `src/viewer/beds/manifest.json`:
+
+```json
+{ "calm": "calm.mp3", "active": "active.mp3", "tense": "tense.mp3" }
+```
+
+any format the browser decodes works. all three load at once and crossfade, so a mood
+change is seamless rather than a restart from the top of another file. all three names must
+be present or the synth keeps the score, and if the manifest is malformed or a file fails
+to decode it falls back the same way: a bad loop must never cost a visitor their sound.
+
+keep replacements CC0 or otherwise redistributable. these are served from a public url, so
+a licence that only permits use *inside a production* is not enough.
 
 **prediction markets.** spectators bet on what the world will do. markets open on a
 schedule and on events (a truce forms, a clan takes a beating), resolve automatically from

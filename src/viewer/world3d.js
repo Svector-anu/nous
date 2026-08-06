@@ -47,9 +47,15 @@ function makeFlashTexture(colorHex) {
   return texture;
 }
 
+// Colours match the world-log kind chips, so a flash on the map and its line in the log
+// read as the same event. Death is deliberately ash-grey rather than red: red already means
+// a fight, and a spectator should be able to tell a raid from a body at a glance.
+// Durations are longer than build's because these are the three things worth noticing.
 const FLASH_CONFIG = {
-  build: { color: 0xffd700, scale: TILE * 1.4, duration: 1.6 },
-  raid:  { color: 0xf85149, scale: TILE * 1.8, duration: 2.0 },
+  build:  { color: 0xffd700, scale: TILE * 1.4, duration: 1.6 },
+  raid:   { color: 0xf85149, scale: TILE * 1.8, duration: 2.0 },
+  death:  { color: 0x8b949e, scale: TILE * 2.0, duration: 2.6 },
+  leader: { color: 0x6ee274, scale: TILE * 2.4, duration: 2.6 },
 };
 
 // --- noise ------------------------------------------------------------------
@@ -800,10 +806,11 @@ export class WorldView {
     this.lastSnapshotAt = 0;
     this.lastSnapshot = null;
     this.agentPositions = new Map();
-    this.flashTextures = {
-      build: makeFlashTexture(FLASH_CONFIG.build.color),
-      raid: makeFlashTexture(FLASH_CONFIG.raid.color),
-    };
+    // Derived from FLASH_CONFIG rather than listed again: a kind with a config but no
+    // texture still spawns a sprite, so it counts as a flash while drawing nothing.
+    this.flashTextures = Object.fromEntries(
+      Object.entries(FLASH_CONFIG).map(([kind, cfg]) => [kind, makeFlashTexture(cfg.color)])
+    );
     this._own(...Object.values(this.flashTextures));
     this.flashSprites = [];
 
@@ -1126,6 +1133,19 @@ export class WorldView {
       }
     };
     const release = (event) => {
+      // Pin the goal to wherever the hand actually left the camera. move() already does
+      // this per event, but pointer events can be coalesced or delivered out of order, and
+      // a pointerup that lands after the last move leaves the goal a fraction ahead of the
+      // camera — which the ease then glides into, so the view creeps after you let go.
+      // Done inline rather than through seized() so it stays a pin: seized() also reports
+      // manual input, and a release is not a new interaction.
+      if (dragging) {
+        this.goal.theta = this.orbit.theta;
+        this.goal.phi = this.orbit.phi;
+        this.goal.distance = this.orbit.distance;
+        this.goal.x = this.target.x;
+        this.goal.z = this.target.z;
+      }
       dragging = null;
       try {
         if (event.pointerId !== undefined && canvas.hasPointerCapture(event.pointerId)) {
@@ -1383,6 +1403,24 @@ export class WorldView {
       }
     }
 
+    // A death is the one event with no survivor to mark it: the agent is simply gone from
+    // the snapshot, so the flash goes where it was last seen, not where it is now.
+    const stillHere = new Set(snapshot.agents.map((a) => a.id));
+    for (const agent of this.lastSnapshot.agents) {
+      if (!stillHere.has(agent.id)) this._spawnFlash("death", agent.x, agent.y);
+    }
+
+    // A succession has no position of its own either — it happens to a clan, not a place —
+    // so it is marked at the clan's centre.
+    if (this.lastSnapshot.clans && snapshot.clans) {
+      const before = new Map(this.lastSnapshot.clans.map((c) => [c.id, c.leader]));
+      for (const clan of snapshot.clans) {
+        if (!clan.centre || !clan.leader) continue;
+        if (!before.has(clan.id) || before.get(clan.id) === clan.leader) continue;
+        this._spawnFlash("leader", clan.centre[0], clan.centre[1]);
+      }
+    }
+
     for (const building of snapshot.buildings) {
       if (!beforeBuildings.has(building.id)) {
         this._spawnFlash("build", building.x, building.y);
@@ -1392,7 +1430,9 @@ export class WorldView {
 
   _spawnFlash(kind, x, y) {
     const cfg = FLASH_CONFIG[kind];
-    if (!cfg) return;
+    // No texture means an invisible sprite that still counts as a flash — the kind of
+    // failure a "did a flash appear" assertion sails straight past. Refuse it instead.
+    if (!cfg || !this.flashTextures[kind]) return;
     const [wx, wz] = this.local({ x, y });
     const material = new THREE.SpriteMaterial({
       map: this.flashTextures[kind],
@@ -1829,6 +1869,14 @@ export class WorldView {
       }
       entry.body.instanceMatrix.needsUpdate = true;
       entry.head.instanceMatrix.needsUpdate = true;
+      // InstancedMesh.raycast computes its bounding sphere once, caches it, and never
+      // refreshes it when the instances move. Agents then walk out of a sphere measured
+      // minutes ago and the ray early-outs before touching a single capsule — clicking a
+      // visible agent silently does nothing. Discarding it defers an O(agents) recompute
+      // to the next pick, which happens on a click, rather than paying it every frame.
+      // Nothing else needs it: these meshes set frustumCulled = false.
+      entry.body.boundingSphere = null;
+      entry.head.boundingSphere = null;
       entry.phase.needsUpdate = true;
       entry.speed.needsUpdate = true;
       entry.lean.needsUpdate = true;
