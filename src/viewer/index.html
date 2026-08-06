@@ -454,11 +454,6 @@
     color: var(--accent);
   }
   .splash-chain[hidden] { display: none; }
-  .splash-chain-dot {
-    width: 7px; height: 7px; border-radius: 50%; background: var(--accent);
-    box-shadow: 0 0 8px rgba(110, 226, 116, 0.8);
-    animation: pulse 2.2s ease-in-out infinite;
-  }
   .press-hint { font-size: 12px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; animation: pulse 2.5s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
 
@@ -768,10 +763,6 @@
     font-size: 11.5px; color: #7d858c; font-variant-numeric: tabular-nums;
   }
   #topBar .shelf-count svg { width: 13px; height: 13px; }
-  #topBar .live-dot {
-    width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
-    background: var(--accent); box-shadow: 0 0 8px rgba(110,226,116,0.9);
-  }
   #topBar .shelf-shot {
     min-width: 0;
     font-size: 13.5px; letter-spacing: .09em; text-transform: uppercase;
@@ -1747,7 +1738,6 @@
     <!-- Row 2: what the camera is doing, the followed subject, and the controls. -->
     <div class="topRow topRow--shelf">
       <div class="shelf-status">
-        <span class="live-dot"></span>
         <span class="shelf-shot" id="shelfShot">—</span>
         <span class="shelf-count">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -2100,7 +2090,6 @@
         <!-- Hidden until the server says payments are actually on, so it can never claim
              a chain the deployment is not talking to. Filled in by applyChainConfig. -->
         <p class="splash-chain reveal reveal--3" id="splashChain" hidden>
-          <span class="splash-chain-dot"></span>
           <span id="splashChainText"></span>
         </p>
         <button class="enter-btn reveal reveal--4" id="splash-enter">Enter Nous
