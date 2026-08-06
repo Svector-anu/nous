@@ -798,16 +798,22 @@ check(
   walletUi.off.shown === false,
   `shown=${walletUi.off.shown}`
 );
+// The button's copy, in one place. It says what the control is for rather than how it
+// works, so it is the kind of text that gets rewritten — and three checks depend on it.
+const WALLET_IDLE_LABEL = "Claim your agents";
+const WALLET_OFF_LABEL = "Claiming off";
+
 check(
   "a server that cannot verify signatures shows a disabled wallet button, not a dead one",
   walletUi.halfConfigured.shown === true && walletUi.halfConfigured.disabled === true &&
-    walletUi.halfConfigured.label === "Wallet off",
+    walletUi.halfConfigured.label === WALLET_OFF_LABEL,
   `shown=${walletUi.halfConfigured.shown}, disabled=${walletUi.halfConfigured.disabled}, label="${walletUi.halfConfigured.label}"`
 );
 check(
-  "a ready server offers Connect and sends no authorization",
+  "a ready server invites a claim and sends no authorization",
   walletUi.idle.shown === true && walletUi.idle.disabled === false &&
-    walletUi.idle.label === "Connect" && walletUi.anonymousHeaders.Authorization === undefined,
+    walletUi.idle.label === WALLET_IDLE_LABEL &&
+    walletUi.anonymousHeaders.Authorization === undefined,
   `label="${walletUi.idle.label}", disabled=${walletUi.idle.disabled}, auth=${walletUi.anonymousHeaders.Authorization}`
 );
 check(
@@ -818,7 +824,8 @@ check(
 );
 check(
   "disconnecting drops the session token",
-  walletUi.afterDisconnect.connected === false && walletUi.afterDisconnect.label === "Connect" &&
+  walletUi.afterDisconnect.connected === false &&
+  walletUi.afterDisconnect.label === WALLET_IDLE_LABEL &&
     walletUi.afterDisconnect.headers.Authorization === undefined,
   `label="${walletUi.afterDisconnect.label}", auth=${walletUi.afterDisconnect.headers.Authorization}`
 );

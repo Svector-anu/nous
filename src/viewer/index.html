@@ -1737,7 +1737,7 @@
         </div>
       </div>
       <div class="topActions">
-        <button id="walletBtn" type="button" title="Connect a wallet" aria-label="Connect a wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Connect</span></button>
+        <button id="walletBtn" type="button" title="Claim your agents" aria-label="Claim your agents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Claim your agents</span></button>
         <button id="cinemaToggle" class="icon-btn" title="Full world view (C)" aria-label="Full world view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg></button>
         <button id="soundToggle" class="icon-btn" type="button" title="Ambient sound (off)" aria-label="Ambient sound" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line class="sound-off-slash" x1="23" y1="9" x2="17" y2="15"/><line class="sound-off-slash" x1="17" y1="9" x2="23" y2="15"/><path class="sound-on-wave" d="M15.5 8.5a5 5 0 0 1 0 7"/><path class="sound-on-wave" d="M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <button id="alertsToggle" class="icon-btn has-dot" title="Recent events" aria-label="Recent events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
@@ -2397,10 +2397,12 @@ function renderWallet() {
   walletBtn.classList.toggle("connected", Boolean(wallet.address));
   if (wallet.address) {
     walletLabel.textContent = shortAddress(wallet.address);
-    walletBtn.title = `${wallet.address} — click to disconnect`;
+    walletBtn.title = `${wallet.address} — your agents answer only to this wallet. Click to sign out.`;
   } else {
-    walletLabel.textContent = "Connect";
-    walletBtn.title = "Connect a wallet";
+    walletLabel.textContent = "Claim your agents";
+    walletBtn.title =
+      "Prove a wallet is yours, and only you can rest or delete the agents you deploy. " +
+      "No in-world advantage — a claimed agent starves like any other.";
   }
 }
 
@@ -2445,7 +2447,7 @@ function applyChainConfig(config) {
   walletBtn.classList.toggle("show", enabled);
   walletBtn.disabled = enabled && !wallet.ready;
   if (walletBtn.disabled) {
-    walletLabel.textContent = "Wallet off";
+    walletLabel.textContent = "Claiming off";
     walletBtn.title = "Signature verification is unavailable on this server";
   } else {
     renderWallet();
