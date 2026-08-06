@@ -622,3 +622,22 @@ def test_the_llm_stays_off_when_nobody_asks(monkeypatch):
     monkeypatch.delenv("LLM_ENABLED", raising=False)
     config, _ = apply_chain_env(WorldConfig(agent_count=0))
     assert config.llm_enabled is False
+
+
+def test_the_model_and_provider_can_be_swapped_from_env(monkeypatch):
+    """A persisted world is otherwise stuck with the provider it was born with, so a
+    dead key could never be swapped for a working one without a new world."""
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("LLM_MODEL", "claude-opus-4-6")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_provider == "anthropic"
+    assert config.llm_model == "claude-opus-4-6"
+    assert "llm_provider=anthropic" in changed
+
+
+def test_an_unset_provider_leaves_the_configured_one_alone(monkeypatch):
+    for name in ("LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY_ENV"):
+        monkeypatch.delenv(name, raising=False)
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_provider == "dgrid"
+    assert changed == []

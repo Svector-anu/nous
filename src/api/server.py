@@ -236,6 +236,24 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
         overrides["x402_verifier"] = verifier
         changed.append(f"x402_verifier={verifier}")
 
+    # Which model answers, and where it lives. Settable from env for the same reason the
+    # flags are: a persisted world is otherwise stuck with whatever provider it was born
+    # with, and swapping a dead key for a working one should not need a new world.
+    #
+    # Not credentials. The key itself is resolved by the sdk from its own env var — the
+    # anthropic client reads ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL, which is what
+    # makes an anthropic-compatible gateway work without a code change here.
+    for field, name in (
+        ("llm_provider", "LLM_PROVIDER"),
+        ("llm_model", "LLM_MODEL"),
+        ("llm_base_url", "LLM_BASE_URL"),
+        ("llm_api_key_env", "LLM_API_KEY_ENV"),
+    ):
+        value = os.getenv(name, "").strip()
+        if value and getattr(config, field) != value:
+            overrides[field] = value
+            changed.append(f"{field}={value}")
+
     return (replace(config, **overrides) if overrides else config), changed
 
 
