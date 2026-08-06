@@ -2664,8 +2664,19 @@ async function setRest(agentId, rest) {
   }
 }
 
+// What the list actually shows. Rebuilding it when none of this changed destroyed and
+// recreated every button once a second, so a click in flight landed on a node that had
+// already left the document. Same fault as the inspector card, same cost to a user.
+let lastDeployedKey = null;
+
 function renderDeployed(snapshot) {
   const mine = snapshot.agents.filter((a) => a.user);
+  const key = mine
+    .map((a) => `${a.id}:${a.rest_mode ? 1 : 0}:${a.state}:${a.clan}:${a.name}:${a.personality}`)
+    .join("|");
+  if (key === lastDeployedKey) return;
+  lastDeployedKey = key;
+
   deployed.innerHTML = "";
   if (!mine.length) {
     const empty = document.createElement("li");
@@ -2736,8 +2747,22 @@ function statusChipClass(status) {
   return "fine";
 }
 
+// Same churn as the inspector and the deployed list: rebuilding every tick destroyed the
+// Locate / Rest / Copy buttons once a second, so a tap in flight hit a detached node.
+// This is the list the ci runner actually caught it on.
+let lastMyAgentsKey = null;
+
 function renderMyAgents(snapshot) {
   const mine = snapshot.agents.filter((a) => a.user);
+
+  // Only what the row displays. Position deliberately excluded: it changes every tick and
+  // is not shown, and the handlers below read it live rather than from the closure.
+  const key = mine
+    .map((a) => [a.id, a.name, simpleAgentStatus(a), a.rank, a.clan, a.rest_mode ? 1 : 0].join(":"))
+    .join("|");
+  if (key === lastMyAgentsKey) return;
+  lastMyAgentsKey = key;
+
   myAgentsList.innerHTML = "";
   if (!mine.length) {
     myAgentsHint.style.display = "";
@@ -2773,17 +2798,32 @@ function renderMyAgents(snapshot) {
       `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
       `</div>`;
 
+    // The row now outlives the snapshot it was built from, so the handlers read the agent
+    // as it is at click time rather than as it was when drawn. Without this, Locate would
+    // fly to where the agent stood several seconds ago and Rest could toggle the wrong way.
+    const current = () =>
+      (lastSnapshot?.agents || []).find((a) => a.id === agent.id) || agent;
+
     item.querySelector(".find-agent").addEventListener("click", () => {
+      const now = current();
       selectedId = agent.id;
       worldView.setSelected(selectedId);
-      flyToSim(agent.x, agent.y, `${agent.name} · ${status}`, 8);
+      flyToSim(now.x, now.y, `${now.name} · ${simpleAgentStatus(now)}`, 8);
       closeAllPanels("agentCards");
       setPanelOpen("agentCards", true);
-      renderInspector(snapshot);
+      renderInspector(lastSnapshot || snapshot);
     });
-    item.querySelector(".rest-agent").addEventListener("click", () => setRest(agent.id, !agent.rest_mode));
+    item.querySelector(".rest-agent").addEventListener("click", () =>
+      setRest(agent.id, !current().rest_mode)
+    );
     const copyBtn = item.querySelector(".copy-agent");
-    copyBtn.addEventListener("click", () => copyText(shareText, copyBtn));
+    copyBtn.addEventListener("click", () => {
+      const now = current();
+      const text = `${now.name} is ${simpleAgentStatus(now)}, ` +
+        `${now.clan !== null ? `Clan ${now.clan}` : "no clan"}, ` +
+        `in Nous day ${(lastSnapshot || snapshot).day}.`;
+      copyText(text, copyBtn);
+    });
     myAgentsList.appendChild(item);
   }
 }
@@ -3239,17 +3279,43 @@ function renderInspector(snapshot) {
     html += `<p class="note" style="margin:12px 0 0;border-left:2px solid ${colour};padding-left:8px">${escapeHtml(agent.personality)}</p>`;
   }
 
-  html += `<div class="agent-card-actions">` +
+  // The card's numbers change every tick; its buttons almost never do. Rewriting the whole
+  // card destroyed and recreated the buttons once a second, so a click that landed while a
+  // snapshot arrived hit a detached node and did nothing. On a phone, where a tap takes
+  // longer than a mouse click, that is a routine miss rather than a rare one — and it is
+  // exactly what made the mobile rest-toggle check fail on a slow ci runner while passing
+  // on this machine.
+  //
+  // Everything that changes per tick lives in .agent-card-live and is rewritten freely.
+  // The actions row is keyed on what it actually depends on and left untouched while that
+  // is unchanged, so a button survives under a finger.
+  const actionsKey = [
+    agent.id, agent.rest_mode ? 1 : 0, clan && clan.centre ? clan.id : "",
+    agent.user ? 1 : 0, agent.name,
+  ].join(":");
+
+  let actions = `<div class="agent-card-actions" data-key="${escapeHtml(actionsKey)}">` +
     `<button class="follow-agent">Fly to ${escapeHtml(agent.name)}</button>`;
   if (clan && clan.centre) {
-    html += `<button class="follow-clan">Clan ${clan.id}</button>`;
+    actions += `<button class="follow-clan">Clan ${clan.id}</button>`;
   }
   if (agent.user) {
-    html += `<button class="rest-toggle" data-id="${agent.id}">${agent.rest_mode ? "Resume" : "Rest"}</button>`;
+    actions += `<button class="rest-toggle" data-id="${agent.id}">${agent.rest_mode ? "Resume" : "Rest"}</button>`;
   }
-  html += `</div></div>`;
+  actions += `</div>`;
 
-  inspector.innerHTML = html;
+  const keptActions = inspector.querySelector(".agent-card-actions");
+  if (keptActions && keptActions.dataset.key === actionsKey) {
+    // Detach the real node first so rewriting the card does not destroy it, then put it
+    // back. It is the same element throughout, so its listeners survive and a press in
+    // flight lands on something still in the document.
+    keptActions.remove();
+    inspector.innerHTML = html + `</div>`;
+    inspector.querySelector(".agent-card-body")?.appendChild(keptActions);
+    return;
+  }
+
+  inspector.innerHTML = html + actions + `</div>`;
 
   inspector.querySelector(".follow-agent")?.addEventListener("click", () =>
     flyToSim(agent.x, agent.y, `${agent.name} · ${agent.state}`, 8)
