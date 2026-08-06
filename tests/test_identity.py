@@ -447,3 +447,51 @@ def test_a_local_challenge_is_not_claimed_to_be_https(tmp_path):
 
     assert message.startswith("127.0.0.1 wants you to sign in")
     assert "URI: http://127.0.0.1" in message
+
+
+def test_the_challenge_carries_issued_at(tmp_path):
+    """Required by eip-4361, not optional. a wallet parses this text — metamask
+    recognises a sign-in request and renders it as one — and a message that looks like
+    eip-4361 but fails the parse is treated as suspicious rather than shown plainly.
+    omitting a required field does not produce a plainer prompt, it produces a rejected
+    one, which reaches the app as error 4001 and reads as "the user cancelled"."""
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=4, chain_identity_enabled=True),
+        tmp_path / "issued.db",
+    )
+    with TestClient(app, base_url="https://nous.city") as client:
+        message = client.post("/chain/nonce", json={"address": "0x" + "a" * 40}).json()["message"]
+
+    issued = [l for l in message.splitlines() if l.startswith("Issued At: ")]
+    assert issued, "eip-4361 requires Issued At"
+    # ISO 8601 with a zone, which is what the spec asks for.
+    assert issued[0].endswith("Z")
+
+
+def test_the_message_matches_the_eip_4361_grammar():
+    """Checked field by field against the spec rather than eyeballed.
+
+    Two bugs shipped here because this was hand-written from memory: a hardcoded domain
+    and a missing Issued At. Both produced a message metamask refused to parse, and a
+    refused parse arrives as error 4001 — identical to the user pressing cancel. So the
+    grammar is asserted, not assumed.
+    """
+    import re
+
+    message = siwe.build_message(
+        domain="nous.city", address="0x" + "A" * 40, nonce="abc123xyz789",
+        chain_id=4663, uri="https://nous.city",
+    )
+    lines = message.splitlines()
+
+    assert re.match(r"^\S+ wants you to sign in with your Ethereum account:$", lines[0])
+    assert re.match(r"^0x[0-9a-fA-F]{40}$", lines[1])
+    assert lines[2] == ""
+    assert lines[3].strip(), "statement"
+    assert lines[4] == ""
+    assert any(l.startswith("URI: ") for l in lines)
+    assert "Version: 1" in lines
+    assert any(l.startswith("Chain ID: ") for l in lines)
+    # The spec requires at least 8 alphanumerics of nonce.
+    assert re.search(r"^Nonce: [a-zA-Z0-9]{8,}$", message, re.M)
+    assert re.search(r"^Issued At: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", message, re.M)

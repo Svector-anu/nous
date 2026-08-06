@@ -20,6 +20,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 logger = logging.getLogger("neociv")
 
@@ -97,10 +98,21 @@ def build_message(
     chain_id: int,
     statement: str = "Link this wallet to your Nous agent. This grants no in-world advantage.",
     uri: str = "",
+    issued_at: str = "",
 ) -> str:
     """An EIP-4361 message. The statement is deliberately explicit about what linking
-    does *not* buy, because the wallet popup is the one place a user reads carefully."""
+    does *not* buy, because the wallet popup is the one place a user reads carefully.
+
+    `Issued At` is required by the spec, not optional. A wallet parses this text: metamask
+    recognises a sign-in request and renders it as one, and a message that looks like
+    EIP-4361 but fails the parse is treated as suspicious rather than shown plainly. So
+    omitting a required field does not produce a plainer prompt — it produces a rejected
+    one, which reaches the app as error 4001 and reads as "the user cancelled".
+    """
     target = uri or f"https://{domain}"
+    when = issued_at or (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
     return "\n".join(
         [
             f"{domain} wants you to sign in with your Ethereum account:",
@@ -112,6 +124,7 @@ def build_message(
             "Version: 1",
             f"Chain ID: {chain_id}",
             f"Nonce: {nonce}",
+            f"Issued At: {when}",
         ]
     )
 
