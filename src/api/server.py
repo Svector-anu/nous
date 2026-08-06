@@ -190,6 +190,13 @@ CHAIN_FLAG_ENV = {
     "chain_identity_enabled": "CHAIN_IDENTITY_ENABLED",
     "x402_enabled": "X402_ENABLED",
     "real_money_enabled": "REAL_MONEY_ENABLED",
+    # Named for the llm because that is where it started, but a forced decision no longer
+    # needs one: leadership drains the queue and the rule-based goal choice does the work.
+    "llm_force_decision_enabled": "FORCE_DECISION_ENABLED",
+    # Clan leaders consult a model. Off by default because the world runs 24/7 and every
+    # call costs money — but a persisted world would otherwise be stuck on whatever this
+    # was when it was created, which is the whole reason these overrides exist.
+    "llm_enabled": "LLM_ENABLED",
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
@@ -228,6 +235,42 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
     if verifier in ("header", "chain") and config.x402_verifier != verifier:
         overrides["x402_verifier"] = verifier
         changed.append(f"x402_verifier={verifier}")
+
+    # Which model answers, and where it lives. Settable from env for the same reason the
+    # flags are: a persisted world is otherwise stuck with whatever provider it was born
+    # with, and swapping a dead key for a working one should not need a new world.
+    #
+    # Not credentials. The key itself is resolved by the sdk from its own env var — the
+    # anthropic client reads ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL, which is what
+    # makes an anthropic-compatible gateway work without a code change here.
+    for field, name in (
+        ("llm_provider", "LLM_PROVIDER"),
+        ("llm_model", "LLM_MODEL"),
+        ("llm_base_url", "LLM_BASE_URL"),
+        ("llm_api_key_env", "LLM_API_KEY_ENV"),
+    ):
+        value = os.getenv(name, "").strip()
+        if value and getattr(config, field) != value:
+            overrides[field] = value
+            changed.append(f"{field}={value}")
+
+    # The spend cap. `AdvisorState.calls_made` is durable world state, so this is a total
+    # for the world's whole life rather than per process — raising it is the only way to
+    # get more calls out of a world that has already spent its budget, and lowering it
+    # stops one immediately. Refused rather than guessed at when unparseable or negative,
+    # because a mistake here is somebody's money.
+    raw_cap = os.getenv("LLM_MAX_CALLS_PER_SESSION", "").strip()
+    if raw_cap:
+        try:
+            cap = int(raw_cap)
+        except ValueError:
+            logger.warning("LLM_MAX_CALLS_PER_SESSION=%r is not a number; ignored", raw_cap)
+        else:
+            if cap < 0:
+                logger.warning("LLM_MAX_CALLS_PER_SESSION=%d is negative; ignored", cap)
+            elif config.llm_max_calls_per_session != cap:
+                overrides["llm_max_calls_per_session"] = cap
+                changed.append(f"llm_max_calls_per_session={cap}")
 
     return (replace(config, **overrides) if overrides else config), changed
 

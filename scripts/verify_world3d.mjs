@@ -798,16 +798,22 @@ check(
   walletUi.off.shown === false,
   `shown=${walletUi.off.shown}`
 );
+// The button's copy, in one place. It says what the control is for rather than how it
+// works, so it is the kind of text that gets rewritten — and three checks depend on it.
+const WALLET_IDLE_LABEL = "Claim your agents";
+const WALLET_OFF_LABEL = "Claiming off";
+
 check(
   "a server that cannot verify signatures shows a disabled wallet button, not a dead one",
   walletUi.halfConfigured.shown === true && walletUi.halfConfigured.disabled === true &&
-    walletUi.halfConfigured.label === "Wallet off",
+    walletUi.halfConfigured.label === WALLET_OFF_LABEL,
   `shown=${walletUi.halfConfigured.shown}, disabled=${walletUi.halfConfigured.disabled}, label="${walletUi.halfConfigured.label}"`
 );
 check(
-  "a ready server offers Connect and sends no authorization",
+  "a ready server invites a claim and sends no authorization",
   walletUi.idle.shown === true && walletUi.idle.disabled === false &&
-    walletUi.idle.label === "Connect" && walletUi.anonymousHeaders.Authorization === undefined,
+    walletUi.idle.label === WALLET_IDLE_LABEL &&
+    walletUi.anonymousHeaders.Authorization === undefined,
   `label="${walletUi.idle.label}", disabled=${walletUi.idle.disabled}, auth=${walletUi.anonymousHeaders.Authorization}`
 );
 check(
@@ -818,7 +824,8 @@ check(
 );
 check(
   "disconnecting drops the session token",
-  walletUi.afterDisconnect.connected === false && walletUi.afterDisconnect.label === "Connect" &&
+  walletUi.afterDisconnect.connected === false &&
+  walletUi.afterDisconnect.label === WALLET_IDLE_LABEL &&
     walletUi.afterDisconnect.headers.Authorization === undefined,
   `label="${walletUi.afterDisconnect.label}", auth=${walletUi.afterDisconnect.headers.Authorization}`
 );
@@ -887,6 +894,37 @@ check(
   "a new clan leader is reported by name",
   spectator.led.kinds.includes("leader") && /Bo now leads clan 1/.test(spectator.led.label || ""),
   `kinds=[${spectator.led.kinds}] label="${spectator.led.label}"`
+);
+// A leader that reasoned says why, and that sentence must reach the log. It only appears
+// when a model actually answered — the rules leave goal_reason empty — so nothing in a
+// default $0 world would notice this breaking.
+const reasoned = await page.evaluate(() => {
+  const agent = (id) => ({
+    id, name: `A${id}`, x: 10, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0,
+    wood: 0, clan: 1, user: false, personality: "", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "",
+  });
+  const snap = (goal, reason) => ({
+    tick: 2, day: 1, agents: [agent(1)], buildings: [], resources: [],
+    clans: [{ id: 1, size: 2, goal, goal_reason: reason, leader: 1, centre: [12, 10] }],
+    grid: { width: 64, height: 64 },
+  });
+  const before = snap("gather food", "");
+  const after = snap("build huts", "The young cannot afford to wait.");
+  const events = window.__events.findEvents(before, after);
+  window.__events.feed(before, after);
+  const goalEvent = events.find((e) => e.kind === "goalChange");
+  return {
+    carried: Boolean(goalEvent && goalEvent.reason),
+    rendered: !!document.querySelector("#worldLog .feed-reason"),
+    text: document.querySelector("#worldLog .feed-reason")?.textContent || "",
+  };
+});
+check(
+  "a leader's reasoning reaches the world log",
+  reasoned.carried && reasoned.rendered && /young cannot afford/.test(reasoned.text),
+  `carried=${reasoned.carried}, rendered=${reasoned.rendered}, text=${reasoned.text.slice(0, 48)}`
 );
 check(
   "the world log actually renders the event text",

@@ -111,8 +111,21 @@ export function findEvents(previous, snapshot) {
     for (const clan of snapshot.clans) {
       if (!clan.centre) continue;
       if (goals.has(clan.id) && goals.get(clan.id) !== clan.goal) {
-        events.push({ kind: "goalChange", score: SCORE.goalChange, x: clan.centre[0], y: clan.centre[1],
-          label: `clan ${clan.id} decides to ${clan.goal}` });
+        // A leader that reasoned about it says why. That sentence was already in every
+        // snapshot and shown nowhere — it is the only place the world explains itself in
+        // its own words rather than being described from outside.
+        const because = (clan.goal_reason || "").trim();
+        events.push({
+          kind: "goalChange", score: SCORE.goalChange,
+          x: clan.centre[0], y: clan.centre[1],
+          label: because
+            ? `clan ${clan.id} decides to ${clan.goal} — “${because}”`
+            : `clan ${clan.id} decides to ${clan.goal}`,
+          // Kept apart from the label so the log can style the quote and the camera can
+          // rank a reasoned decision above a routine one.
+          reason: because,
+          reasoned: Boolean(because),
+        });
       }
     }
   }

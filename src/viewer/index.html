@@ -196,8 +196,36 @@
      say so too, or a spectator sees "YES · 25" and a leaderboard and reasonably
      infers money. */
   .demo-note {
-    margin: 0 0 9px; font-size: 10.5px; letter-spacing: .05em;
+    margin: 0 0 10px; font-size: 10.5px; line-height: 1.45;
     color: var(--muted);
+  }
+  /* Honest, not apologetic. The label reads as a product stage rather than a warning. */
+  .beta-tag {
+    display: inline-block; margin-right: 6px; padding: 2px 6px;
+    border: 1px solid rgba(210, 153, 34, 0.5); border-radius: 4px;
+    color: #d29922; font-size: 9px; font-weight: 700; letter-spacing: .1em;
+  }
+  .bet-field { display: block; margin-bottom: 10px; }
+  .bet-label {
+    display: block; margin-bottom: 4px;
+    font-size: 9px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700;
+  }
+  .bet-balance {
+    margin: -4px 0 10px; font-family: var(--font-mono); font-size: 12px;
+    color: var(--accent); font-variant-numeric: tabular-nums;
+  }
+  .stake-row { display: flex; gap: 5px; }
+  .stake-chip {
+    flex: 1; margin: 0; padding: 6px 0; min-width: 0;
+    background: rgba(10, 14, 12, 0.6); border: 1px solid var(--line);
+    border-radius: 6px; color: var(--muted);
+    font-family: var(--font-mono); font-size: 11px; cursor: pointer;
+  }
+  .stake-chip:hover { border-color: rgba(110, 226, 116, 0.4); color: var(--text); }
+  .stake-chip.is-on {
+    border-color: var(--accent); color: var(--accent);
+    background: rgba(110, 226, 116, 0.10);
   }
   #leaderboard li { justify-content: space-between; }
   #leaderboard .credits { font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
@@ -415,6 +443,17 @@
     text-shadow: 0 0 24px rgba(88,166,255,0.3);
   }
   .splash-panel .subtitle { font-size: 16px; color: var(--muted); margin: 0 0 36px; }
+  /* The live-chain line under the lede. Green because it is the same "this is real and
+     running" signal the top bar's live dot carries. */
+  .splash-chain {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin: 0 0 30px; padding: 6px 14px;
+    border: 1px solid rgba(110, 226, 116, 0.35); border-radius: 999px;
+    background: rgba(110, 226, 116, 0.07);
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em;
+    color: var(--accent);
+  }
+  .splash-chain[hidden] { display: none; }
   .press-hint { font-size: 12px; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; animation: pulse 2.5s ease-in-out infinite; }
   @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
 
@@ -724,10 +763,6 @@
     font-size: 11.5px; color: #7d858c; font-variant-numeric: tabular-nums;
   }
   #topBar .shelf-count svg { width: 13px; height: 13px; }
-  #topBar .live-dot {
-    width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto;
-    background: var(--accent); box-shadow: 0 0 8px rgba(110,226,116,0.9);
-  }
   #topBar .shelf-shot {
     min-width: 0;
     font-size: 13.5px; letter-spacing: .09em; text-transform: uppercase;
@@ -1112,6 +1147,15 @@
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
   /* Same green as the leader flash on the map, so the two read as one event. */
   #worldLogCard .feed-kind.leader { color: #6ee274; }
+  /* A leader's own words. Italic and indented so it reads as something the world said
+     rather than something the log observed about it. Only ever present when a model
+     actually reasoned — the rules leave goal_reason empty. */
+  #worldLogCard .feed-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  #worldLogCard .feed-reason {
+    font-style: italic; font-size: 11px; line-height: 1.4;
+    color: #a371f7; padding-left: 8px;
+    border-left: 2px solid rgba(163, 113, 247, 0.4);
+  }
 
   /* One icon carries both states: the crossed lines show while muted, the waves once
      sound is on. Swapping the whole svg would flicker on every toggle. */
@@ -1693,7 +1737,7 @@
         </div>
       </div>
       <div class="topActions">
-        <button id="walletBtn" type="button" title="Connect a wallet" aria-label="Connect a wallet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Connect</span></button>
+        <button id="walletBtn" type="button" title="Claim your agents" aria-label="Claim your agents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/></svg><span id="walletLabel">Claim your agents</span></button>
         <button id="cinemaToggle" class="icon-btn" title="Full world view (C)" aria-label="Full world view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="7" y2="7"/><line x1="17" y1="17" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="7" y2="17"/><line x1="17" y1="7" x2="19.1" y2="4.9"/></svg></button>
         <button id="soundToggle" class="icon-btn" type="button" title="Ambient sound (off)" aria-label="Ambient sound" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line class="sound-off-slash" x1="23" y1="9" x2="17" y2="15"/><line class="sound-off-slash" x1="17" y1="9" x2="23" y2="15"/><path class="sound-on-wave" d="M15.5 8.5a5 5 0 0 1 0 7"/><path class="sound-on-wave" d="M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <button id="alertsToggle" class="icon-btn has-dot" title="Recent events" aria-label="Recent events"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="dot"></span></button>
@@ -1703,7 +1747,6 @@
     <!-- Row 2: what the camera is doing, the followed subject, and the controls. -->
     <div class="topRow topRow--shelf">
       <div class="shelf-status">
-        <span class="live-dot"></span>
         <span class="shelf-shot" id="shelfShot">—</span>
         <span class="shelf-count">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
@@ -1816,8 +1859,28 @@
              of stacking into a scroll. Every id is unchanged; only the grouping is new. -->
         <div class="card-body">
           <div class="markets-lead">
-            <p class="demo-note" id="marketsDemoNote">Demo credits — no real money.</p>
-            <input id="whoami" maxlength="24" placeholder="your name" autocomplete="off">
+            <!-- Framed as what it is: an open experiment on play credits, running while
+                 the real thing is built. Saying so plainly is what lets it look finished
+                 without claiming to be something it is not. -->
+            <p class="demo-note" id="marketsDemoNote">
+              <span class="beta-tag">EXPERIMENT</span>
+              Play credits, not money. We are watching how people bet before real
+              settlement ships.
+            </p>
+            <label class="bet-field" for="whoami">
+              <span class="bet-label">Betting as</span>
+              <input id="whoami" maxlength="24" placeholder="pick a handle" autocomplete="off">
+            </label>
+            <div class="bet-balance" id="betBalance">1000 credits</div>
+            <label class="bet-field" for="stake">
+              <span class="bet-label">Stake</span>
+              <div class="stake-row" id="stakeRow">
+                <button type="button" class="stake-chip" data-stake="10">10</button>
+                <button type="button" class="stake-chip is-on" data-stake="25">25</button>
+                <button type="button" class="stake-chip" data-stake="50">50</button>
+                <button type="button" class="stake-chip" data-stake="100">100</button>
+              </div>
+            </label>
           </div>
           <div id="markets"></div>
           <div class="markets-board">
@@ -2032,7 +2095,12 @@
           <p class="word">Nous</p>
         </div>
         <p class="splash-eyebrow reveal reveal--2">Observe <i>•</i> Influence <i>•</i> Evolve</p>
-        <p class="splash-lede reveal reveal--3" id="splash-subtitle">Step into a living civilization where autonomous agents build, trade and survive.</p>
+        <p class="splash-lede reveal reveal--3" id="splash-subtitle">A civilization that runs itself. Nobody scripts it, nobody owns it — and you can pay it to change its mind.</p>
+        <!-- Hidden until the server says payments are actually on, so it can never claim
+             a chain the deployment is not talking to. Filled in by applyChainConfig. -->
+        <p class="splash-chain reveal reveal--3" id="splashChain" hidden>
+          <span id="splashChainText"></span>
+        </p>
         <button class="enter-btn reveal reveal--4" id="splash-enter">Enter Nous
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>
         </button>
@@ -2329,10 +2397,12 @@ function renderWallet() {
   walletBtn.classList.toggle("connected", Boolean(wallet.address));
   if (wallet.address) {
     walletLabel.textContent = shortAddress(wallet.address);
-    walletBtn.title = `${wallet.address} — click to disconnect`;
+    walletBtn.title = `${wallet.address} — your agents answer only to this wallet. Click to sign out.`;
   } else {
-    walletLabel.textContent = "Connect";
-    walletBtn.title = "Connect a wallet";
+    walletLabel.textContent = "Claim your agents";
+    walletBtn.title =
+      "Prove a wallet is yours, and only you can rest or delete the agents you deploy. " +
+      "No in-world advantage — a claimed agent starves like any other.";
   }
 }
 
@@ -2356,6 +2426,20 @@ function applyChainConfig(config) {
   // Kept even when the button is absent: the payment flow reads the explorer url from
   // here to tell a wallet where the chain can be browsed.
   wallet.chain = config || null;
+
+  // The boot line only appears when payments are genuinely on. Driven by the server's
+  // own answer rather than written into the markup, so the claim cannot outlive the
+  // configuration that makes it true.
+  const chainLine = document.getElementById("splashChain");
+  if (chainLine) {
+    const live = Boolean(config && config.x402_enabled && config.chain_id);
+    chainLine.hidden = !live;
+    if (live) {
+      document.getElementById("splashChainText").textContent =
+        `LIVE ON ${String(config.chain_name || "CHAIN").toUpperCase()} · ` +
+        `${config.x402_currency || "USDG"} · CHAIN ${config.chain_id}`;
+    }
+  }
   if (!walletBtn) return;
   wallet.ready = Boolean(config && config.ready);
   const enabled = Boolean(config && config.identity_enabled);
@@ -2363,7 +2447,7 @@ function applyChainConfig(config) {
   walletBtn.classList.toggle("show", enabled);
   walletBtn.disabled = enabled && !wallet.ready;
   if (walletBtn.disabled) {
-    walletLabel.textContent = "Wallet off";
+    walletLabel.textContent = "Claiming off";
     walletBtn.title = "Signature verification is unavailable on this server";
   } else {
     renderWallet();
@@ -3022,7 +3106,12 @@ function processWorldLog(snapshot) {
   if (events.length === 0) return;
 
   for (const event of events) {
-    worldLogEntries.push({ tick: snapshot.tick, kind: event.kind, label: event.label });
+    worldLogEntries.push({
+      tick: snapshot.tick, kind: event.kind, label: event.label,
+      // Carried separately so the leader's own words can be styled as speech rather
+      // than buried in the sentence describing the event.
+      reason: event.reason || "",
+    });
   }
   if (worldLogEntries.length > WORLD_LOG_LIMIT) {
     worldLogEntries = worldLogEntries.slice(-WORLD_LOG_LIMIT);
@@ -3032,9 +3121,16 @@ function processWorldLog(snapshot) {
   for (const entry of worldLogEntries.slice().reverse()) {
     const item = document.createElement("li");
     item.className = "feed-item";
+    // A reasoned decision shows the leader's sentence under the event, in their voice.
+    // The label already contains it, so it is stripped back out rather than repeated.
+    const plain = entry.reason
+      ? entry.label.slice(0, entry.label.indexOf(" — \u201c"))
+      : entry.label;
     item.innerHTML =
       `<span class="feed-icon">${WORLD_LOG_ICONS[entry.kind] || WORLD_LOG_ICONS.goalChange}</span>` +
-      `<span>${escapeHtml(entry.label)}</span>` +
+      `<span class="feed-body">${escapeHtml(plain)}` +
+      (entry.reason ? `<span class="feed-reason">\u201c${escapeHtml(entry.reason)}\u201d</span>` : "") +
+      `</span>` +
       `<span class="feed-kind ${entry.kind}">${entry.kind.replace("goalChange", "goal")}</span>`;
     worldLog.appendChild(item);
   }
@@ -3350,9 +3446,36 @@ function marketIcon(kind) {
     `<path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v8H2z"/><path d="M6 1v6"/><path d="M10 1v6"/><path d="M14 1v6"/></svg>`;
 }
 
+// The stake the chips are showing. Changing it re-labels every YES/NO button, so what a
+// click will cost is on the button rather than somewhere else on the panel.
+let betStake = 25;
+
+const stakeRow = document.getElementById("stakeRow");
+if (stakeRow) {
+  stakeRow.addEventListener("click", (event) => {
+    const chip = event.target.closest(".stake-chip");
+    if (!chip) return;
+    betStake = Number(chip.dataset.stake) || 25;
+    for (const other of stakeRow.querySelectorAll(".stake-chip")) {
+      other.classList.toggle("is-on", other === chip);
+    }
+    if (lastBook) renderMarkets(lastBook);
+  });
+}
+
 function renderMarkets(book) {
   lastBook = book;
   const me = whoami.value.trim();
+
+  // Real balance for a real handle. Before anyone picks one it shows the starting stake
+  // rather than a blank, so the panel reads as a working ledger rather than an empty form.
+  const balanceEl = document.getElementById("betBalance");
+  if (balanceEl) {
+    const balance = me && book.balances && me in book.balances ? book.balances[me] : null;
+    balanceEl.textContent = balance === null
+      ? "1000 credits to start"
+      : `${balance} credits`;
+  }
   const mine = (entry) => (me && entry.positions[me]) || null;
   marketsEl.innerHTML = "";
 
@@ -3377,8 +3500,8 @@ function renderMarkets(book) {
       `<div class="market-status ${statusClass}">${statusText}</div>` +
       (open
         ? `<div class="market-actions">
-             <button class="yes" data-id="${entry.id}" data-side="yes">YES · 25</button>
-             <button class="no"  data-id="${entry.id}" data-side="no">NO · 25</button>
+             <button class="yes" data-id="${entry.id}" data-side="yes">YES · ${betStake}</button>
+             <button class="no"  data-id="${entry.id}" data-side="no">NO · ${betStake}</button>
            </div>`
         : "") +
       (held ? `<div class="market-held">You: ${held.yes} YES / ${held.no} NO</div>` : "") +
@@ -3420,7 +3543,7 @@ marketsEl.addEventListener("click", async (event) => {
   if (!button) return;
   const user = whoami.value.trim();
   if (!user) {
-    whoami.placeholder = "enter a name first";
+    whoami.placeholder = "pick a handle first";
     whoami.focus();
     return;
   }
@@ -3430,7 +3553,7 @@ marketsEl.addEventListener("click", async (event) => {
     const response = await fetch(`/markets/${button.dataset.id}/positions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user, side: button.dataset.side, stake: 25 }),
+      body: JSON.stringify({ user, side: button.dataset.side, stake: betStake }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));

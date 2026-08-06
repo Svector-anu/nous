@@ -26,7 +26,8 @@ from src.chain.x402 import (
 )
 from src.world.components import EscrowBook, ForceDecisionQueue
 from src.world.config import WorldConfig
-from src.world.tick import create_world
+from src.world.systems import leadership
+from src.world.tick import Simulation, create_world, state_hash
 
 TX = "0x" + "a" * 64
 
@@ -503,3 +504,164 @@ def test_a_nonsense_verifier_is_ignored(monkeypatch):
     monkeypatch.setenv("X402_VERIFIER", "trustmebro")
     config, _ = apply_chain_env(WorldConfig(agent_count=0))
     assert config.x402_verifier == "header"
+
+
+# --- a paid decision actually does something ---------------------------------
+#
+# The hole this closes: the api verified payment and queued the request, and no system
+# ever read the queue. Real money bought a no-op.
+
+
+def _clan_world():
+    """A world with at least one clan that has settled on a goal."""
+    world = create_world(WorldConfig(seed=7, agent_count=24, resource_count=40))
+    simulation = Simulation(world)
+    simulation.run(120)
+    return world, simulation
+
+
+def _a_clan(world):
+    from src.world.components import Clan
+
+    for entity in world.query(Clan):
+        clan = world.get(entity, Clan)
+        if clan.members:
+            return clan
+    return None
+
+
+def test_a_forced_decision_makes_a_clan_reconsider_now(monkeypatch):
+    """Paying resets the clan's review clock, so the rules choose a goal on this tick
+    rather than whenever its turn came round."""
+    world, simulation = _clan_world()
+    clan = _a_clan(world)
+    assert clan is not None
+    settled_at = clan.goal_set_tick
+    assert settled_at > 0, "clan should have decided at least once by tick 120"
+
+    queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+    queue.pending.append({"clan_id": clan.clan_id, "tick": world.tick})
+
+    simulation.step()
+
+    assert queue.pending == [], "the queue must be drained, not left to grow"
+    assert clan.goal_set_tick > settled_at, "the clan should have decided again"
+
+
+def test_a_forced_decision_works_without_an_llm():
+    """The whole point: the rules are the floor, so somebody who paid gets a real
+    decision on a world with no advisor configured and no api cost."""
+    world, simulation = _clan_world()
+    assert world.config.llm_enabled is False
+    clan = _a_clan(world)
+    before = clan.goal_set_tick
+
+    queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+    queue.pending.append({"clan_id": clan.clan_id, "tick": world.tick})
+    assert leadership.apply_forced_decisions(world) == [clan.clan_id]
+    assert clan.goal_set_tick == 0, "marked due"
+
+    simulation.step()
+    assert clan.goal_set_tick > before
+
+
+def test_forcing_a_clan_that_does_not_exist_changes_nothing():
+    world, simulation = _clan_world()
+    goals = {}
+    from src.world.components import Clan
+
+    for entity in world.query(Clan):
+        c = world.get(entity, Clan)
+        goals[c.clan_id] = c.goal_set_tick
+
+    queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+    queue.pending.append({"clan_id": 99999, "tick": world.tick})
+    forced = leadership.apply_forced_decisions(world)
+
+    assert forced == []
+    for entity in world.query(Clan):
+        c = world.get(entity, Clan)
+        assert c.goal_set_tick == goals[c.clan_id]
+
+
+def test_the_queue_is_drained_even_when_nothing_matches():
+    """Otherwise a request for a dead clan sits in durable state for ever."""
+    world, _ = _clan_world()
+    queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+    queue.pending.append({"clan_id": 99999, "tick": world.tick})
+    leadership.apply_forced_decisions(world)
+    assert queue.pending == []
+
+
+def test_forced_decisions_do_not_change_a_world_nobody_paid_for():
+    """Determinism: the drain must be a no-op when the queue is empty, or every world
+    would diverge from its replay."""
+    def run(force: bool) -> str:
+        world = create_world(WorldConfig(seed=11, agent_count=16, resource_count=30))
+        simulation = Simulation(world)
+        simulation.run(60)
+        if force:
+            leadership.apply_forced_decisions(world)  # empty queue
+        simulation.run(20)
+        return state_hash(world)
+
+    assert run(True) == run(False)
+
+
+def test_the_llm_can_be_switched_on_for_a_running_world(monkeypatch):
+    """A persisted world restores llm_enabled from its save, so without this a world
+    created with the model off could never have it turned on."""
+    monkeypatch.setenv("LLM_ENABLED", "true")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_enabled is True
+    assert "llm_enabled=True" in changed
+
+
+def test_the_llm_stays_off_when_nobody_asks(monkeypatch):
+    """The $0 default. Unset must never be read as "on"."""
+    monkeypatch.delenv("LLM_ENABLED", raising=False)
+    config, _ = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_enabled is False
+
+
+def test_the_model_and_provider_can_be_swapped_from_env(monkeypatch):
+    """A persisted world is otherwise stuck with the provider it was born with, so a
+    dead key could never be swapped for a working one without a new world."""
+    monkeypatch.setenv("LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("LLM_MODEL", "claude-opus-4-6")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_provider == "anthropic"
+    assert config.llm_model == "claude-opus-4-6"
+    assert "llm_provider=anthropic" in changed
+
+
+def test_an_unset_provider_leaves_the_configured_one_alone(monkeypatch):
+    for name in ("LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY_ENV"):
+        monkeypatch.delenv(name, raising=False)
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_provider == "dgrid"
+    assert changed == []
+
+
+def test_the_spend_cap_can_be_raised(monkeypatch):
+    """AdvisorState.calls_made is durable, so the cap is a total for the world's life.
+    Raising it is the only way to get more calls out of a world that spent its budget."""
+    monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", "2000")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_max_calls_per_session == 2000
+    assert "llm_max_calls_per_session=2000" in changed
+
+
+def test_the_spend_cap_can_be_dropped_to_zero(monkeypatch):
+    """Zero is a real answer — it stops spending on a running world without a restart."""
+    monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", "0")
+    config, _ = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_max_calls_per_session == 0
+
+
+def test_a_nonsense_spend_cap_is_refused(monkeypatch):
+    """A mistake here is somebody's money, so it is ignored rather than guessed at."""
+    for bad in ("lots", "-5", ""):
+        monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", bad)
+        config, _ = apply_chain_env(WorldConfig(agent_count=0))
+        assert config.llm_max_calls_per_session == 200

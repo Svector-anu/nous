@@ -1,55 +1,98 @@
-# Nous
+# nous
 
-Nous is a persistent, tick-based ai agent civilization sim. agents gather, build, eat, starve,
-form clans, trade, and raid each other when the food runs out — streamed live to a browser.
+a civilization that runs itself, live in your browser.
 
-**no llm calls happen unless you turn them on.** every agent is a state machine; only
-clan leaders can be given a brain, and only behind `llm_enabled`. off by default, because
-the world has to run 24/7 for $0.
+around a hundred agents forage, eat, starve, build huts, form clans, trade, hold grudges,
+raid each other when food runs short, and bury the ones who don't make it. nobody scripts
+any of it. you watch it happen.
 
-when you do turn it on, credentials come from `.env` (gitignored; copy `.env.example`).
-providers: `anthropic`, `xai`, `openai`, and `dgrid` — a gateway fronting many providers
-behind one openai-compatible endpoint, where models are addressed `provider/model`.
+**[nous.city](https://nous.city)** · one tick per second · day 1,032 and counting
 
-> dgrid issues two kinds of key and only one can infer. a **management** key (`mk-`) may
-> list models but returns 401 from chat/completions; a **model** key (`sk-`) is the one you
-> want. that asymmetry makes a wrong key look like a broken request, so both the advisor
-> and `scripts/verify_llm.py` check the prefix up front and say which is which.
->
-> dgrid also **drops system-role messages**. measured, not guessed: the same instruction
-> sent as `system` came back "I don't have context for this", and sent in the user turn came
-> back as exactly the requested json. so `DGridAdvisor` folds the system prompt into the
-> user turn. without that, the goal list and the output shape never reach the model and it
-> answers plausibly from the state summary alone — which reads as a parsing bug and is not
-> one. it accepts `response_format: json_schema` and ignores it too, so the system prompt
-> states the output shape itself rather than relying on that parameter.
+---
 
-**the live path is verified.** one real call, one clan, through the running simulation:
+## what it is
 
-```
-[raw response]
-{"goal": "gather_food", "reason": "Hunger sits near half with eight rival clans nearby,
- so keep stores topped up rather than chase the last hut."}
+a persistent world. it runs 24/7 whether or not anyone is watching, saves itself, and
+picks up exactly where it left off. there is no session and no save file to load — you
+open a page and drop into a world that has been going for days.
 
-model chose : gather_food      rules chose : gather_food      verdict : same
-latency     : 4101 ms          applied at tick 813, survives save/reload
-```
+the camera directs itself like a nature documentary: it finds the raid, the funeral, the
+settlement going up, and cuts between them. you can grab it whenever you want.
 
-reproduce with `.venv/bin/python -m scripts.verify_llm --provider dgrid --model
-anthropic/claude-opus-5`. it is deliberately bounded to one clan and three calls.
+**three things you can do:**
 
-design docs live in [`planish/`](planish/). nothing here invents behaviour those docs
-don't call for. [`planish/IMPLEMENTATION_PLAN.md`](planish/IMPLEMENTATION_PLAN.md) is the
-handover doc — status, what's next, and the traps already fallen into.
+**watch.** free, no account, nothing to sign. the world does not need you.
 
-**where this is**: phase 0 complete and frozen. **phase 1 is done** — blackboard,
-structured messaging, resource transfer, clans, clan goals with soft influence,
-user-deployed agents and scarcity-driven raiding, plus raid memory (grudges) and truces.
-the phase 3 spatial index got pulled forward because it was the only thing genuinely
-blocking scale. **the visual layer is done**: procedural 3d is the main view, with a
-self-directing camera. 484 tests on local `main`, no remote.
+**deploy an agent.** name it, give it a personality, drop it in. it lives by exactly the
+same rules as everyone else — it can starve, get raided, rise to lead a clan, or die
+unremarkably in a field. claim it with a wallet and it answers to you alone.
 
-still deliberately absent: hard territory ownership, births, economy.
+**pay to change its mind.** send USDG on **Robinhood Chain** and a clan leader reconsiders
+its strategy on the spot. verified on-chain — right token, right recipient, right amount,
+and the same payment can never be spent twice.
+
+---
+
+## the minds
+
+every agent is a state machine: hungry, so find food; tired, so rest; threatened, so run.
+that runs free, forever, at $0.
+
+clan **leaders** can be given something more. turn on `LLM_ENABLED` and leaders consult
+**Claude Opus**, which reads what the leader knows — clan size, hunger, stores, rivals
+nearby, raids suffered, and its own personality — and answers with a goal and a reason.
+
+that reason is not decoration. it appears in the world log, in the leader's own voice:
+
+> **clan 3 decides to gather food**
+> *"mean hunger at 54 and three recent raids mean stores could collapse fast — rally is a
+> luxury we can't afford right now."*
+
+> **clan 4 decides to gather food**
+> *"mean hunger is critically low at 38 and 10 rival clans are nearby with a recent raid —
+> stores won't hold if members keep weakening."*
+
+rules stay the floor. a leader whose model is slow, over budget, or simply wrong still has
+a goal that tick — the model refines the decision rather than gating it. so the world never
+stalls waiting on an api, and never costs anything it wasn't told to.
+
+spending is capped in durable world state, not in memory, so restarting the server cannot
+buy more calls.
+
+---
+
+## money
+
+**payments are real.** USDG on Robinhood Chain (chain 4663), sent from your own wallet to
+the operator's address. the server reads the transaction receipt back off the chain and
+checks the token, the recipient and the amount before anything happens. underpay and it
+refuses. replay the same transaction and it refuses. nous never holds your keys and never
+moves your money — your wallet does, and you approve it.
+
+**predictions run on play credits.** markets open on their own — will this clan survive,
+will population fall below a line, will this truce hold, will that agent live — and settle
+from world state with no human deciding the answer. a clan wiped out settles the moment it
+happens, not when the clock runs out. winners split the pool.
+
+the credits are an experiment while real settlement is built. we want to see how people bet
+before money is on the table.
+
+---
+
+## why it holds together
+
+**deterministic.** same seed, same inputs, same world — down to a hash over every component.
+every outside event, a deployment, a bet, a payment, queues and applies at a fixed tick, so
+history never depends on when an http request happened to land.
+
+**cheap.** no build step, no framework, no cdn. one python process and a single html file.
+the 3d is vendored three.js. it runs on the smallest box you can rent.
+
+**honest.** the boot screen only claims the chain is live because the server says it is. the
+prediction card says what its credits are. nothing in the interface asserts something the
+code cannot back.
+
+---
 
 ## run it
 
@@ -142,7 +185,7 @@ it arrives on the next tick, drawn larger with a white ring, and lives by exactl
 rules as everyone else. `GET /agents` returns the cards.
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # 484 tests, ~115s
+.venv/bin/python -m pytest tests/ -q      # 512 tests, ~115s
 ```
 
 **music.** off until you press the speaker in the top bar, because browsers refuse to start
@@ -201,6 +244,107 @@ curl localhost:8000/markets
 curl -X POST localhost:8000/markets/3/positions -H 'Content-Type: application/json' \
      -d '{"user":"ana","side":"yes","stake":25}'
 ```
+
+## switches
+
+everything ships off. a fresh clone runs the world, the markets and the viewer with no
+keys, no accounts and no spend — that is the default and it stays supported.
+
+turn things on in `.env` (gitignored; copy `.env.example`). the settings below are read
+**after the world loads**, which matters: a saved world restores its own config, so
+editing `src/world/config.py` does nothing to a world that already exists. the env is the
+only way to change a running one.
+
+### watch only — the default
+
+nothing to set. `python -m src.main`, open the page, done. no llm, no wallet, no payments.
+markets run on play credits.
+
+### give clan leaders a mind
+
+```bash
+LLM_ENABLED=true
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-opus-4-8
+LLM_MAX_CALLS_PER_SESSION=2000     # optional, default 200
+```
+
+credentials come from the sdk's own environment, never from config — `WorldConfig` is
+written into `world_meta` verbatim, and a config that can hold a key will eventually leak
+one. for anthropic that is `ANTHROPIC_AUTH_TOKEN`, plus `ANTHROPIC_BASE_URL` if you front
+it with a compatible gateway.
+
+only clan leaders are ever consulted, and only every `llm_min_ticks_between_calls` (300)
+ticks. ordinary agents never call anything. the rules still choose a goal on the same tick,
+so a slow or failing model costs you nothing but the reasoning.
+
+**the spend cap is durable.** `AdvisorState.calls_made` is world state, saved to sqlite —
+restarting does not reset it. that is deliberate: it used to live in memory, where a crash
+loop could spend without limit. so the cap is a total for the world's life, and raising it
+is the only way to buy more calls.
+
+`LLM_MAX_CALLS_PER_SESSION=0` stops spending on a running world without a restart.
+
+### let people claim their agents
+
+```bash
+CHAIN_IDENTITY_ENABLED=true
+```
+
+adds the wallet button. a visitor proves an address with a signed eip-4361 message and the
+server recovers the signer — the nonce is read out of the signed text, not a request field,
+so one signature cannot be replayed against a fresh challenge.
+
+claiming an agent means only that wallet may rest or delete it. unclaimed agents stay open
+to anyone, which is what keeps the world playable without a wallet. a claimed agent gets no
+advantage in-world — a test pins that the world's `state_hash` is identical with and
+without the label.
+
+needs `eth-account` (already in requirements). without it the button shows as disabled
+rather than failing on click.
+
+### take payments
+
+```bash
+X402_ENABLED=true
+X402_VERIFIER=chain
+X402_RECIPIENT_ADDRESS=0xYourAddressOnChain4663
+FORCE_DECISION_ENABLED=true
+```
+
+a paid action answers `402` with everything a wallet needs — recipient, the usdg contract,
+chain id, decimals, and the amount in integer units — and the viewer builds the transfer
+from that. the payment is sent by the visitor's own wallet; nous holds no keys.
+
+on retry the server reads the transaction receipt back off the chain and checks the usdg
+transfer logs: right token, right recipient, enough of it. underpaying is refused, and the
+same transaction cannot be spent twice.
+
+`X402_VERIFIER=header` trusts an upstream proxy's verdict instead — useful behind a gateway
+that settles off-chain, and the default so nothing accidentally talks to a chain.
+
+what a payment buys: a clan reconsiders its goal on the next tick. it works with or without
+an llm, because the rules are the floor — so a paid decision is real on a world that costs
+nothing to run.
+
+### what stays off
+
+```bash
+REAL_MONEY_ENABLED=false
+```
+
+prediction credits are play money. turning this on would mean deposits and payouts, and
+nothing here signs a transaction — `escrow` records what is owed and waits for an operator's
+settlement job that does not exist yet. leave it false.
+
+### checking what is on
+
+```bash
+curl localhost:8000/chain/config
+```
+
+reports the flags the server actually resolved. the boot screen reads the same endpoint, so
+its "live on robinhood chain" badge cannot outlive the configuration that makes it true.
 
 ## layout
 
@@ -566,10 +710,10 @@ the simulation running normally.
 | control | default | what it bounds |
 |:--|:--|:--|
 | `llm_enabled` | `False` | nothing runs unless explicitly turned on |
-| `llm_provider` | `anthropic` | which backend, or `none` |
+| `llm_provider` | `dgrid` | which backend, or `none`. settable from env |
 | `llm_min_ticks_between_calls` | 300 | how often one clan may be consulted |
 | `llm_max_inflight` | 2 | concurrent requests |
-| `llm_max_calls_per_session` | 200 | total spend for the life of the process |
+| `llm_max_calls_per_session` | 200 | total spend for the life of the **world** — durable, so a restart does not reset it |
 | `llm_timeout_seconds` | 30 | a stalled call falls back to rules |
 | `llm_log_limit` | 200 | the decision log is bounded like everything else |
 | `llm_max_recovery_attempts` | 2 | retries for a request interrupted by a restart |

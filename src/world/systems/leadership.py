@@ -24,6 +24,7 @@ from ..components import (
     Clan,
     ClanGoal,
     DecisionLog,
+    ForceDecisionQueue,
     Inventory,
     MessageType,
     Needs,
@@ -269,6 +270,43 @@ def _apply(world: World, decision) -> None:
     )
 
 
+def apply_forced_decisions(world: World) -> list[int]:
+    """Drain paid force-decision requests. Returns the clan ids that will re-decide.
+
+    A clan reviews its goal every `goal_review_ticks`. Forcing a decision resets that
+    clock, so `social` — which runs immediately after this and chooses goals by rule —
+    reconsiders the clan on this very tick instead of whenever its turn came round.
+
+    Deliberately independent of the advisor. The rules are the floor, not a degraded
+    mode, so a forced decision produces a real, immediate, visible change whether or not
+    an llm is configured — and somebody who paid for one gets what they paid for on a
+    world that costs nothing to run.
+
+    Drained here rather than at the http boundary because what history depends on must be
+    the queue entry at a fixed tick, never the request that produced it.
+    """
+    entity = world.first(ForceDecisionQueue)
+    if entity is None:
+        return []
+    queue = world.get(entity, ForceDecisionQueue)
+    if not queue.pending:
+        return []
+
+    # Ascending, so a reloaded world applies them in the same order.
+    wanted = sorted({int(entry.get("clan_id", 0)) for entry in queue.pending})
+    queue.pending.clear()
+
+    forced: list[int] = []
+    for entity_id in world.query(Clan):
+        clan = world.get(entity_id, Clan)
+        if clan.clan_id in wanted and clan.members:
+            # 0 is what a clan that has never decided carries, and `social` treats it as
+            # due — so this asks for a decision rather than inventing one here.
+            clan.goal_set_tick = 0
+            forced.append(clan.clan_id)
+    return forced
+
+
 def run(world: World, rng: TickRng) -> None:
     """Nothing an advisor does may break the world.
 
@@ -278,6 +316,10 @@ def run(world: World, rng: TickRng) -> None:
     into it is contained, and every failure resolves to "no decision", which the rules
     then handle on the very same tick.
     """
+    # Before every advisor guard below: a paid decision must land whether or not an llm
+    # is configured, and those guards return early when it is not.
+    apply_forced_decisions(world)
+
     advisor = world.advisor
     if advisor is None:
         return
