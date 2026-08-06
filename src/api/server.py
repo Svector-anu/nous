@@ -193,6 +193,10 @@ CHAIN_FLAG_ENV = {
     # Named for the llm because that is where it started, but a forced decision no longer
     # needs one: leadership drains the queue and the rule-based goal choice does the work.
     "llm_force_decision_enabled": "FORCE_DECISION_ENABLED",
+    # Clan leaders consult a model. Off by default because the world runs 24/7 and every
+    # call costs money — but a persisted world would otherwise be stuck on whatever this
+    # was when it was created, which is the whole reason these overrides exist.
+    "llm_enabled": "LLM_ENABLED",
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}

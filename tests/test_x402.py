@@ -606,3 +606,19 @@ def test_forced_decisions_do_not_change_a_world_nobody_paid_for():
         return state_hash(world)
 
     assert run(True) == run(False)
+
+
+def test_the_llm_can_be_switched_on_for_a_running_world(monkeypatch):
+    """A persisted world restores llm_enabled from its save, so without this a world
+    created with the model off could never have it turned on."""
+    monkeypatch.setenv("LLM_ENABLED", "true")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_enabled is True
+    assert "llm_enabled=True" in changed
+
+
+def test_the_llm_stays_off_when_nobody_asks(monkeypatch):
+    """The $0 default. Unset must never be read as "on"."""
+    monkeypatch.delenv("LLM_ENABLED", raising=False)
+    config, _ = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_enabled is False
