@@ -1147,6 +1147,15 @@
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
   /* Same green as the leader flash on the map, so the two read as one event. */
   #worldLogCard .feed-kind.leader { color: #6ee274; }
+  /* A leader's own words. Italic and indented so it reads as something the world said
+     rather than something the log observed about it. Only ever present when a model
+     actually reasoned — the rules leave goal_reason empty. */
+  #worldLogCard .feed-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  #worldLogCard .feed-reason {
+    font-style: italic; font-size: 11px; line-height: 1.4;
+    color: #a371f7; padding-left: 8px;
+    border-left: 2px solid rgba(163, 113, 247, 0.4);
+  }
 
   /* One icon carries both states: the crossed lines show while muted, the waves once
      sound is on. Swapping the whole svg would flicker on every toggle. */
@@ -3095,7 +3104,12 @@ function processWorldLog(snapshot) {
   if (events.length === 0) return;
 
   for (const event of events) {
-    worldLogEntries.push({ tick: snapshot.tick, kind: event.kind, label: event.label });
+    worldLogEntries.push({
+      tick: snapshot.tick, kind: event.kind, label: event.label,
+      // Carried separately so the leader's own words can be styled as speech rather
+      // than buried in the sentence describing the event.
+      reason: event.reason || "",
+    });
   }
   if (worldLogEntries.length > WORLD_LOG_LIMIT) {
     worldLogEntries = worldLogEntries.slice(-WORLD_LOG_LIMIT);
@@ -3105,9 +3119,16 @@ function processWorldLog(snapshot) {
   for (const entry of worldLogEntries.slice().reverse()) {
     const item = document.createElement("li");
     item.className = "feed-item";
+    // A reasoned decision shows the leader's sentence under the event, in their voice.
+    // The label already contains it, so it is stripped back out rather than repeated.
+    const plain = entry.reason
+      ? entry.label.slice(0, entry.label.indexOf(" — \u201c"))
+      : entry.label;
     item.innerHTML =
       `<span class="feed-icon">${WORLD_LOG_ICONS[entry.kind] || WORLD_LOG_ICONS.goalChange}</span>` +
-      `<span>${escapeHtml(entry.label)}</span>` +
+      `<span class="feed-body">${escapeHtml(plain)}` +
+      (entry.reason ? `<span class="feed-reason">\u201c${escapeHtml(entry.reason)}\u201d</span>` : "") +
+      `</span>` +
       `<span class="feed-kind ${entry.kind}">${entry.kind.replace("goalChange", "goal")}</span>`;
     worldLog.appendChild(item);
   }
