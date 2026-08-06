@@ -830,6 +830,30 @@ const trouble = await page.evaluate(() => {
     disconnected: of({ code: 4900, message: "disconnected" }),
   };
 });
+// A phone has no extensions at all, so "install one and reload" is advice that cannot
+// be followed there — the page has to say something different depending on where it is.
+const noWallet = await page.evaluate(() => {
+  const t = window.__wallet.walletTrouble;
+  const real = navigator.userAgent;
+  const at = (ua) => {
+    Object.defineProperty(navigator, "userAgent", { value: ua, configurable: true });
+    const r = t({ message: "no provider" });
+    Object.defineProperty(navigator, "userAgent", { value: real, configurable: true });
+    return r;
+  };
+  return {
+    phone: at("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"),
+    desktop: at("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"),
+  };
+});
+check(
+  "a phone is not told to install a browser extension",
+  noWallet.phone.label === "Open in wallet" &&
+    /wallet app/i.test(noWallet.phone.hint) &&
+    !/install/i.test(noWallet.phone.hint) &&
+    /install/i.test(noWallet.desktop.hint),
+  `phone="${noWallet.phone.label}", desktop="${noWallet.desktop.label}"`
+);
 check(
   "a locked wallet is not reported as a cancelled one",
   trouble.locked.label === "Unlock wallet" && trouble.rejected.label === "Cancelled" &&

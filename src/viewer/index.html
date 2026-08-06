@@ -2524,8 +2524,10 @@ function walletTrouble(error) {
   // provider does, and checking for the provider up front swallowed all of them.
   if (!window.ethereum) {
     return {
-      label: "No wallet",
-      hint: "No wallet extension found. Install MetaMask, then reload this page.",
+      label: onAPhone() ? "Open in wallet" : "Get a wallet",
+      hint: onAPhone()
+        ? "Phone browsers have no wallet extensions. Open nous inside a wallet app to claim an agent."
+        : "No wallet extension in this browser. Install MetaMask, then reload nous.",
     };
   }
   return {
@@ -2539,11 +2541,41 @@ function walletFailed(text) {
   setTimeout(renderWallet, 2600);
 }
 
+/** A phone browser, where extensions do not exist at all. */
+function onAPhone() {
+  return /android|iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+/**
+ * No provider here. On a phone that is not a mistake — mobile browsers have no
+ * extensions — so the fix is to reopen this page inside a wallet app, which does have
+ * one. On a desktop the fix is to install an extension, and the most a page may do is
+ * open the store: no browser lets a site install anything by itself.
+ */
+function offerAWallet() {
+  const here = location.host + location.pathname + location.search;
+  if (onAPhone()) {
+    showHint("Opening this world in MetaMask…", 5000);
+    // The app's own browser has a provider, so the same page works once it loads there.
+    location.href = `https://metamask.app.link/dapp/${here}`;
+    return;
+  }
+  showHint(
+    "No wallet extension in this browser. Opening the MetaMask download page — " +
+    "install it, then reload nous and claim your agent.",
+    9000
+  );
+  window.open("https://metamask.io/download/", "_blank", "noopener");
+}
+
 async function connectWallet() {
   const provider = window.ethereum;
   if (!provider) {
-    walletBtn.title = "No wallet extension found in this browser";
-    walletFailed("No wallet");
+    walletBtn.title = onAPhone()
+      ? "Open this page in a wallet app to claim an agent"
+      : "No wallet extension found in this browser";
+    walletFailed(onAPhone() ? "Open in wallet" : "Get a wallet");
+    offerAWallet();
     return;
   }
   walletBusy(true, "Connecting…");
@@ -2700,7 +2732,7 @@ async function fetchWithPayment(url, options = {}) {
   return payAndRetry(url, payment, options);
 }
 
-window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, walletTrouble, state: wallet };
+window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, walletTrouble, onAPhone, state: wallet };
 // Test seam: the gate has no wallet extension, so the encoding and the 402 handling are
 // asserted directly rather than by driving MetaMask.
 window.__pay = { encodeTransfer, fetchWithPayment, ERC20_TRANSFER_SELECTOR };
