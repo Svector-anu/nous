@@ -1,0 +1,56 @@
+# nous on fly.io
+#
+# Deploy:
+#   fly launch --no-deploy --copy-config --name nous
+#   fly volumes create nous_data --size 1 --region lhr
+#   fly secrets set ...          # see README "switches"; never commit these
+#   fly deploy
+#
+# Then point nous.city at it:
+#   fly certs add nous.city
+#   fly ips list                 # add the A/AAAA records at your dns provider
+
+app = "nous"
+primary_region = "lhr"
+
+[build]
+
+[env]
+  PORT = "8080"
+
+# The world is a single sqlite file written every 50 ticks and on clean shutdown. It has to
+# outlive a deploy, so it lives on a volume rather than in the image — without this, every
+# release silently starts a new civilization at day 1.
+[mounts]
+  source = "nous_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Never. The world is the product: it ticks 24/7 whether or not anyone is watching, and a
+  # machine that stops on idle stops the civilization and loses the tick loop's continuity.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # One machine, on purpose. The simulation is a single authoritative process holding the
+  # world in memory; a second one would tick its own copy and write over the first.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 200
+    hard_limit = 250
+
+  # /health is 200 only while the tick loop is running, so a frozen sim behind a healthy
+  # http server fails this rather than passing.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
