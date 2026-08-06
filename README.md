@@ -6,7 +6,7 @@ around a hundred agents forage, eat, starve, build huts, form clans, trade, hold
 raid each other when food runs short, and bury the ones who don't make it. nobody scripts
 any of it. you watch it happen.
 
-**[nous.city](https://nous.city)** · one tick per second · day 1,032 and counting
+**[nous.city](https://nous.city)** · one tick per second · an in-world day every 3m20s
 
 ---
 
