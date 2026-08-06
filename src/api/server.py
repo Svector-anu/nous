@@ -254,6 +254,24 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
             overrides[field] = value
             changed.append(f"{field}={value}")
 
+    # The spend cap. `AdvisorState.calls_made` is durable world state, so this is a total
+    # for the world's whole life rather than per process — raising it is the only way to
+    # get more calls out of a world that has already spent its budget, and lowering it
+    # stops one immediately. Refused rather than guessed at when unparseable or negative,
+    # because a mistake here is somebody's money.
+    raw_cap = os.getenv("LLM_MAX_CALLS_PER_SESSION", "").strip()
+    if raw_cap:
+        try:
+            cap = int(raw_cap)
+        except ValueError:
+            logger.warning("LLM_MAX_CALLS_PER_SESSION=%r is not a number; ignored", raw_cap)
+        else:
+            if cap < 0:
+                logger.warning("LLM_MAX_CALLS_PER_SESSION=%d is negative; ignored", cap)
+            elif config.llm_max_calls_per_session != cap:
+                overrides["llm_max_calls_per_session"] = cap
+                changed.append(f"llm_max_calls_per_session={cap}")
+
     return (replace(config, **overrides) if overrides else config), changed
 
 

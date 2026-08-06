@@ -641,3 +641,27 @@ def test_an_unset_provider_leaves_the_configured_one_alone(monkeypatch):
     config, changed = apply_chain_env(WorldConfig(agent_count=0))
     assert config.llm_provider == "dgrid"
     assert changed == []
+
+
+def test_the_spend_cap_can_be_raised(monkeypatch):
+    """AdvisorState.calls_made is durable, so the cap is a total for the world's life.
+    Raising it is the only way to get more calls out of a world that spent its budget."""
+    monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", "2000")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_max_calls_per_session == 2000
+    assert "llm_max_calls_per_session=2000" in changed
+
+
+def test_the_spend_cap_can_be_dropped_to_zero(monkeypatch):
+    """Zero is a real answer — it stops spending on a running world without a restart."""
+    monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", "0")
+    config, _ = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_max_calls_per_session == 0
+
+
+def test_a_nonsense_spend_cap_is_refused(monkeypatch):
+    """A mistake here is somebody's money, so it is ignored rather than guessed at."""
+    for bad in ("lots", "-5", ""):
+        monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", bad)
+        config, _ = apply_chain_env(WorldConfig(agent_count=0))
+        assert config.llm_max_calls_per_session == 200
