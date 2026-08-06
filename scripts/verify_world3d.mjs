@@ -1200,7 +1200,17 @@ await mobilePage.click('[data-panel="deployPanel"]');
 await mobilePage.waitForTimeout(300);
 await mobilePage.fill("#agentName", "MobileGate");
 await mobilePage.click('button[type="submit"]');
-await mobilePage.waitForTimeout(1200);
+// Wait for the agent to actually arrive rather than guessing at a duration. A deploy is
+// queued and spawns on the next tick, so the true wait is at least one tick plus a render
+// — 1200ms was enough on this machine and not on a slower ci runner, where this failed as
+// "0 agents". renderMyAgents runs on every snapshot whether or not the panel is open, so
+// the list is a fair thing to poll before opening it.
+await mobilePage
+  .waitForFunction(
+    () => document.querySelectorAll("#myAgentsList .my-agent-item").length > 0,
+    { timeout: 15000 }
+  )
+  .catch(() => {}); // let the check below report it rather than throwing here
 await mobilePage.click('[data-agents="1"]');
 await mobilePage.waitForTimeout(300);
 const deployedFlow = await mobilePage.evaluate(() => {
@@ -1225,13 +1235,40 @@ if (await findBtn.isVisible().catch(() => false)) {
   );
   check("mobile find agent opens inspector", inspectorOpen);
 
-  const restBtn = await mobilePage.locator(".rest-toggle").first();
+  // The card is redrawn every snapshot. Its buttons used to be destroyed and rebuilt with
+  // it, so a tap in flight landed on a node that had already left the document and did
+  // nothing — rare with a mouse, routine with a finger, and reliable enough on a slow ci
+  // runner to fail the toggle check below every time. Node identity is the only thing that
+  // distinguishes the two cases: the card looks identical either way.
+  const survives = await mobilePage.evaluate(async () => {
+    const actions = () => document.querySelector("#inspector .agent-card-actions");
+    const first = actions();
+    if (!first) return { tested: false };
+    await new Promise((resolve) => setTimeout(resolve, 3400));
+    return {
+      tested: true,
+      sameNode: actions() === first,
+      stillInDocument: document.contains(first),
+    };
+  });
+  check(
+    "the inspector's buttons survive the card redrawing around them",
+    survives.tested === true && survives.sameNode && survives.stillInDocument,
+    survives.tested
+      ? `sameNode=${survives.sameNode}, inDocument=${survives.stillInDocument}`
+      : "inspector had no actions row — nothing was tested"
+  );
+
+  // Target the inspector's button specifically. ".rest-toggle" also matches the My Agents
+  // list, so .first() picked whichever happened to be earlier in the dom — a different
+  // control depending on which panel was open.
+  const restBtn = await mobilePage.locator("#inspector .rest-toggle").first();
   if (await restBtn.isVisible().catch(() => false)) {
     const beforeText = await restBtn.textContent();
     await restBtn.click();
     // The server applies the toggle on the next tick; wait for the snapshot to arrive.
     await mobilePage.waitForTimeout(2200);
-    const afterText = await mobilePage.locator(".rest-toggle").first().textContent();
+    const afterText = await mobilePage.locator("#inspector .rest-toggle").first().textContent();
     const resting =
       (beforeText.toLowerCase().includes("rest") && afterText.toLowerCase().includes("resume")) ||
       (beforeText.toLowerCase().includes("resume") && afterText.toLowerCase().includes("rest"));
@@ -1263,6 +1300,7 @@ const pickingIndicator = await page.evaluate(() => {
 });
 check("selection indicator is hidden before picking", !pickingIndicator.before);
 check("selection indicator shows after picking", pickingIndicator.after);
+
 
 // Reset selection so later checks do not carry it.
 await page.evaluate(() => window["__world"].setSelected(null));
