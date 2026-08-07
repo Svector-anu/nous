@@ -1,0 +1,37 @@
+# What `railway up` uploads before the build runs.
+#
+# This is a separate list from .dockerignore: that one filters the build context once the
+# archive has arrived, which is too late to help an upload that never finishes. The
+# Dockerfile copies requirements.txt, src/ and scripts/ and nothing else, so everything
+# below is bytes pushed over a home connection for no reason. Uploading them timed the
+# deploy out twice.
+
+# Planning and research notes — local only, by request, and nothing reads them at runtime.
+planish/
+
+# Brand assets. The banner alone is 2.6 MB and is served from the readme, not the app.
+brand/
+
+# The test suite runs before a deploy, not inside the image.
+tests/
+
+# Local noise
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.claude/
+.DS_Store
+
+# The world lives on a mounted volume. Shipping a snapshot would make every deploy
+# silently revert to it.
+data/
+*.db
+*.db-journal
+
+# Secrets never travel, whatever else changes here.
+.env
+.env.*
+!.env.example

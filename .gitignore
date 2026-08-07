@@ -31,6 +31,11 @@ nav.png
 .claude/
 CHAIN_SHIP.md
 
+# planning notes and the research screenshots behind them: kept on the author's machine
+# by request. They were tracked before that was decided, which is why they need naming
+# here rather than simply never being added.
+planish/
+
 # secrets: real keys live here, .env.example is the tracked template
 .env
 .env.*
