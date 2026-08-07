@@ -49,25 +49,79 @@ def advisor_state(world: World) -> AdvisorState | None:
 
 
 def advisor_status(world: World) -> dict:
-    """Small read-only summary for the viewer. Never calls the network."""
+    """Small read-only summary for the viewer. Never calls the network.
+
+    `llm_enabled` is what the operator asked for. `working` is what is actually true, and
+    the two come apart constantly: an advisor self-disables on bad credentials, and a
+    world that has spent its budget stops asking. Both leave the config saying yes while
+    every clan quietly falls back to rules.
+
+    Reporting only the config is how a dead advisor went unnoticed on a live world for
+    days — the status said `ClaudeAdvisor` the entire time it was answering nothing. A
+    status that cannot say no is not a status.
+    """
+    config = world.config
     state = advisor_state(world)
     advisor = world.advisor
+    calls_made = state.calls_made if state is not None else 0
+    max_calls = config.llm_max_calls_per_session
+
     if advisor is None:
         # A world without an attached advisor behaves exactly like a disabled one.
         return {
-            "llm_enabled": world.config.llm_enabled,
+            "llm_enabled": config.llm_enabled,
             "advisor": "NullAdvisor",
+            "working": False,
+            "reason": "no advisor attached",
             "pending": 0,
             "calls_made": 0,
-            "max_calls": world.config.llm_max_calls_per_session,
+            "max_calls": max_calls,
+            "budget_spent": False,
         }
+
+    # Read, never construct: `available` would build a client, so asking whether this
+    # works would be the thing that decides whether it works.
+    reason = str(getattr(advisor, "unavailable_reason", "") or "")
+    budget_spent = calls_made >= max_calls
+    if not reason:
+        if not config.llm_enabled:
+            reason = "llm disabled in config"
+        elif getattr(advisor, "name", "") == "none":
+            reason = "no provider configured"
+        elif budget_spent:
+            reason = f"call budget spent ({calls_made}/{max_calls})"
+
     return {
-        "llm_enabled": world.config.llm_enabled,
+        "llm_enabled": config.llm_enabled,
         "advisor": type(advisor).__name__,
+        "working": not reason,
+        "reason": reason,
         "pending": advisor.pending(),
-        "calls_made": state.calls_made if state is not None else 0,
-        "max_calls": world.config.llm_max_calls_per_session,
+        "calls_made": calls_made,
+        "max_calls": max_calls,
+        "budget_spent": budget_spent,
     }
+
+
+def _note_budget_spent(world: World, state) -> None:
+    """Say it out loud, once, the moment the last call is spent.
+
+    Running out of budget is not an error and nothing goes wrong: every clan simply uses
+    the rules from here on. That is exactly why it needs announcing — a world that stops
+    consulting a model looks identical to one that never started, and the only moment the
+    difference is visible is this one.
+
+    Fires on equality, so it logs exactly once per world however many ticks follow. A cap
+    lowered below what a world has already spent never trips it; the `budget_spent` field
+    in `advisor_status` covers that case, and covers it on every request.
+    """
+    if state.calls_made == world.config.llm_max_calls_per_session:
+        logger.warning(
+            "advisor budget spent: %d of %d calls used; every clan now uses the rules. "
+            "raise llm_max_calls_per_session (env LLM_MAX_CALLS_PER_SESSION) to continue.",
+            state.calls_made,
+            world.config.llm_max_calls_per_session,
+        )
 
 
 def _inflight_clans(advisor) -> set[int]:
@@ -135,6 +189,7 @@ def _recover_in_flight(world: World, advisor, state: AdvisorState) -> None:
 
         if accepted:
             state.calls_made += 1
+            _note_budget_spent(world, state)
             entry["attempts"] += 1
             survivors.append(entry)
             logger.info(
@@ -396,4 +451,5 @@ def run(world: World, rng: TickRng) -> None:
         if accepted:
             clan.last_advisor_tick = world.tick
             state.calls_made += 1
+            _note_budget_spent(world, state)
             state.add_pending(clan.clan_id, world.tick)

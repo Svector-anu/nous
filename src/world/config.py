@@ -90,7 +90,13 @@ class WorldConfig:
     # How many times a request that was in flight across a restart may be re-sent before
     # being abandoned. Bounded so a crash loop cannot retry forever.
     llm_max_recovery_attempts: int = 2
-    llm_min_ticks_between_calls: int = 300
+    # Per-clan cooldown, and the setting that decides what a world costs to run. Every
+    # clan is asked independently, so the spend scales with the clan count: at 300 ticks
+    # a mature world of ~23 clans asks about 13,000 times a real day, which was invisible
+    # when this default was chosen against a world that had three. 3000 keeps a live world
+    # answering roughly once a minute — still visible to anyone watching — for a twentieth
+    # of the calls. Override per deployment with LLM_MIN_TICKS_BETWEEN_CALLS.
+    llm_min_ticks_between_calls: int = 3000
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200
     # Seam for future x402 / pay-to-force-decision. Disabled by default.

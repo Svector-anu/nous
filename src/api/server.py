@@ -257,23 +257,36 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
             overrides[field] = value
             changed.append(f"{field}={value}")
 
-    # The spend cap. `AdvisorState.calls_made` is durable world state, so this is a total
-    # for the world's whole life rather than per process — raising it is the only way to
-    # get more calls out of a world that has already spent its budget, and lowering it
-    # stops one immediately. Refused rather than guessed at when unparseable or negative,
-    # because a mistake here is somebody's money.
-    raw_cap = os.getenv("LLM_MAX_CALLS_PER_SESSION", "").strip()
-    if raw_cap:
+    # Both of these decide how much the world costs to run, so both are refused rather
+    # than guessed at when unparseable or out of range: a mistake here is somebody's money.
+    #
+    # The spend cap is a total for the world's whole life, not per process — `calls_made`
+    # is durable world state. Raising it is the only way to get more calls out of a world
+    # that has already spent its budget, and lowering it stops one immediately.
+    #
+    # The cooldown is the stronger of the two levers, because it sets the *rate*. One call
+    # per clan per cooldown means a world with twenty clans spends twenty times what a
+    # world with one does at the same setting, which is why the default cannot be right
+    # for every world and this has to be reachable without a new one. A floor of 1 tick is
+    # enforced: zero would ask every clan on every tick.
+    for field, name, floor in (
+        ("llm_max_calls_per_session", "LLM_MAX_CALLS_PER_SESSION", 0),
+        ("llm_min_ticks_between_calls", "LLM_MIN_TICKS_BETWEEN_CALLS", 1),
+    ):
+        raw = os.getenv(name, "").strip()
+        if not raw:
+            continue
         try:
-            cap = int(raw_cap)
+            number = int(raw)
         except ValueError:
-            logger.warning("LLM_MAX_CALLS_PER_SESSION=%r is not a number; ignored", raw_cap)
-        else:
-            if cap < 0:
-                logger.warning("LLM_MAX_CALLS_PER_SESSION=%d is negative; ignored", cap)
-            elif config.llm_max_calls_per_session != cap:
-                overrides["llm_max_calls_per_session"] = cap
-                changed.append(f"llm_max_calls_per_session={cap}")
+            logger.warning("%s=%r is not a number; ignored", name, raw)
+            continue
+        if number < floor:
+            logger.warning("%s=%d is below the minimum of %d; ignored", name, number, floor)
+            continue
+        if getattr(config, field) != number:
+            overrides[field] = number
+            changed.append(f"{field}={number}")
 
     return (replace(config, **overrides) if overrides else config), changed
 

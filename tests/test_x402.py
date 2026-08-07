@@ -665,3 +665,24 @@ def test_a_nonsense_spend_cap_is_refused(monkeypatch):
         monkeypatch.setenv("LLM_MAX_CALLS_PER_SESSION", bad)
         config, _ = apply_chain_env(WorldConfig(agent_count=0))
         assert config.llm_max_calls_per_session == 200
+
+
+def test_the_call_rate_can_be_slowed_without_a_new_world(monkeypatch):
+    """The cooldown sets the *rate*, and the rate is what a world costs to run. A
+    persisted world keeps the config it was born with, so without this a deployment
+    that turned out twenty times more expensive than expected could only be fixed by
+    throwing the world away."""
+    monkeypatch.setenv("LLM_MIN_TICKS_BETWEEN_CALLS", "6000")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_min_ticks_between_calls == 6000
+    assert "llm_min_ticks_between_calls=6000" in changed
+
+
+def test_a_zero_cooldown_is_refused(monkeypatch):
+    """Zero means every clan on every tick — the single most expensive thing this world
+    can be told to do, one typo away from a sensible number."""
+    for bad in ("0", "-1", "soon", ""):
+        monkeypatch.setenv("LLM_MIN_TICKS_BETWEEN_CALLS", bad)
+        config, changed = apply_chain_env(WorldConfig(agent_count=0))
+        assert config.llm_min_ticks_between_calls == 3000
+        assert changed == []
