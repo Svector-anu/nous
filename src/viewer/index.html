@@ -2983,22 +2983,50 @@ async function setRest(agentId, rest) {
 //   - what this browser deployed, remembered locally, for agents nobody has claimed yet
 //
 // A visitor with no wallet and no local record owns nothing, and should see nothing.
-const DEPLOYED_KEY = "nous.deployed";
-
-function deployedHere() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(DEPLOYED_KEY) || "[]");
-    return Array.isArray(raw) ? raw.filter((n) => typeof n === "string") : [];
-  } catch {
-    return [];
-  }
+//
+// The local record is the agent's **id**, never its name. Names are typed by visitors and
+// nothing makes them unique: two people who both call an agent "elsie" each saw the other's
+// under My Agents, with Rest and Locate on top of it. Worse, the claim path linked the
+// first unowned "elsie" it found to your wallet, which could take a stranger's agent.
+// Ids are assigned by the world and are unique within it.
+//
+// Stored as `id:name` so a rebuilt world — where ids start again from the beginning —
+// cannot hand this browser a stranger's agent that happens to have reused a number.
+const MINE_KEY = "nous.mine";
+// Names were never a safe claim. Anything stored under the old key is dropped rather
+// than migrated: there is no way to tell which of several same-named agents was meant.
+const LEGACY_NAME_KEY = "nous.deployed";
+try {
+  localStorage.removeItem(LEGACY_NAME_KEY);
+} catch {
+  /* private mode: there was nothing to drop */
 }
 
-function rememberDeploy(name) {
+// isMine runs once per agent per snapshot — ninety times a second on a busy world — so
+// the answer is held rather than re-parsed out of storage on every call.
+let mineCache = null;
+
+function mineKeys() {
+  if (mineCache) return mineCache;
   try {
-    // Bounded: a browser that deploys all day must not grow this without limit.
-    const next = [...new Set([...deployedHere(), name])].slice(-40);
-    localStorage.setItem(DEPLOYED_KEY, JSON.stringify(next));
+    const raw = JSON.parse(localStorage.getItem(MINE_KEY) || "[]");
+    mineCache = Array.isArray(raw) ? raw.filter((k) => typeof k === "string") : [];
+  } catch {
+    mineCache = [];
+  }
+  return mineCache;
+}
+
+function mineKey(agent) {
+  return `${agent.id}:${agent.name}`;
+}
+
+function rememberMine(agent) {
+  // Bounded: a browser that deploys all day must not grow this without limit.
+  const next = [...new Set([...mineKeys(), mineKey(agent)])].slice(-40);
+  mineCache = next;
+  try {
+    localStorage.setItem(MINE_KEY, JSON.stringify(next));
   } catch {
     /* private mode: the agent still exists, it just will not be remembered here */
   }
@@ -3018,8 +3046,8 @@ function isMine(agent) {
     const address = (wallet.address || "").toLowerCase();
     return Boolean(address) && agent.owner.toLowerCase() === address;
   }
-  // Unclaimed: only the browser that deployed it has any claim to it.
-  return deployedHere().includes(agent.name);
+  // Unclaimed: only the browser that deployed this exact agent has any claim to it.
+  return mineKeys().includes(mineKey(agent));
 }
 
 /** Agents this visitor can honestly call theirs. */
@@ -3935,6 +3963,12 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
   const personality = document.getElementById("agentPersonality").value.trim();
   deployStatus.className = "";
   deployStatus.textContent = "deploying…";
+  // Every agent already carrying this name, captured before ours can exist. Whatever
+  // turns up outside this set is the one we just deployed; anything inside it is
+  // somebody else's, however identically it is named.
+  const before = new Set(
+    (lastSnapshot?.agents || []).filter((a) => a.name === name).map((a) => a.id)
+  );
   try {
     const response = await fetch("/agents", {
       method: "POST",
@@ -3949,13 +3983,10 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
       deployStatus.textContent = `${name} arrives next tick`;
       document.getElementById("agentName").value = "";
       document.getElementById("agentPersonality").value = "";
-      // Before anything else: this is the only record that this browser deployed it,
-      // and without it an unclaimed agent is indistinguishable from a stranger's.
-      rememberDeploy(name);
       // A deploy is queued, so the agent has no id yet — it appears on the next tick.
-      // Claiming waits for it rather than guessing, which is why this is not awaited:
-      // the deploy has already succeeded and the claim is a follow-up, not a condition.
-      claimWhenItArrives(name);
+      // Adopting waits for it rather than guessing, which is why this is not awaited:
+      // the deploy has already succeeded and the record is a follow-up, not a condition.
+      adoptWhenItArrives(name, before);
     } else {
       deployStatus.className = "bad";
       deployStatus.textContent = body.detail || "deploy failed";
@@ -3968,27 +3999,37 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
 
 
 /**
- * Claim a freshly deployed agent for the connected wallet.
+ * Take ownership of a freshly deployed agent: remember it here, and link it to the
+ * wallet if one is connected.
  *
- * The button says "claim your agents", and until now signing in was all it did — the
- * link endpoint existed and nothing ever called it. So a claimed agent was not actually
- * claimed, and anyone could rest or delete it.
+ * A deploy returns no id — spawning is queued and the agent exists from the next tick —
+ * so this watches the snapshots the viewer already receives. `before` holds every agent
+ * that already carried this name at the moment we asked, and the one we deployed is
+ * whichever turns up outside that set. Matching on the name alone is what let a browser
+ * adopt, and a wallet claim, an agent belonging to somebody who had picked the same one.
  *
- * A deploy returns no id: spawning is queued and the agent exists from the next tick. So
- * this watches the snapshots the viewer already receives for a user agent of that name
- * carrying no owner, and links that one. Bounded, because an agent that never arrives
- * must not leave a watcher running for the rest of the session.
+ * If several arrive at once the highest id wins: ids only ever increase, so that is the
+ * most recently spawned. Bounded, because an agent that never arrives must not leave a
+ * watcher running for the rest of the session.
+ *
+ * Polled faster than the tick it is waiting for. Remembering the name was instant, so
+ * anything slower than the snapshot itself is time the deployer spends looking at a list
+ * that does not yet contain the agent they just made.
  */
-async function claimWhenItArrives(name, attempts = 12) {
-  if (!wallet.session || !wallet.address) return;
+async function adoptWhenItArrives(name, before, attempts = 40) {
   for (let i = 0; i < attempts; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const mine = (lastSnapshot?.agents || []).filter(
-      (a) => a.user && a.name === name && !a.owner
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const fresh = (lastSnapshot?.agents || []).filter(
+      (a) => a.user && a.name === name && !before.has(a.id)
     );
-    if (!mine.length) continue;
+    if (!fresh.length) continue;
+    const agent = fresh.reduce((best, a) => (a.id > best.id ? a : best));
+    // Before anything else: without this record an unclaimed agent is indistinguishable
+    // from a stranger's, and the lists would show this visitor nothing of their own.
+    rememberMine(agent);
+    if (!wallet.session || !wallet.address || agent.owner) return;
     try {
-      const response = await fetch(`/agents/${mine[0].id}/link`, {
+      const response = await fetch(`/agents/${agent.id}/link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: wallet.address, session: wallet.session }),
@@ -4303,7 +4344,7 @@ window.__topbar = { setStatDelta, setFollowFromLabel };
 // raid, a succession — are rare and unschedulable in a live world, so the gate drives a pair
 // of hand-built snapshots through the real detector and the real log renderer rather than
 // waiting for the simulation to happen to produce one.
-window.__mine = { myAgents, isMine, bettor, chainPaysFor, rememberDeploy, deployedHere, DEPLOYED_KEY };
+window.__mine = { myAgents, isMine, bettor, chainPaysFor, rememberMine, mineKeys, mineKey, MINE_KEY, LEGACY_NAME_KEY };
 
 window.__events = {
   findEvents,

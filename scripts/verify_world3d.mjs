@@ -1045,37 +1045,52 @@ await page.evaluate(async () => {
 // where you are the only player.
 const ownership = await page.evaluate(() => {
   const m = window.__mine;
-  localStorage.removeItem(m.DEPLOYED_KEY);
-  const agent = (name, owner) => ({ id: name.length, name, user: true, owner });
+  localStorage.removeItem(m.MINE_KEY);
+  localStorage.removeItem(m.LEGACY_NAME_KEY);
+  // Two agents called "elsie": one a stranger's, one ours. This is the shape that was
+  // wrong on the live site — the local record was the *name*, so both looked ours.
+  const strangerElsie = { id: 1, name: "elsie", user: true, owner: "" };
+  const ourElsie = { id: 2, name: "elsie", user: true, owner: "" };
   const snap = {
     agents: [
-      agent("elsie", ""),                       // a stranger's, unclaimed
-      agent("bo", "0xAAAA"),                    // a stranger's, claimed
-      agent("mine-unclaimed", ""),              // ours, deployed here
-      agent("mine-claimed", "0xBBBB"),          // ours, claimed by our wallet
-      { id: 9, name: "native", user: false, owner: "" },
+      strangerElsie,
+      ourElsie,
+      { id: 3, name: "bo", user: true, owner: "0xAAAA" },        // stranger's, claimed
+      { id: 4, name: "mine-claimed", user: true, owner: "0xBBBB" }, // ours, by wallet
+      { id: 9, name: "native", user: false, owner: "" },         // not a visitor's at all
     ],
   };
-  const names = (list) => list.map((a) => a.name).sort();
+  const ids = (list) => list.map((a) => a.id).sort();
 
   window.__wallet.setWalletSession("", "");
-  const strangerSeesNothing = names(m.myAgents(snap));
+  const strangerSeesNothing = ids(m.myAgents(snap));
 
-  m.rememberDeploy("mine-unclaimed");
-  const deployedOnly = names(m.myAgents(snap));
+  // A name in the old storage key must buy nothing at all.
+  localStorage.setItem(m.LEGACY_NAME_KEY, JSON.stringify(["elsie"]));
+  const legacyNameBuysNothing = ids(m.myAgents(snap));
+  localStorage.removeItem(m.LEGACY_NAME_KEY);
+
+  m.rememberMine(ourElsie);
+  const deployedOnly = ids(m.myAgents(snap));
 
   window.__wallet.setWalletSession("0xbbbb", "session");
-  const withWallet = names(m.myAgents(snap));
+  const withWallet = ids(m.myAgents(snap));
 
   // The same predicate every control uses, checked directly: a stranger's agent must
-  // never be actionable, and our own must be.
-  m.rememberDeploy("mine-unclaimed");
-  const strangerControls = m.isMine(agent("elsie", ""));
-  const ownControls = m.isMine(agent("mine-unclaimed", ""));
+  // never be actionable, and our own must be — even sharing a name.
+  const strangerControls = m.isMine(strangerElsie);
+  const ownControls = m.isMine(ourElsie);
 
   window.__wallet.setWalletSession("", "");
-  localStorage.removeItem(m.DEPLOYED_KEY);
-  return { strangerSeesNothing, deployedOnly, withWallet, strangerControls, ownControls };
+  localStorage.removeItem(m.MINE_KEY);
+  return {
+    strangerSeesNothing,
+    legacyNameBuysNothing,
+    deployedOnly,
+    withWallet,
+    strangerControls,
+    ownControls,
+  };
 });
 // Paying required opening a browser console until now, which is not a product.
 const payUi = await page.evaluate(() => {
@@ -1114,9 +1129,10 @@ check(
   `guest="${who.guest}", connected="${who.owned}"`
 );
 check(
-  "the inspector will not offer controls on a stranger's agent",
-  ownership.strangerControls === false && ownership.ownControls === true,
-  `stranger=${ownership.strangerControls}, own=${ownership.ownControls}`
+  "an agent sharing a name with mine is still not mine",
+  ownership.strangerControls === false && ownership.ownControls === true &&
+    JSON.stringify(ownership.deployedOnly) === JSON.stringify([2]),
+  `stranger=${ownership.strangerControls}, own=${ownership.ownControls}, mine=[${ownership.deployedOnly}]`
 );
 check(
   "a visitor who deployed nothing owns nothing",
@@ -1124,9 +1140,14 @@ check(
   `saw: ${ownership.strangerSeesNothing.join(", ") || "nothing"}`
 );
 check(
+  "a name left in the old storage key claims nothing",
+  ownership.legacyNameBuysNothing.length === 0,
+  `saw: ${ownership.legacyNameBuysNothing.join(", ") || "nothing"}`
+);
+check(
   "my agents never contains somebody else's agent",
-  JSON.stringify(ownership.deployedOnly) === JSON.stringify(["mine-unclaimed"]) &&
-    JSON.stringify(ownership.withWallet) === JSON.stringify(["mine-claimed", "mine-unclaimed"]),
+  JSON.stringify(ownership.deployedOnly) === JSON.stringify([2]) &&
+    JSON.stringify(ownership.withWallet) === JSON.stringify([2, 4]),
   `deployed-only: [${ownership.deployedOnly}] · with wallet: [${ownership.withWallet}]`
 );
 
