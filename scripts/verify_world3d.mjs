@@ -1038,6 +1038,51 @@ await page.evaluate(async () => {
   window.__events.feed(real, real);
 });
 
+// --- 11a. "my agents" means mine ------------------------------------------------
+// agent.user means "deployed by a visitor" — any visitor. Filtering on it showed every
+// player every other player's agents under My Agents, with Rest and Claim on top of a
+// stranger's character. The most expensive bug in this build, and invisible on a laptop
+// where you are the only player.
+const ownership = await page.evaluate(() => {
+  const m = window.__mine;
+  localStorage.removeItem(m.DEPLOYED_KEY);
+  const agent = (name, owner) => ({ id: name.length, name, user: true, owner });
+  const snap = {
+    agents: [
+      agent("elsie", ""),                       // a stranger's, unclaimed
+      agent("bo", "0xAAAA"),                    // a stranger's, claimed
+      agent("mine-unclaimed", ""),              // ours, deployed here
+      agent("mine-claimed", "0xBBBB"),          // ours, claimed by our wallet
+      { id: 9, name: "native", user: false, owner: "" },
+    ],
+  };
+  const names = (list) => list.map((a) => a.name).sort();
+
+  window.__wallet.setWalletSession("", "");
+  const strangerSeesNothing = names(m.myAgents(snap));
+
+  m.rememberDeploy("mine-unclaimed");
+  const deployedOnly = names(m.myAgents(snap));
+
+  window.__wallet.setWalletSession("0xbbbb", "session");
+  const withWallet = names(m.myAgents(snap));
+
+  window.__wallet.setWalletSession("", "");
+  localStorage.removeItem(m.DEPLOYED_KEY);
+  return { strangerSeesNothing, deployedOnly, withWallet };
+});
+check(
+  "a visitor who deployed nothing owns nothing",
+  ownership.strangerSeesNothing.length === 0,
+  `saw: ${ownership.strangerSeesNothing.join(", ") || "nothing"}`
+);
+check(
+  "my agents never contains somebody else's agent",
+  JSON.stringify(ownership.deployedOnly) === JSON.stringify(["mine-unclaimed"]) &&
+    JSON.stringify(ownership.withWallet) === JSON.stringify(["mine-claimed", "mine-unclaimed"]),
+  `deployed-only: [${ownership.deployedOnly}] · with wallet: [${ownership.withWallet}]`
+);
+
 // --- 11bis. a strip panel is long and horizontal, and nothing is cut off ----------
 // The failure this catches: PREDICTIONS opened as a full-width panel whose content was
 // stacked vertically, so a market was sliced in half by the bottom edge and the

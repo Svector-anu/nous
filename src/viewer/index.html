@@ -2694,6 +2694,28 @@ async function ensureChain(provider, chainId, chainName, explorer) {
 }
 
 /**
+ * Wait until a transaction is mined, or give up.
+ *
+ * Bounded, because a transaction can sit unmined indefinitely and a spectator should get
+ * an answer either way. Giving up still retries — the server is the authority on whether
+ * a payment counts, and by then the block may well have landed.
+ */
+async function waitForReceipt(provider, txHash, tries = 20) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const receipt = await provider.request({
+        method: "eth_getTransactionReceipt", params: [txHash],
+      });
+      if (receipt) return receipt;
+    } catch {
+      /* a node that will not answer is the same as one that has nothing yet */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
+  return null;
+}
+
+/**
  * Pay a 402 and retry the request that raised it.
  *
  * `payment` is the block the server sent back. Returns the retried response, so a
@@ -2715,6 +2737,11 @@ async function payAndRetry(url, payment, options = {}) {
       data: encodeTransfer(payment.recipient, payment.amount_units),
     }],
   });
+
+  // A hash means submitted, not mined. Retrying immediately asks the server to read a
+  // receipt that does not exist yet, and it correctly refuses — so a perfectly good
+  // payment came back 402 while the money was already gone. Wait for the block.
+  await waitForReceipt(provider, txHash);
 
   // The retry carries the hash; the server reads the receipt itself and checks the
   // token, the recipient and the amount. Nothing here is trusted.
@@ -2862,13 +2889,58 @@ async function setRest(agentId, rest) {
   }
 }
 
+// --- what "mine" actually means ---------------------------------------------
+//
+// `agent.user` means "deployed by a visitor" — any visitor, not this one. Both agent
+// lists filtered on it, so every player saw every other player's agents under "My
+// Agents", with Rest, Locate and Claim sitting on top of somebody else's character.
+//
+// Ownership has two honest sources and no third:
+//   - the wallet on the agent, which is durable world state and settles it outright
+//   - what this browser deployed, remembered locally, for agents nobody has claimed yet
+//
+// A visitor with no wallet and no local record owns nothing, and should see nothing.
+const DEPLOYED_KEY = "nous.deployed";
+
+function deployedHere() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(DEPLOYED_KEY) || "[]");
+    return Array.isArray(raw) ? raw.filter((n) => typeof n === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberDeploy(name) {
+  try {
+    // Bounded: a browser that deploys all day must not grow this without limit.
+    const next = [...new Set([...deployedHere(), name])].slice(-40);
+    localStorage.setItem(DEPLOYED_KEY, JSON.stringify(next));
+  } catch {
+    /* private mode: the agent still exists, it just will not be remembered here */
+  }
+}
+
+/** Agents this visitor can honestly call theirs. */
+function myAgents(snapshot) {
+  const address = (wallet.address || "").toLowerCase();
+  const local = new Set(deployedHere());
+  return (snapshot.agents || []).filter((a) => {
+    if (!a.user) return false;
+    // Claimed: the chain says who owns it, and that is the end of the argument.
+    if (a.owner) return address && a.owner.toLowerCase() === address;
+    // Unclaimed: only the browser that deployed it has any claim to show it.
+    return local.has(a.name);
+  });
+}
+
 // What the list actually shows. Rebuilding it when none of this changed destroyed and
 // recreated every button once a second, so a click in flight landed on a node that had
 // already left the document. Same fault as the inspector card, same cost to a user.
 let lastDeployedKey = null;
 
 function renderDeployed(snapshot) {
-  const mine = snapshot.agents.filter((a) => a.user);
+  const mine = myAgents(snapshot);
   const key = mine
     .map((a) => `${a.id}:${a.rest_mode ? 1 : 0}:${a.state}:${a.clan}:${a.name}:${a.personality}`)
     .join("|");
@@ -2951,7 +3023,7 @@ function statusChipClass(status) {
 let lastMyAgentsKey = null;
 
 function renderMyAgents(snapshot) {
-  const mine = snapshot.agents.filter((a) => a.user);
+  const mine = myAgents(snapshot);
 
   // Only what the row displays. Position deliberately excluded: it changes every tick and
   // is not shown, and the handlers below read it live rather than from the closure.
@@ -2995,8 +3067,9 @@ function renderMyAgents(snapshot) {
       `<button class="rest-agent" aria-label="${restLabel}" title="${restLabel}">${restIcon}<span>${restLabel}</span></button>` +
       `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
       // Only for an agent nobody has claimed, and only while a wallet is connected.
-      // A claimed one shows who owns it instead, because "claim" on something already
-      // yours is a button that cannot do anything.
+      // Reaching this row at all now means the agent is ours — myAgents() admits an
+      // unclaimed agent only when this browser deployed it — so Claim can no longer
+      // appear over a stranger's character.
       (agent.owner
         ? `<span class="my-agent-owned" title="${escapeHtml(agent.owner)}">yours</span>`
         : (wallet.session
@@ -3757,6 +3830,9 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
       deployStatus.textContent = `${name} arrives next tick`;
       document.getElementById("agentName").value = "";
       document.getElementById("agentPersonality").value = "";
+      // Before anything else: this is the only record that this browser deployed it,
+      // and without it an unclaimed agent is indistinguishable from a stranger's.
+      rememberDeploy(name);
       // A deploy is queued, so the agent has no id yet — it appears on the next tick.
       // Claiming waits for it rather than guessing, which is why this is not awaited:
       // the deploy has already succeeded and the claim is a follow-up, not a condition.
@@ -4100,6 +4176,8 @@ window.__topbar = { setStatDelta, setFollowFromLabel };
 // raid, a succession — are rare and unschedulable in a live world, so the gate drives a pair
 // of hand-built snapshots through the real detector and the real log renderer rather than
 // waiting for the simulation to happen to produce one.
+window.__mine = { myAgents, rememberDeploy, deployedHere, DEPLOYED_KEY };
+
 window.__events = {
   findEvents,
   feed: (before, after) => {
