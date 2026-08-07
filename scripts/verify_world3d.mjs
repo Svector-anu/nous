@@ -1040,6 +1040,36 @@ await page.evaluate(async () => {
   window.__events.feed(real, real);
 });
 
+// --- 11x. nothing hides underneath the rail ---------------------------------------
+// The CLANS panel was pinned at a hardcoded left: 78px against an 88px rail inset 12px,
+// so its first 22px sat behind the rail: the title read "LANS", the body lost its first
+// character on every line, and each clan row showed only its Rethink button because the
+// clan's name and goal were the part underneath. --rail-clear exists precisely to stop
+// this and three panels were not using it.
+const railOverlap = await page.evaluate(() => {
+  const rail = document.getElementById("bottomDock").getBoundingClientRect();
+  const ids = ["deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard", "paymentsCard"];
+  const hidden = [];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.add("open");
+    const box = el.getBoundingClientRect();
+    // Only panels that actually overlap the rail's column matter; ones docked right
+    // never come near it.
+    if (box.width > 0 && box.left < rail.right && box.right > rail.left) {
+      hidden.push(`${id} starts at ${Math.round(box.left)} vs rail ending at ${Math.round(rail.right)}`);
+    }
+    el.classList.remove("open");
+  }
+  return { railRight: Math.round(rail.right), hidden };
+});
+check(
+  "no panel opens underneath the navigation rail",
+  railOverlap.hidden.length === 0,
+  railOverlap.hidden.join("; ") || `rail ends at ${railOverlap.railRight}px, all panels clear it`
+);
+
 // --- 11y. payments are visible after the moment they happen -----------------------
 // The world log announced a payment on the tick it landed and then it scrolled away, so
 // every receipt the world held was invisible a minute later. This asserts the standing

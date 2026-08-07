@@ -1490,12 +1490,12 @@
   #deployPanel.open, #legendPanel.open, #settingsPanel.open, #controlsPanel.open, #objectivesCard.open { display: flex; }
 
   #deployPanel {
-    position: fixed; left: 78px; bottom: 78px; width: 280px; z-index: 40;
+    position: fixed; left: var(--rail-clear); bottom: 78px; width: 280px; z-index: 40;
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
   }
   #legendPanel {
-    position: fixed; left: 78px; bottom: 78px; width: 240px; z-index: 40;
+    position: fixed; left: var(--rail-clear); bottom: 78px; width: 240px; z-index: 40;
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
   }
@@ -1510,7 +1510,7 @@
     box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
   }
   #controlsPanel {
-    position: fixed; left: 78px; top: 50%; transform: translateY(-50%); width: 240px; z-index: 40;
+    position: fixed; left: var(--rail-clear); top: 50%; transform: translateY(-50%); width: 240px; z-index: 40;
     background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
     box-shadow: var(--shadow); backdrop-filter: blur(10px) saturate(1.1);
   }
