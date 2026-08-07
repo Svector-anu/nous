@@ -686,3 +686,107 @@ def test_a_zero_cooldown_is_refused(monkeypatch):
         config, changed = apply_chain_env(WorldConfig(agent_count=0))
         assert config.llm_min_ticks_between_calls == 3000
         assert changed == []
+
+
+# --- replaying a payment ---------------------------------------------------------
+#
+# A transaction hash is public on the block explorer by design, so the only thing making
+# it worth anything is the server refusing it the second time. On the live world that
+# refusal was in memory alone: every redeploy made every past payment spendable again,
+# and a proof spent at tick 55604 was honoured again at tick 100426. These cover the two
+# ways it leaked.
+
+
+def _paid_headers(tx: str = TX) -> dict:
+    return {"X402-Payment-Verified": "true", "X402-Transaction-Hash": tx}
+
+
+def test_a_spent_payment_stays_spent_across_a_restart(tmp_path):
+    """The durable set has to be *read*, not merely written. It was written from the
+    start; nothing consulted it, so a restart forgave every payment ever made."""
+    config = WorldConfig(
+        agent_count=4, resource_count=8, llm_force_decision_enabled=True, x402_enabled=True
+    )
+    app = create_app(config, tmp_path / "x402.db")
+    with TestClient(app) as client:
+        assert client.post("/clans/1/force-decision", headers=_paid_headers()).status_code == 202
+
+        # Exactly what a redeploy does: the process-local set goes, world state stays.
+        app.state.x402._spent.clear()
+
+        assert client.post("/clans/1/force-decision", headers=_paid_headers()).status_code == 409
+
+
+def test_the_payment_is_claimed_before_it_is_verified(tmp_path):
+    """Verification is a network round trip. Requests arriving during it used to all pass
+    the spent check and all be honoured — one payment bought five clan decisions in a
+    single tick that way. Asserting the claim is already durable *while* verify runs is
+    what makes those later arrivals lose."""
+    config = WorldConfig(
+        agent_count=4, resource_count=8, llm_force_decision_enabled=True, x402_enabled=True
+    )
+    app = create_app(config, tmp_path / "x402.db")
+    seen: list[bool] = []
+
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+        real = app.state.x402
+
+        class Watching:
+            def is_spent(self, proof):
+                return real.is_spent(proof)
+
+            def record_spent(self, proof):
+                real.record_spent(proof)
+
+            async def verify(self, proof, price, currency):
+                # The window a concurrent request would arrive in.
+                seen.append(f"tx:{TX}" in queue.spent)
+                return await real.verify(proof, price, currency)
+
+        app.state.x402 = Watching()
+        assert client.post("/clans/1/force-decision", headers=_paid_headers()).status_code == 202
+
+    assert seen == [True], "the proof was still unclaimed while the network call ran"
+
+
+def test_a_refused_payment_does_not_burn_the_hash(tmp_path):
+    """Claiming before verifying must not let one bad request permanently spend a hash
+    somebody goes on to pay with for real."""
+    config = WorldConfig(
+        agent_count=4, resource_count=8, llm_force_decision_enabled=True, x402_enabled=True
+    )
+    app = create_app(config, tmp_path / "x402.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+
+        # No verification header: the proof is presented and refused.
+        refused = client.post(
+            "/clans/1/force-decision", headers={"X402-Transaction-Hash": TX}
+        )
+        assert refused.status_code == 402
+        assert f"tx:{TX}" not in queue.spent, "a refused proof was left claimed"
+
+        # The same hash, actually paid for this time.
+        assert client.post("/clans/1/force-decision", headers=_paid_headers()).status_code == 202
+
+
+def test_a_receipt_records_what_was_paid(tmp_path):
+    """A receipt that cannot say how much was paid leaves the viewer to assume the
+    configured price is still the price."""
+    config = WorldConfig(
+        agent_count=4, resource_count=8, llm_force_decision_enabled=True, x402_enabled=True
+    )
+    app = create_app(config, tmp_path / "x402.db")
+    with TestClient(app) as client:
+        assert client.post("/clans/1/force-decision", headers=_paid_headers()).status_code == 202
+        world = app.state.simulation.world
+        leadership.apply_forced_decisions(world)
+        queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+        receipt = queue.applied[-1]
+
+    assert receipt["amount"] == config.x402_price
+    assert receipt["currency"] == config.x402_currency
+    assert receipt["proof"] == f"tx:{TX}"

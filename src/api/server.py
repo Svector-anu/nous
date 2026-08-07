@@ -205,6 +205,21 @@ _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
 
 
+def _remember_spent(queue_comp, fingerprint: str, limit: int) -> None:
+    """Add a proof to the durable spent set, oldest evicted first.
+
+    Bounded because this is world state and grows forever otherwise. The bound is also
+    the one real weakness left in the guard: a proof pushed out of the window becomes
+    spendable again. `x402_spent_limit` therefore wants to stay comfortably larger than
+    the number of payments a world sees between restarts, not merely non-zero.
+    """
+    if not fingerprint or fingerprint in queue_comp.spent:
+        return
+    queue_comp.spent.append(fingerprint)
+    while len(queue_comp.spent) > max(1, limit):
+        queue_comp.spent.pop(0)
+
+
 def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
     """Return `config` with deployment flags overridden from the environment, and a list
     of what changed.
@@ -853,15 +868,36 @@ def create_app(
             raise HTTPException(503, "world is not ready")
         queue_comp = world.get(entity, ForceDecisionQueue)
 
-        # Check spent set first — no point verifying what has already been honoured.
-        if verifier.is_spent(proof):
+        # Check spent first — no point verifying what has already been honoured.
+        #
+        # Both sets are consulted. The verifier's lives in memory and dies with the
+        # process; `queue_comp.spent` is world state and survives on the volume. Reading
+        # only the first meant every restart made every past payment spendable again, and
+        # a transaction hash is public on the explorer by design — so anyone could copy
+        # one and buy decisions forever. This happened: a proof spent at tick 55604 was
+        # honoured again at tick 100426, after a redeploy.
+        fingerprint = proof.fingerprint()
+        if verifier.is_spent(proof) or (fingerprint and fingerprint in queue_comp.spent):
             raise HTTPException(409, "this payment has already been used")
+
+        # Claim it now, before the await. Verification is a network round trip, and
+        # requests that arrive during it would all pass the check above and all be
+        # honoured — one payment bought five clan decisions in the same tick that way.
+        # Nothing else awaits between here and the check, so the claim is atomic.
+        if fingerprint:
+            _remember_spent(queue_comp, fingerprint, world.config.x402_spent_limit)
 
         verified = False
         try:
             verified = await verifier.verify(proof, world.config.x402_price, world.config.x402_currency)
         except Exception as error:  # noqa: BLE001 - a verifier failure is a denial
             logger.warning("x402 verifier failed for clan %d: %r", clan_id, error)
+
+        if not verified and fingerprint and fingerprint in queue_comp.spent:
+            # Give the claim back: an unverified proof never bought anything, and holding
+            # it would let one bad request permanently burn a hash somebody may go on to
+            # pay with for real.
+            queue_comp.spent.remove(fingerprint)
 
         if not verified:
             # Everything a wallet needs to construct the payment itself. Price and
@@ -904,20 +940,25 @@ def create_app(
                 },
             )
 
-        # Record as spent before queuing, so a crash between here and the next tick does
-        # not let the same proof through twice.
+        # The durable claim was taken before verifying; this is the in-memory twin, which
+        # is what keeps the check cheap for the overwhelming majority of requests.
         verifier.record_spent(proof)
-        fingerprint = proof.fingerprint()
-        if fingerprint and fingerprint not in queue_comp.spent:
-            queue_comp.spent.append(fingerprint)
-            limit = max(1, world.config.x402_spent_limit)
-            while len(queue_comp.spent) > limit:
-                queue_comp.spent.pop(0)
 
         # Cap the queue so the seam cannot be used as an unbounded accumulator.
         if len(queue_comp.pending) >= 16:
             queue_comp.pending.pop(0)
-        queue_comp.pending.append({"clan_id": clan_id, "tick": world.tick, "proof": fingerprint})
+        queue_comp.pending.append(
+            {
+                "clan_id": clan_id,
+                "tick": world.tick,
+                "proof": fingerprint,
+                # What was actually charged. The world used to record only that something
+                # was paid, so a receipt could never say how much and the viewer had to
+                # assume the configured price was still the price.
+                "amount": world.config.x402_price,
+                "currency": world.config.x402_currency,
+            }
+        )
         return JSONResponse(
             {
                 "queued": True,

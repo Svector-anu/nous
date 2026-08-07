@@ -362,6 +362,11 @@ def apply_forced_decisions(world: World) -> list[int]:
                 "clan_id": int(entry.get("clan_id", 0)),
                 "tick": world.tick,
                 "proof": str(entry.get("proof", "")),
+                # Carried from the request rather than read from config here: the price
+                # can change between a payment being made and this tick applying it, and
+                # the receipt should say what was charged, not what is charged now.
+                "amount": str(entry.get("amount", "")),
+                "currency": str(entry.get("currency", "")),
             }
         )
     del queue.applied[:-PAID_RECEIPT_LIMIT]

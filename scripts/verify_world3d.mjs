@@ -667,8 +667,10 @@ check(
   `still visible: ${nav.afterToggleOff.join(", ") || "none"}`
 );
 check(
-  "navigation is one vertical 8-button rail down the left edge",
-  nav.dockButtons === 8 && nav.rail.vertical && nav.rail.onLeft && nav.rail.stacked,
+  // 9 since Payments joined the rail. The count is asserted rather than left loose so a
+  // stray button cannot be added without somebody deciding the rail should grow.
+  "navigation is one vertical 9-button rail down the left edge",
+  nav.dockButtons === 9 && nav.rail.vertical && nav.rail.onLeft && nav.rail.stacked,
   `buttons=${nav.dockButtons}, vertical=${nav.rail.vertical}, onLeft=${nav.rail.onLeft}, ` +
     `stacked=${nav.rail.stacked}, width=${nav.rail.width.toFixed(0)}px`
 );
@@ -1037,6 +1039,93 @@ await page.evaluate(async () => {
   window["__world"].update(real);
   window.__events.feed(real, real);
 });
+
+// --- 11y. payments are visible after the moment they happen -----------------------
+// The world log announced a payment on the tick it landed and then it scrolled away, so
+// every receipt the world held was invisible a minute later. This asserts the standing
+// list: the amount, and a link to the transaction it can be checked against.
+const payments = await page.evaluate(() => {
+  const render = window.__payments.renderPayments;
+  render({ paid: [] });
+  const empty = document.getElementById("paymentsList").textContent.trim();
+
+  // Chronological, the way the world appends them — the list reverses for display.
+  render({
+    paid: [
+      // Predates the world recording an amount: the row must not invent one.
+      { clan_id: 3, tick: 109000, proof: "tx:0xdef456" },
+      { clan_id: 7, tick: 110400, proof: "tx:0xabc123", amount: "0.10", currency: "USDG" },
+    ],
+  });
+  const list = document.getElementById("paymentsList");
+  const rows = [...list.querySelectorAll("li")];
+  return {
+    empty,
+    count: rows.length,
+    // Newest first, so the 0.10 receipt at the later tick leads.
+    first: rows[0]?.textContent.replace(/\s+/g, " ").trim() ?? "",
+    second: rows[1]?.textContent.replace(/\s+/g, " ").trim() ?? "",
+    links: rows.map((r) => r.querySelector("a.feed-proof")?.getAttribute("href") ?? ""),
+  };
+});
+check(
+  "a payment is listed with what it cost and a link to the transaction",
+  payments.count === 2 &&
+    payments.first.includes("0.10 USDG") &&
+    payments.first.includes("clan 7") &&
+    payments.links[0].includes("0xabc123"),
+  `${payments.first} | link=${payments.links[0] || "(none)"}`
+);
+check(
+  "a receipt with no recorded amount does not invent one",
+  !/\d+\.\d+/.test(payments.second) && payments.second.includes("clan 3"),
+  payments.second
+);
+check(
+  "an empty payments list says so rather than showing nothing",
+  payments.empty.length > 0,
+  payments.empty
+);
+
+// --- 11z. the link preview -------------------------------------------------------
+// A launch link with no og:image renders as a grey rectangle, and that rectangle is the
+// first thing most people ever see of this. The image is also asserted to actually load:
+// a tag pointing at a 404 looks correct in the html and shows nothing in a feed.
+const share = await page.evaluate(async () => {
+  const meta = (sel) => document.querySelector(sel)?.getAttribute("content") ?? "";
+  const image = meta('meta[property="og:image"]');
+  // The tag has to be absolute — a scraper resolves it against nothing — but the file it
+  // names is fetched from *this* server. Fetching the production url instead would make
+  // the gate pass or fail on whatever is deployed, which is not what it is checking.
+  let status = 0;
+  try {
+    status = (await fetch(new URL(image).pathname)).status;
+  } catch {
+    status = -1;
+  }
+  return {
+    image,
+    status,
+    card: meta('meta[name="twitter:card"]'),
+    twitterImage: meta('meta[name="twitter:image"]'),
+    description: meta('meta[property="og:description"]'),
+  };
+});
+check(
+  "a shared link carries an image that actually loads",
+  share.image.startsWith("https://") && share.status === 200 && share.twitterImage === share.image,
+  `${share.image || "(no og:image)"} -> ${share.status}`
+);
+check(
+  "the share card is the large format, not a thumbnail",
+  share.card === "summary_large_image",
+  `twitter:card=${share.card || "(unset)"}`
+);
+check(
+  "the share text claims no agent count",
+  !/\d+\s*agents/i.test(share.description),
+  share.description.slice(0, 80)
+);
 
 // --- 11a. "my agents" means mine ------------------------------------------------
 // agent.user means "deployed by a visitor" — any visitor. Filtering on it showed every
