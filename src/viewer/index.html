@@ -1988,7 +1988,12 @@
       </span>
     </h3>
     <div class="card-body">
-      <p style="font-size:11px;color:var(--muted);margin:0 0 10px;">Click a clan to fly to it.</p>
+      <p style="font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.5;">
+        Click a clan to fly to it. Every clan picks its own goal — gather, build, rally,
+        raid — and nobody tells it what to do.
+        <span id="legendPayNote" hidden><br>You can, though: pay a clan's leader to stop
+        and decide again, right now. It is the only way in.</span>
+      </p>
       <h2 id="legend-title" style="margin:0 0 8px;">clans</h2>
       <ul id="legend"></ul>
       <h3 class="card-subtitle">RESOURCES</h3>
@@ -2414,6 +2419,10 @@ function renderLegend(snapshot) {
   }
 
   legendTitle.textContent = "clans";
+  // Hidden unless this deployment actually takes payments, so the offer cannot outlive
+  // the configuration that makes it true.
+  const payNote = document.getElementById("legendPayNote");
+  if (payNote) payNote.hidden = !chainPaysFor();
   const clans = (snapshot ? snapshot.clans : []).slice().sort((a, b) => b.size - a.size);
   for (const clan of clans.slice(0, 10)) {
     const item = document.createElement("li");
@@ -2422,10 +2431,14 @@ function renderLegend(snapshot) {
       `<span class="legend-clan">${clan.size} · ${clan.goal || "—"}</span>` +
       // Paying required opening a console until now, which is not a product. The price
       // is on the button so nobody presses it to find out what it costs.
+      // "Nudge" named the mechanism and explained nothing. This says what happens: the
+      // clan stops and decides again. Not "change its goal" — it may well pick the same
+      // one, and a button that overpromises is worse than a vague one.
       (chainPaysFor()
         ? `<button class="nudge" data-clan="${clan.id}" ` +
-          `title="Pay ${payPrice()} to make clan ${clan.id} reconsider its strategy">` +
-          `Nudge · ${payPrice()}</button>`
+          `title="Clan ${clan.id} is set on ${clan.goal || "no goal"}. Pay ${payPrice()} ` +
+          `and its leader decides again, right now.">` +
+          `Rethink · ${payPrice()}</button>`
         : "");
     if (clan.centre) {
       item.className = "clickable";
@@ -4034,6 +4047,14 @@ function enterGameplay() {
   if (!localStorage.getItem("neociv.hints")) {
     hintsActive = true;
     setTimeout(() => showHint("Click any villager to inspect them.", 8000), 5000);
+    // The one thing a visitor would never guess: the world can be argued with. Said
+    // once, on a first visit, and only where it is true — a deployment that takes no
+    // payments must not advertise one.
+    setTimeout(() => {
+      if (chainPaysFor()) {
+        showHint("Nobody steers this world — but you can pay a clan's leader to think again. Open CLANS.", 11000);
+      }
+    }, 22000);
   }
 }
 
