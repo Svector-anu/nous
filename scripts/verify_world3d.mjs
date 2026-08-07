@@ -1067,10 +1067,21 @@ const ownership = await page.evaluate(() => {
   window.__wallet.setWalletSession("0xbbbb", "session");
   const withWallet = names(m.myAgents(snap));
 
+  // The same predicate every control uses, checked directly: a stranger's agent must
+  // never be actionable, and our own must be.
+  m.rememberDeploy("mine-unclaimed");
+  const strangerControls = m.isMine(agent("elsie", ""));
+  const ownControls = m.isMine(agent("mine-unclaimed", ""));
+
   window.__wallet.setWalletSession("", "");
   localStorage.removeItem(m.DEPLOYED_KEY);
-  return { strangerSeesNothing, deployedOnly, withWallet };
+  return { strangerSeesNothing, deployedOnly, withWallet, strangerControls, ownControls };
 });
+check(
+  "the inspector will not offer controls on a stranger's agent",
+  ownership.strangerControls === false && ownership.ownControls === true,
+  `stranger=${ownership.strangerControls}, own=${ownership.ownControls}`
+);
 check(
   "a visitor who deployed nothing owns nothing",
   ownership.strangerSeesNothing.length === 0,

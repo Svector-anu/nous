@@ -2921,17 +2921,27 @@ function rememberDeploy(name) {
   }
 }
 
+/**
+ * Is this agent this visitor's?
+ *
+ * One predicate, used by every list and every control, so the answer cannot drift apart
+ * between them — which is exactly how the inspector kept offering Rest on a stranger's
+ * agent after My Agents had been fixed.
+ */
+function isMine(agent) {
+  if (!agent || !agent.user) return false;
+  // Claimed: the chain says who owns it, and that is the end of the argument.
+  if (agent.owner) {
+    const address = (wallet.address || "").toLowerCase();
+    return Boolean(address) && agent.owner.toLowerCase() === address;
+  }
+  // Unclaimed: only the browser that deployed it has any claim to it.
+  return deployedHere().includes(agent.name);
+}
+
 /** Agents this visitor can honestly call theirs. */
 function myAgents(snapshot) {
-  const address = (wallet.address || "").toLowerCase();
-  const local = new Set(deployedHere());
-  return (snapshot.agents || []).filter((a) => {
-    if (!a.user) return false;
-    // Claimed: the chain says who owns it, and that is the end of the argument.
-    if (a.owner) return address && a.owner.toLowerCase() === address;
-    // Unclaimed: only the browser that deployed it has any claim to show it.
-    return local.has(a.name);
-  });
+  return (snapshot.agents || []).filter(isMine);
 }
 
 // What the list actually shows. Rebuilding it when none of this changed destroyed and
@@ -3614,9 +3624,12 @@ function renderInspector(snapshot) {
   // Everything that changes per tick lives in .agent-card-live and is rewritten freely.
   // The actions row is keyed on what it actually depends on and left untouched while that
   // is unchanged, so a button survives under a finger.
+  // Every input the row is built from. Ownership belongs here now that it decides
+  // whether Rest is offered — a key missing one of its inputs reuses a row that should
+  // have changed.
   const actionsKey = [
     agent.id, agent.rest_mode ? 1 : 0, clan && clan.centre ? clan.id : "",
-    agent.user ? 1 : 0, agent.name,
+    agent.user ? 1 : 0, isMine(agent) ? 1 : 0, agent.name,
   ].join(":");
 
   let actions = `<div class="agent-card-actions" data-key="${escapeHtml(actionsKey)}">` +
@@ -3624,7 +3637,10 @@ function renderInspector(snapshot) {
   if (clan && clan.centre) {
     actions += `<button class="follow-clan">Clan ${clan.id}</button>`;
   }
-  if (agent.user) {
+  // Same trap as My Agents had: `agent.user` is "deployed by a visitor", not "mine".
+  // Offering Rest on a stranger's agent is a control that will be refused by the server
+  // if they claimed it, and works on somebody else's character if they have not.
+  if (agent.user && isMine(agent)) {
     actions += `<button class="rest-toggle" data-id="${agent.id}">${agent.rest_mode ? "Resume" : "Rest"}</button>`;
   }
   actions += `</div>`;
@@ -4176,7 +4192,7 @@ window.__topbar = { setStatDelta, setFollowFromLabel };
 // raid, a succession — are rare and unschedulable in a live world, so the gate drives a pair
 // of hand-built snapshots through the real detector and the real log renderer rather than
 // waiting for the simulation to happen to produce one.
-window.__mine = { myAgents, rememberDeploy, deployedHere, DEPLOYED_KEY };
+window.__mine = { myAgents, isMine, rememberDeploy, deployedHere, DEPLOYED_KEY };
 
 window.__events = {
   findEvents,
