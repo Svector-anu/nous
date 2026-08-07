@@ -495,3 +495,101 @@ def test_the_message_matches_the_eip_4361_grammar():
     # The spec requires at least 8 alphanumerics of nonce.
     assert re.search(r"^Nonce: [a-zA-Z0-9]{8,}$", message, re.M)
     assert re.search(r"^Issued At: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", message, re.M)
+
+
+# --- ownership at spawn, not a moment later ----------------------------------
+
+
+def test_a_deploy_with_a_session_is_owned_from_the_tick_it_exists(tmp_path):
+    """Claiming after the fact left a window — however short — in which a stranger could
+    claim it first. "Unclaimed means anyone may claim it" is only safe while nobody else
+    is watching."""
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=6, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app, base_url="https://nous.city") as client:
+        simulation = app.state.simulation
+        simulation.store = None
+        world = simulation.world
+        address = "0x" + "d" * 40
+        session = app.state.sessions.open(address)
+
+        body = client.post(
+            "/agents", json={"name": "Kamir", "personality": "", "session": session}
+        ).json()
+        assert body["owned"] is True
+
+        simulation.step()
+        agent = next(
+            world.get(e, Agent) for e in world.query(Agent) if world.get(e, Agent).user_deployed
+        )
+        assert agent.owner_address == address.lower(), "owned on the tick it appeared"
+
+
+def test_a_deploy_without_a_session_is_nobody_s(tmp_path):
+    """Deploying without a wallet still works — that is what keeps the world playable
+    without one — and the agent simply carries no owner."""
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=6, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app, base_url="https://nous.city") as client:
+        simulation = app.state.simulation
+        simulation.store = None
+        body = client.post("/agents", json={"name": "Bo", "personality": ""}).json()
+        assert body["owned"] is False
+
+        simulation.step()
+        world = simulation.world
+        agent = next(
+            world.get(e, Agent) for e in world.query(Agent) if world.get(e, Agent).user_deployed
+        )
+        assert agent.owner_address == ""
+
+
+def test_a_forged_session_owns_nothing(tmp_path):
+    """The session is the proof. A string that is not one buys no ownership."""
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=6, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app, base_url="https://nous.city") as client:
+        simulation = app.state.simulation
+        simulation.store = None
+        body = client.post(
+            "/agents", json={"name": "Mal", "personality": "", "session": "not-a-token"}
+        ).json()
+        assert body["owned"] is False
+
+
+def test_two_deploys_of_one_name_do_not_take_each_other(tmp_path):
+    """Names are not unique. Resolving by name has to pick the agent that was actually
+    deployed by the person who proved a wallet, not whichever shares the name."""
+    from src.world.systems import identity as identity_system
+
+    app = create_app(
+        WorldConfig(agent_count=2, resource_count=6, chain_identity_enabled=True),
+        tmp_path / "own.db",
+    )
+    with TestClient(app, base_url="https://nous.city") as client:
+        simulation = app.state.simulation
+        simulation.store = None
+        world = simulation.world
+
+        # One anonymous deploy lands first and stays unowned.
+        client.post("/agents", json={"name": "Twin", "personality": ""})
+        simulation.step()
+
+        session = app.state.sessions.open("0x" + "e" * 40)
+        client.post("/agents", json={"name": "Twin", "personality": "", "session": session})
+        simulation.step()
+
+        twins = sorted(
+            e for e in world.query(Agent)
+            if world.get(e, Agent).user_deployed and world.get(e, Agent).name == "Twin"
+        )
+        assert len(twins) == 2
+        # The newest is the one that was paid for with a session.
+        assert world.get(twins[-1], Agent).owner_address == ("0x" + "e" * 40)
+        assert world.get(twins[0], Agent).owner_address == ""

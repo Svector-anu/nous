@@ -1168,6 +1168,21 @@
      sound is on. Swapping the whole svg would flicker on every toggle. */
   /* Volume lives in Settings rather than on the map: the toggle is the thing you reach
      for mid-watch, the level is set once. */
+  /* The pay control. Sits on a clan row, and the price is on the button so nobody
+     presses it to find out what it costs. */
+  .nudge {
+    margin: 0 0 0 auto; padding: 4px 9px; min-height: 0; flex: 0 0 auto;
+    background: rgba(210, 153, 34, 0.10);
+    border: 1px solid rgba(210, 153, 34, 0.45);
+    border-radius: 6px; color: #d29922;
+    font-size: 10px; letter-spacing: .02em; cursor: pointer; white-space: nowrap;
+  }
+  .nudge:hover { background: rgba(210, 153, 34, 0.2); }
+  .nudge:disabled { opacity: .65; cursor: default; }
+  #legend li { display: flex; align-items: center; gap: 7px; }
+  .legend-clan { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #whoami[readonly] { opacity: .8; cursor: default; }
+
   .claim-agent {
     margin: 0; padding: 5px 10px; min-height: 0;
     background: rgba(110, 226, 116, 0.10);
@@ -2343,6 +2358,49 @@ function agentColour(agent) {
     : (STATE_COLORS[agent.state] || "#ffffff");
 }
 
+/** Whether this deployment takes payments at all. */
+function chainPaysFor() {
+  return Boolean(wallet.chain && wallet.chain.x402_enabled);
+}
+
+function payPrice() {
+  const c = wallet.chain || {};
+  return `${c.x402_price || "0.10"} ${c.x402_currency || "USDG"}`;
+}
+
+/**
+ * Pay to make a clan reconsider its strategy.
+ *
+ * The whole flow lives behind one button: ask, pay, wait for the block, retry. The
+ * failures are the interesting part — a person needs to know whether their money moved,
+ * so a refusal after a transfer says something different from a refusal before one.
+ */
+async function nudgeClan(clanId, button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "check wallet…";
+  try {
+    const response = await fetchWithPayment(`/clans/${clanId}/force-decision`, { method: "POST" });
+    if (response.ok) {
+      button.textContent = "done";
+      showHint(`Paid. Clan ${clanId} reconsiders on the next tick — watch the world log.`, 8000);
+    } else if (response.status === 402) {
+      // The payment was sent but not accepted: almost always a block that has not landed.
+      button.textContent = "not yet";
+      showHint("Payment sent but not confirmed yet. Give it a moment and try again — " +
+               "you will not be charged twice for the same transaction.", 9000);
+    } else {
+      button.textContent = "refused";
+    }
+  } catch (error) {
+    const trouble = walletTrouble(error);
+    button.textContent = trouble.label;
+    showHint(trouble.hint, 9000);
+  } finally {
+    setTimeout(() => { button.disabled = false; button.textContent = original; }, 3500);
+  }
+}
+
 function renderLegend(snapshot) {
   legend.innerHTML = "";
   if (colourBy === "state") {
@@ -2361,14 +2419,26 @@ function renderLegend(snapshot) {
     const item = document.createElement("li");
     item.innerHTML =
       `<span class="swatch" style="background:${clanColour(clan.id)}"></span>` +
-      `${clan.size} · ${clan.goal || "—"}`;
+      `<span class="legend-clan">${clan.size} · ${clan.goal || "—"}</span>` +
+      // Paying required opening a console until now, which is not a product. The price
+      // is on the button so nobody presses it to find out what it costs.
+      (chainPaysFor()
+        ? `<button class="nudge" data-clan="${clan.id}" ` +
+          `title="Pay ${payPrice()} to make clan ${clan.id} reconsider its strategy">` +
+          `Nudge · ${payPrice()}</button>`
+        : "");
     if (clan.centre) {
       item.className = "clickable";
       item.title = `fly to clan ${clan.id}`;
-      item.addEventListener("click", () =>
-        flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN)
-      );
+      item.addEventListener("click", (event) => {
+        if (event.target.closest(".nudge")) return;
+        flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN);
+      });
     }
+    item.querySelector(".nudge")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      nudgeClan(clan.id, event.currentTarget);
+    });
     legend.appendChild(item);
   }
   const item = document.createElement("li");
@@ -3708,9 +3778,27 @@ if (stakeRow) {
   });
 }
 
+/**
+ * Who is betting.
+ *
+ * A typed handle is not an identity: anyone can enter any name and collect another
+ * starting balance, which is why the leaderboard means nothing and the panel says
+ * experiment. A connected wallet is an identity, so it wins — and the field goes
+ * read-only rather than pretending the handle still decides anything.
+ */
+function bettor() {
+  return wallet.address ? shortAddress(wallet.address) : whoami.value.trim();
+}
+
 function renderMarkets(book) {
   lastBook = book;
-  const me = whoami.value.trim();
+  const me = bettor();
+  if (whoami) {
+    const owned = Boolean(wallet.address);
+    whoami.readOnly = owned;
+    whoami.title = owned ? "Betting as your connected wallet" : "";
+    if (owned && whoami.value !== me) whoami.value = me;
+  }
 
   // Real balance for a real handle. Before anyone picks one it shows the starting stake
   // rather than a blank, so the panel reads as a working ledger rather than an empty form.
@@ -3786,7 +3874,7 @@ function renderMarkets(book) {
 marketsEl.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-id]");
   if (!button) return;
-  const user = whoami.value.trim();
+  const user = bettor();
   if (!user) {
     whoami.placeholder = "pick a handle first";
     whoami.focus();
@@ -3838,7 +3926,9 @@ document.getElementById("deploy").addEventListener("submit", async (event) => {
     const response = await fetch("/agents", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, personality }),
+      // With a session the agent is owned from the tick it exists, rather than claimed
+      // a moment later — which is a window somebody else could have used.
+      body: JSON.stringify({ name, personality, session: wallet.session || "" }),
     });
     const body = await response.json();
     if (response.ok) {
@@ -4192,7 +4282,7 @@ window.__topbar = { setStatDelta, setFollowFromLabel };
 // raid, a succession — are rare and unschedulable in a live world, so the gate drives a pair
 // of hand-built snapshots through the real detector and the real log renderer rather than
 // waiting for the simulation to happen to produce one.
-window.__mine = { myAgents, isMine, rememberDeploy, deployedHere, DEPLOYED_KEY };
+window.__mine = { myAgents, isMine, bettor, chainPaysFor, rememberDeploy, deployedHere, DEPLOYED_KEY };
 
 window.__events = {
   findEvents,

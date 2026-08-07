@@ -1077,6 +1077,42 @@ const ownership = await page.evaluate(() => {
   localStorage.removeItem(m.DEPLOYED_KEY);
   return { strangerSeesNothing, deployedOnly, withWallet, strangerControls, ownControls };
 });
+// Paying required opening a browser console until now, which is not a product.
+const payUi = await page.evaluate(() => {
+  window.__wallet.applyChainConfig({
+    chain_id: 4663, chain_name: "Robinhood Chain", x402_enabled: true,
+    x402_price: "0.10", x402_currency: "USDG", identity_enabled: true, ready: true,
+    explorer_url: "https://robinhoodchain.blockscout.com",
+  });
+  document.querySelector('#bottomDock .dock-btn[data-panel="legendPanel"]').click();
+  const button = document.querySelector("#legend .nudge");
+  const paysFor = window.__mine.chainPaysFor();
+  document.querySelector('#bottomDock .dock-btn[data-panel="legendPanel"]').click();
+  return { paysFor, present: !!button, label: button ? button.textContent : "" };
+});
+check(
+  "paying does not require a console",
+  payUi.paysFor === true && payUi.present && /0\.10 USDG/.test(payUi.label),
+  `button=${payUi.present}, label="${payUi.label}"`
+);
+// A typed handle is not an identity — anyone can enter any name and collect another
+// starting balance. A connected wallet is, so it has to win.
+const who = await page.evaluate(() => {
+  const w = window.__wallet, m = window.__mine;
+  document.getElementById("whoami").value = "pretender";
+  w.setWalletSession("", "");
+  const guest = m.bettor();
+  w.setWalletSession("0xD0A2362c6cF02f8FdaCD3E2aBCbfBc625AA0f967", "s");
+  const owned = m.bettor();
+  w.setWalletSession("", "");
+  document.getElementById("whoami").value = "";
+  return { guest, owned };
+});
+check(
+  "a connected wallet bets as itself, not as a typed handle",
+  who.guest === "pretender" && who.owned !== "pretender" && /0xD0A2|0xd0a2/.test(who.owned),
+  `guest="${who.guest}", connected="${who.owned}"`
+);
 check(
   "the inspector will not offer controls on a stranger's agent",
   ownership.strangerControls === false && ownership.ownControls === true,

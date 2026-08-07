@@ -44,6 +44,9 @@ class DeployRequest(BaseModel):
 
     name: str = Field(..., description="display name for the agent")
     personality: str = Field(default="", description="short personality note")
+    # Optional. With it, the agent is owned from the tick it exists rather than claimed
+    # afterwards — closing the window in which anyone else could claim it first.
+    session: str = Field(default="", description="session token from /chain/verify")
 
 
 class RestRequest(BaseModel):
@@ -721,9 +724,21 @@ def create_app(
             raise HTTPException(409, f"world is at its limit of {config.max_user_agents} user agents")
 
         spawning.enqueue(world, name, personality)
+
+        # An agent deployed by somebody who proved a wallet belongs to them from the
+        # moment it exists. Claiming afterwards left a window — however short — in which
+        # a stranger could claim it first, and "unclaimed means anyone may claim it" is
+        # only safe while nobody else is watching.
+        owner = ""
+        if request.session and world.config.chain_identity_enabled:
+            owner = app.state.sessions.address(request.session)
+            if owner:
+                identity.enqueue_by_name(world, name, owner)
+
         return JSONResponse(
             {
                 "queued": True,
+                "owned": bool(owner),
                 "name": name,
                 "personality": personality,
                 "arrives_at_tick": world.tick + 1,
