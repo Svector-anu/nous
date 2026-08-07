@@ -159,6 +159,14 @@ def state_hash(world: World) -> str:
     return digest.hexdigest()
 
 
+def _paid_receipts(world: World) -> list[dict]:
+    """Recent paid decisions, newest last. Empty for the overwhelming majority of ticks."""
+    entity = world.first(ForceDecisionQueue)
+    if entity is None:
+        return []
+    return [dict(entry) for entry in world.get(entity, ForceDecisionQueue).applied]
+
+
 class Simulation:
     def __init__(
         self,
@@ -310,4 +318,8 @@ class Simulation:
                 "user_agents": sum(1 for a in agents if a["user"]),
             },
             "advisor": leadership.advisor_status(world),
+            # Receipts for paid decisions. A payment that leaves no trace in the world
+            # is indistinguishable from one that did nothing, so the world says who
+            # bought what and carries the transaction it was bought with.
+            "paid": _paid_receipts(world),
         }

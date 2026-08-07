@@ -26,6 +26,7 @@ const SCORE = {
   fleeing: 45,      // an agent running for its life
   building: 30,     // a hut went up
   arrival: 34,      // a user-deployed agent turned up
+  paid: 88,         // somebody paid to change a clan's mind
   goalChange: 22,   // a clan changed its mind
   crowd: 3,         // per agent standing in the densest cluster
   user: 18,         // a user-deployed agent, always a bit interesting
@@ -104,6 +105,20 @@ export function findEvents(previous, snapshot) {
         kind: "leader", score: SCORE.leader, x: clan.centre[0], y: clan.centre[1],
         agent: clan.leader,
         label: `${names.get(clan.leader) ?? "someone"} now leads clan ${clan.id}`,
+      });
+    }
+
+    // Somebody paid. Worth reporting louder than an ordinary goal change, because a
+    // spectator watching a free world should notice the moment money touched it.
+    const paidBefore = new Set((previous.paid || []).map((p) => `${p.clan_id}:${p.tick}`));
+    for (const receipt of snapshot.paid || []) {
+      if (paidBefore.has(`${receipt.clan_id}:${receipt.tick}`)) continue;
+      const clan = snapshot.clans.find((c) => c.id === receipt.clan_id);
+      if (!clan || !clan.centre) continue;
+      events.push({
+        kind: "paid", score: SCORE.paid, x: clan.centre[0], y: clan.centre[1],
+        label: `somebody paid to make clan ${receipt.clan_id} reconsider`,
+        proof: receipt.proof || "",
       });
     }
 

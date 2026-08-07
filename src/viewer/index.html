@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid. Watch, deploy your own agent, and bet on outcomes.">
-<meta property="og:title" content="Nous — a living world of autonomous agents">
+<meta property="og:title" content="Nous: a civilization that runs itself">
 <meta property="og:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://nous.city">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Nous — a living world of autonomous agents">
+<meta name="twitter:title" content="Nous: a civilization that runs itself">
 <meta name="twitter:description" content="Nous: a persistent, living world of ~120 agents that forage, build, form clans, trade, and raid.">
-<title>Nous — a living world of autonomous agents</title>
+<title>Nous: a civilization that runs itself</title>
 <!-- The Nous mark, same bytes the server hands back from /favicon.svg. Inline so the
      tab icon is right on the first paint and survives the file being opened directly.
      Drawn on a 32-unit grid: the 24-unit version in the boot lockup uses a 1.3 stroke
@@ -1147,6 +1147,13 @@
   #worldLogCard .feed-kind.fleeing { color: #f85149; }
   /* Same green as the leader flash on the map, so the two read as one event. */
   #worldLogCard .feed-kind.leader { color: #6ee274; }
+  #worldLogCard .feed-kind.paid { color: #d29922; }
+  /* The receipt. A paid action that cannot be checked is only a claim. */
+  #worldLogCard .feed-proof {
+    display: inline-block; margin-top: 3px; font-size: 10.5px;
+    color: #d29922; text-decoration: none; border-bottom: 1px dotted rgba(210,153,34,.5);
+  }
+  #worldLogCard .feed-proof:hover { color: #f0b429; }
   /* A leader's own words. Italic and indented so it reads as something the world said
      rather than something the log observed about it. Only ever present when a model
      actually reasoned — the rules leave goal_reason empty. */
@@ -3224,8 +3231,16 @@ const WORLD_LOG_ICONS = {
   goalChange: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12L2.5 9.5"/></svg>`,
   arrival: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
   fleeing: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  paid: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.8 9.3a2.6 2.6 0 0 0-2.8-1.2c-1.3.2-2 1-2 1.9 0 2.4 5 1.3 5 3.8 0 1-.8 1.8-2.1 2a2.6 2.6 0 0 1-2.8-1.2"/><path d="M12 6.2v1.6M12 16.2v1.6"/></svg>`,
   leader: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l4 4 5-7 5 7 4-4v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`,
 };
+
+/** Turn a stored proof ("tx:0x…") into a link on whichever explorer the chain uses. */
+function explorerTx(proof) {
+  const hash = String(proof || "").replace(/^tx:/, "");
+  const base = (wallet.chain && wallet.chain.explorer_url) || "";
+  return base ? `${base}/tx/${hash}` : "";
+}
 
 const worldLog = document.getElementById("worldLog");
 const WORLD_LOG_LIMIT = 20;
@@ -3240,6 +3255,9 @@ function processWorldLog(snapshot) {
   for (const event of events) {
     worldLogEntries.push({
       tick: snapshot.tick, kind: event.kind, label: event.label,
+      // The transaction a paid decision was bought with, so the claim is checkable
+      // rather than merely asserted.
+      proof: event.proof || "",
       // Carried separately so the leader's own words can be styled as speech rather
       // than buried in the sentence describing the event.
       reason: event.reason || "",
@@ -3262,6 +3280,12 @@ function processWorldLog(snapshot) {
       `<span class="feed-icon">${WORLD_LOG_ICONS[entry.kind] || WORLD_LOG_ICONS.goalChange}</span>` +
       `<span class="feed-body">${escapeHtml(plain)}` +
       (entry.reason ? `<span class="feed-reason">\u201c${escapeHtml(entry.reason)}\u201d</span>` : "") +
+      // No explorer configured means no link. An anchor with an empty href looks
+      // clickable and goes nowhere, which is worse than saying nothing.
+      (entry.proof && explorerTx(entry.proof)
+        ? `<a class="feed-proof" target="_blank" rel="noopener" ` +
+          `href="${escapeHtml(explorerTx(entry.proof))}">view the payment \u2197</a>`
+        : "") +
       `</span>` +
       `<span class="feed-kind ${entry.kind}">${entry.kind.replace("goalChange", "goal")}</span>`;
     worldLog.appendChild(item);

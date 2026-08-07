@@ -270,6 +270,10 @@ def _apply(world: World, decision) -> None:
     )
 
 
+# How many receipts to keep. Bounded like every other log here.
+PAID_RECEIPT_LIMIT = 20
+
+
 def apply_forced_decisions(world: World) -> list[int]:
     """Drain paid force-decision requests. Returns the clan ids that will re-decide.
 
@@ -294,6 +298,18 @@ def apply_forced_decisions(world: World) -> list[int]:
 
     # Ascending, so a reloaded world applies them in the same order.
     wanted = sorted({int(entry.get("clan_id", 0)) for entry in queue.pending})
+    # The receipt, kept before the queue is cleared: what each payment actually bought,
+    # so a spectator can see somebody paid and go and check the transaction themselves.
+    # A paid action that leaves no trace is indistinguishable from one that did nothing.
+    for entry in queue.pending:
+        queue.applied.append(
+            {
+                "clan_id": int(entry.get("clan_id", 0)),
+                "tick": world.tick,
+                "proof": str(entry.get("proof", "")),
+            }
+        )
+    del queue.applied[:-PAID_RECEIPT_LIMIT]
     queue.pending.clear()
 
     forced: list[int] = []

@@ -374,10 +374,15 @@ class ForceDecisionQueue:
 
     `spent` remembers proofs that have already been honoured so the same payment cannot
     buy two decisions. Bounded by `x402_spent_limit`.
+
+    `applied` is the receipt: what a payment actually bought, kept so a spectator can see
+    that somebody paid and check the transaction themselves. Bounded like everything else
+    here — an append-only log inside a 24/7 world is an unbounded accumulator.
     """
 
     pending: list[dict] = field(default_factory=list)
     spent: list[str] = field(default_factory=list)
+    applied: list[dict] = field(default_factory=list)
 
 
 @dataclass

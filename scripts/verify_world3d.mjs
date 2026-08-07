@@ -971,6 +971,44 @@ const reasoned = await page.evaluate(() => {
     text: document.querySelector("#worldLog .feed-reason")?.textContent || "",
   };
 });
+// A payment that leaves no trace is indistinguishable from one that did nothing. This
+// only fires when somebody actually pays, so nothing else in the suite would notice it
+// breaking — and it is the one path that involves real money.
+const receipt = await page.evaluate(() => {
+  // The link needs an explorer, which normally arrives from /chain/config. Set it
+  // explicitly so this checks the receipt rather than the timing of a fetch.
+  window.__wallet.applyChainConfig({
+    chain_id: 4663, chain_name: "Robinhood Chain",
+    explorer_url: "https://robinhoodchain.blockscout.com",
+    identity_enabled: true, ready: true, x402_enabled: true,
+  });
+  const agent = (id) => ({
+    id, name: `A${id}`, x: 10, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0,
+    wood: 0, clan: 1, user: false, personality: "", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "",
+  });
+  const snap = (paid) => ({
+    tick: 2, day: 1, agents: [agent(1)], buildings: [], resources: [], paid,
+    clans: [{ id: 1, size: 2, goal: "rally", goal_reason: "", leader: 1, centre: [12, 10] }],
+    grid: { width: 64, height: 64 },
+  });
+  const before = snap([]);
+  const after = snap([{ clan_id: 1, tick: 2, proof: "tx:0xfeed1234" }]);
+  const events = window.__events.findEvents(before, after);
+  window.__events.feed(before, after);
+  const link = document.querySelector("#worldLog .feed-proof");
+  return {
+    reported: events.some((e) => e.kind === "paid"),
+    linked: !!link,
+    href: link ? link.getAttribute("href") : "",
+  };
+});
+check(
+  "a payment is announced in the world with a checkable receipt",
+  receipt.reported && receipt.linked && /0xfeed1234$/.test(receipt.href),
+  `reported=${receipt.reported}, linked=${receipt.linked}, href=${receipt.href.slice(-30)}`
+);
 check(
   "a leader's reasoning reaches the world log",
   reasoned.carried && reasoned.rendered && /young cannot afford/.test(reasoned.text),
