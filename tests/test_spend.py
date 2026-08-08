@@ -213,3 +213,40 @@ def test_a_balance_survives_a_save_and_reload(tmp_path):
     # The lookup the governor actually performs, with the id the world actually holds.
     assert governor.refuse(after, 1, 900, tick=1) == ""
     assert after.budget_units == 5000
+
+
+def test_a_world_saved_before_the_component_existed_gets_one(tmp_path):
+    """A world saved before a component existed has no entity carrying it, and nothing in
+    the load path creates one — so the feature is silently unreachable on exactly the
+    worlds that have been running longest. The live world is one of those."""
+    from src.persistence.sqlite_store import SqliteWorldStore
+    from src.world.config import WorldConfig
+    from src.world.tick import create_world, ensure_singletons
+
+    world = create_world(WorldConfig(agent_count=4, resource_count=8))
+    world.remove(world.first(SpendBook), SpendBook)
+    store = SqliteWorldStore(tmp_path / "old.db")
+    store.save(world)
+
+    resumed = store.load()
+    assert resumed.first(SpendBook) is None, "the fixture did not reproduce an old world"
+
+    added = ensure_singletons(resumed)
+    assert "SpendBook" in added
+    assert resumed.first(SpendBook) is not None
+    # Off and unfunded, exactly like a fresh world. Backfilling must not enable anything.
+    assert governor.status(resumed)["enabled"] is False
+    assert governor.status(resumed)["budget_units"] == 0
+
+
+def test_backfilling_twice_changes_nothing(tmp_path):
+    """Idempotent: a resumed world keeps its history and a fresh one is untouched."""
+    from src.world.config import WorldConfig
+    from src.world.tick import create_world, ensure_singletons
+
+    world = create_world(WorldConfig(agent_count=4, resource_count=8))
+    book = world.get(world.first(SpendBook), SpendBook)
+    governor.approve(book, 900, by="anu", tick=0)
+
+    assert ensure_singletons(world) == []
+    assert world.get(world.first(SpendBook), SpendBook).budget_units == 900

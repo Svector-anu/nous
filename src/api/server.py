@@ -29,7 +29,7 @@ from ..world.components import Agent, Clan, ClanRef, ForceDecisionQueue, Positio
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
 from ..world.systems import identity, leadership, markets, resting, spawning
-from ..world.tick import Simulation, create_world
+from ..world.tick import Simulation, create_world, ensure_singletons
 
 
 class PositionRequest(BaseModel):
@@ -344,6 +344,11 @@ def create_app(
         if store.has_save():
             world = store.load()
             logger.info("resumed world from %s at tick %d", store_path, world.tick)
+            # A world saved before a component existed has no entity carrying it, and
+            # nothing else would ever create one.
+            restored = ensure_singletons(world)
+            if restored:
+                logger.info("added missing singletons to the resumed world: %s", ", ".join(restored))
         else:
             world = create_world(world_config)
             store.save(world)

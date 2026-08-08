@@ -151,6 +151,43 @@ def create_world(config: WorldConfig) -> World:
     return world
 
 
+# Singleton components a world needs one of. Kept as a list rather than inlined so adding
+# one is a single edit and cannot be half-done.
+_SINGLETONS = (
+    Blackboard,
+    SpawnQueue,
+    DecisionLog,
+    MessageLog,
+    AdvisorState,
+    RestQueue,
+    ForceDecisionQueue,
+    IdentityQueue,
+    EscrowBook,
+    MarketBook,
+    SpendBook,
+)
+
+
+def ensure_singletons(world: World) -> list[str]:
+    """Give a resumed world any singleton component it was saved without.
+
+    A world saved before a component existed has no entity carrying it, and nothing in the
+    load path creates one — so the feature is silently unreachable on exactly the worlds
+    that have been running longest. SpendBook found this: the live world would have
+    reported spending permanently disabled with no way to enable it, and no error to say
+    why.
+
+    Additive and idempotent. Only ever creates what is missing, never touches what is
+    there, so a resumed world keeps its history and a fresh one is unchanged.
+    """
+    added = []
+    for component_type in _SINGLETONS:
+        if world.first(component_type) is None:
+            world.add(world.create_entity(), component_type())
+            added.append(component_type.__name__)
+    return added
+
+
 def state_hash(world: World) -> str:
     """Stable fingerprint of the whole world, used by the determinism tests."""
     digest = hashlib.blake2b(digest_size=16)
