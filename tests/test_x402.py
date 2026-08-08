@@ -790,3 +790,12 @@ def test_a_receipt_records_what_was_paid(tmp_path):
     assert receipt["amount"] == config.x402_price
     assert receipt["currency"] == config.x402_currency
     assert receipt["proof"] == f"tx:{TX}"
+
+
+def test_attached_minds_can_be_turned_on_without_a_new_world(monkeypatch):
+    """A persisted world keeps the config it was born with, so a feature with no override
+    is unreachable on exactly the world it was built for."""
+    monkeypatch.setenv("ATTACHED_MINDS_ENABLED", "true")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.attached_minds_enabled is True
+    assert "attached_minds_enabled=True" in changed

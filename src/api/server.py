@@ -210,6 +210,11 @@ CHAIN_FLAG_ENV = {
     # call costs money — but a persisted world would otherwise be stuck on whatever this
     # was when it was created, which is the whole reason these overrides exist.
     "llm_enabled": "LLM_ENABLED",
+    # Visitors driving their own agent from outside. Off by default, and needs an override
+    # for the same reason as the rest: a persisted world is otherwise stuck with whatever
+    # this was when it was created, which would have made the feature unreachable on
+    # exactly the world it was built for.
+    "attached_minds_enabled": "ATTACHED_MINDS_ENABLED",
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
