@@ -1,15 +1,19 @@
-"""Minds a visitor attached to their own agent.
+"""Minds a visitor brought: something outside this process driving one agent.
 
-No network anywhere here. The client is injected, so these drive a stub and assert on
-what the world does with the answers — including all the answers a hostile or broken
-endpoint might send.
+The mind calls in and the world never calls out, so there is no transport to stub and no
+network anywhere here. What these cover is the door: who may steer, what a steer is
+allowed to do, and what a hostile caller cannot make the world do.
 """
 
 from __future__ import annotations
 
+import pathlib
 from dataclasses import replace
 
-from src.world.components import AttachedMind, Agent, Outbox, ResourceKind
+from starlette.testclient import TestClient
+
+from src.api.server import create_app
+from src.world.components import Agent, AttachedMind, MindQueue, Outbox, ResourceKind
 from src.world.config import WorldConfig
 from src.world.systems import minds
 from src.world.tick import Simulation, create_world
@@ -23,80 +27,63 @@ CONFIG = WorldConfig(
 )
 
 
-class StubMind:
-    """Answers whatever it was told to, and records what it was asked."""
-
-    def __init__(self, answer: dict | None = None) -> None:
-        self.answer = answer
-        self.asked: list[dict] = []
-        self._queued: list[dict] = []
-
-    def submit(self, request: dict) -> bool:
-        self.asked.append(request)
-        if self.answer is not None:
-            reply = dict(self.answer)
-            reply["agent_id"] = request["perception"]["agent_id"]
-            self._queued.append(reply)
-        return True
-
-    def collect(self) -> list[dict]:
-        out, self._queued = self._queued, []
-        return out
-
-    def pending(self) -> int:
-        return len(self._queued)
-
-
-def _world_with_mind(config=CONFIG, **mind_kwargs):
+def _world_with_mind(config=CONFIG, token="secret-token", **kwargs):
     world = create_world(config)
     entity = next(iter(world.query(Agent)))
-    world.add(entity, AttachedMind(endpoint="https://example.test/mind", **mind_kwargs))
+    world.add(
+        entity,
+        AttachedMind(owner="0xabc", token_hash=minds.hash_token(token), **kwargs),
+    )
     return world, entity
 
 
 # --- the seam -----------------------------------------------------------------------
 
 
-def test_a_mind_sets_what_its_agent_wants():
+def test_a_steer_sets_what_the_agent_wants():
     world, entity = _world_with_mind()
-    world.minds = StubMind({"wants": "wood"})
     world.get(entity, Agent).wants = ResourceKind.FOOD
+    minds.enqueue_steer(world, entity, wants="wood")
 
-    simulation = Simulation(world)
-    simulation.run(12)
-
+    Simulation(world).run(1)
     assert world.get(entity, Agent).wants is ResourceKind.WOOD
 
 
 def test_a_mind_gains_no_power_the_agent_did_not_have():
     """It picks differently, never better. Both values were already reachable by the
-    state machine — without this a paid mind is a bought advantage and the world becomes
-    a game about who spent money."""
+    state machine — without this a paid mind is a bought advantage."""
     assert set(minds.WANTS) == {"food", "wood"}
     assert set(minds.WANTS.values()) == {ResourceKind.FOOD, ResourceKind.WOOD}
 
 
-def test_nothing_is_asked_while_the_feature_is_off():
-    """An endpoint on somebody else's machine must not be reached until an operator
-    says so."""
-    world, _ = _world_with_mind(config=replace(CONFIG, attached_minds_enabled=False))
-    client = StubMind({"wants": "wood"})
-    world.minds = client
+def test_a_steer_waits_for_a_tick_rather_than_landing_on_arrival():
+    """A steer is an input to the simulation. Applying it when the request lands would
+    make history depend on wall clock."""
+    world, entity = _world_with_mind()
+    world.get(entity, Agent).wants = ResourceKind.FOOD
+    minds.enqueue_steer(world, entity, wants="wood")
 
-    Simulation(world).run(20)
-    assert client.asked == []
-
-
-def test_a_world_with_no_client_attached_just_runs():
-    world, _ = _world_with_mind()
-    Simulation(world).run(10)  # world.minds never set
+    assert world.get(entity, Agent).wants is ResourceKind.FOOD  # not yet
+    Simulation(world).run(1)
+    assert world.get(entity, Agent).wants is ResourceKind.WOOD
 
 
-# --- what a broken or hostile endpoint can do -----------------------------------------
+def test_a_world_with_the_feature_off_discards_what_it_was_sent():
+    """Rather than accumulating it against being switched on later."""
+    world, entity = _world_with_mind(config=replace(CONFIG, attached_minds_enabled=False))
+    world.get(entity, Agent).wants = ResourceKind.FOOD
+    minds.enqueue_steer(world, entity, wants="wood")
+
+    Simulation(world).run(2)
+    assert world.get(entity, Agent).wants is ResourceKind.FOOD
+    assert world.get(world.first(MindQueue), MindQueue).pending == []
+
+
+# --- what a hostile caller can do ---------------------------------------------------
 
 
 def test_an_unknown_want_changes_nothing():
-    """A mind that returns nonsense should change nothing, not something arbitrary."""
+    """A caller that sends nonsense should change nothing, not something arbitrary."""
     world, entity = _world_with_mind()
     world.get(entity, Agent).wants = ResourceKind.FOOD
     mind = world.get(entity, AttachedMind)
@@ -105,108 +92,225 @@ def test_an_unknown_want_changes_nothing():
     assert world.get(entity, Agent).wants is ResourceKind.FOOD
 
 
-def test_an_empty_answer_changes_nothing():
+def test_an_empty_steer_changes_nothing():
     world, entity = _world_with_mind()
     mind = world.get(entity, AttachedMind)
     assert minds.apply(world, entity, mind, {}) is False
 
 
 def test_speech_is_truncated():
-    """It is rendered in a viewer and stored in world state, and an endpoint is free to
-    return a megabyte."""
     world, entity = _world_with_mind()
-    mind = world.get(entity, AttachedMind)
-    minds.apply(world, entity, mind, {"say": "x" * 5000})
+    minds.enqueue_steer(world, entity, say="x" * 5000)
+    Simulation(world).run(1)
 
-    assert len(mind.last_said) == minds.MAX_SAY
+    assert len(world.get(entity, AttachedMind).last_said) == minds.MAX_SAY
 
 
 def test_speech_goes_through_the_ordinary_message_path():
-    """A mind that could talk faster than the world does would be a different kind of
-    advantage."""
+    """A mind that could talk faster than the world does would be its own advantage."""
     world, entity = _world_with_mind()
-    mind = world.get(entity, AttachedMind)
-    minds.apply(world, entity, mind, {"say": "meet me at the river"})
+    minds.enqueue_steer(world, entity, say="meet me at the river")
+    Simulation(world).run(1)
 
     messages = world.get(entity, Outbox).messages
     assert messages and messages[-1]["text"] == "meet me at the river"
 
 
-def test_a_failing_endpoint_is_eventually_left_alone():
-    """One dead url must not buy a request every cooldown for the rest of the world's
-    life."""
+def test_posting_in_a_loop_cannot_fill_the_queue():
+    """One mind must not be able to starve every other by posting repeatedly."""
     world, entity = _world_with_mind()
-    world.minds = StubMind({"failed": True})
+    for index in range(500):
+        minds.enqueue_steer(world, entity, wants="wood", say=f"n{index}")
 
-    Simulation(world).run(minds.MAX_FAILURES * CONFIG.attached_mind_cooldown_ticks * 3)
+    pending = world.get(world.first(MindQueue), MindQueue).pending
+    assert len(pending) == 1, "a repeated steer should replace, not accumulate"
+    assert pending[0]["say"] == "n499"
+
+
+def test_the_queue_is_bounded_across_many_agents():
+    world, _ = _world_with_mind()
+    for entity in range(1000, 1000 + minds.MAX_PENDING * 3):
+        minds.enqueue_steer(world, entity, wants="food")
+
+    pending = world.get(world.first(MindQueue), MindQueue).pending
+    assert len(pending) <= minds.MAX_PENDING
+
+
+def test_a_steer_for_a_dead_agent_is_dropped():
+    world, entity = _world_with_mind()
+    minds.enqueue_steer(world, 999999, wants="wood")
+    Simulation(world).run(1)  # must not raise
+
+
+# --- the rate limit -----------------------------------------------------------------
+
+
+def test_the_world_listens_on_its_own_cadence():
+    """A mind may post as often as it likes; the rate limit lives in the world.
+
+    Asserted on the steer count rather than on `wants`, because the state machine writes
+    `wants` every tick for its own reasons — a steer that was correctly refused and a
+    rule that happened to pick the same thing are indistinguishable from the outside.
+    """
+    world, entity = _world_with_mind()
     mind = world.get(entity, AttachedMind)
-    assert mind.failures >= minds.MAX_FAILURES
 
-    before = len(world.minds.asked)
-    Simulation(world).run(60)
-    assert len(world.minds.asked) == before, "a failed mind was still being asked"
+    minds.enqueue_steer(world, entity, wants="wood")
+    Simulation(world).run(1)
+    assert mind.steers == 1
+
+    # Immediately again, inside the cooldown.
+    minds.enqueue_steer(world, entity, wants="food")
+    Simulation(world).run(1)
+    assert mind.steers == 1, "a steer inside the cooldown was applied"
+
+    # Once the cooldown lapses it takes effect.
+    Simulation(world).run(CONFIG.attached_mind_cooldown_ticks)
+    minds.enqueue_steer(world, entity, wants="wood")
+    Simulation(world).run(1)
+    assert mind.steers == 2
 
 
-def test_a_good_answer_clears_earlier_failures():
-    world, entity = _world_with_mind(failures=3)
-    world.minds = StubMind({"wants": "food"})
-
-    Simulation(world).run(12)
-    assert world.get(entity, AttachedMind).failures == 0
+# --- tokens -------------------------------------------------------------------------
 
 
-def test_a_client_that_raises_costs_a_failure_not_the_tick():
-    class Exploding(StubMind):
-        def submit(self, request):
-            raise RuntimeError("endpoint on fire")
+def test_the_token_is_never_stored():
+    """World state is saved to disk and shipped in backups. A credential that exists only
+    as a hash cannot leak from either."""
+    world, entity = _world_with_mind(token="secret-token")
+    mind = world.get(entity, AttachedMind)
 
+    assert "secret-token" not in mind.token_hash
+    assert minds.token_matches(mind, "secret-token") is True
+    assert minds.token_matches(mind, "secret-token ") is False
+    assert minds.token_matches(mind, "") is False
+
+
+def test_a_mind_with_no_token_matches_nothing():
     world, entity = _world_with_mind()
-    world.minds = Exploding()
-
-    Simulation(world).run(12)  # must not raise
-    assert world.get(entity, AttachedMind).failures > 0
-
-
-# --- cadence ------------------------------------------------------------------------
+    mind = world.get(entity, AttachedMind)
+    mind.token_hash = ""
+    assert minds.token_matches(mind, "") is False
+    assert minds.token_matches(mind, "anything") is False
 
 
-def test_a_mind_is_asked_on_its_own_cooldown():
-    """Held per agent rather than globally, so one busy mind cannot crowd out another."""
-    world, _ = _world_with_mind()
-    client = StubMind({"wants": "food"})
-    world.minds = client
-
-    Simulation(world).run(20)
-    # 20 ticks at a cooldown of 5 is four windows; never one per tick.
-    assert 1 <= len(client.asked) <= 5, f"asked {len(client.asked)} times in 20 ticks"
+# --- the door, end to end -----------------------------------------------------------
 
 
-def test_an_agent_without_a_mind_is_never_asked():
-    world, entity = _world_with_mind()
-    client = StubMind({"wants": "food"})
-    world.minds = client
+def _send(client: TestClient, data: dict) -> dict:
+    return client.post(
+        "/a2a",
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "kind": "message",
+                    "role": "user",
+                    "messageId": "m1",
+                    "parts": [{"kind": "data", "data": data}],
+                }
+            },
+        },
+    ).json()["result"]
 
-    Simulation(world).run(20)
-    asked = {r["perception"]["agent_id"] for r in client.asked}
-    assert asked == {entity}
+
+def test_a_mind_can_observe_and_steer_its_own_agent(tmp_path: pathlib.Path):
+    app = create_app(CONFIG, tmp_path / "minds.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        entity = next(iter(world.query(Agent)))
+        world.get(entity, Agent).user_deployed = True
+
+        issued = client.post(f"/agents/{entity}/mind").json()
+        token = issued["token"]
+
+        seen = _send(client, {"skill": "observe-my-agent", "agent_id": entity, "token": token})
+        assert seen["status"]["state"] == "completed"
+        assert seen["artifacts"][0]["parts"][1]["data"]["choices"] == ["food", "wood"]
+
+        steered = _send(
+            client,
+            {"skill": "steer-my-agent", "agent_id": entity, "token": token, "wants": "wood"},
+        )
+        assert steered["artifacts"][0]["parts"][1]["data"]["queued"] is True
 
 
-def test_the_perception_carries_the_vocabulary():
-    """A mind should not have to guess the answer set from documentation it may not
-    have read."""
-    world, _ = _world_with_mind()
-    client = StubMind({"wants": "food"})
-    world.minds = client
+def test_a_wrong_token_cannot_steer_somebody_elses_agent(tmp_path: pathlib.Path):
+    app = create_app(CONFIG, tmp_path / "minds.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        entity = next(iter(world.query(Agent)))
+        world.get(entity, Agent).user_deployed = True
+        client.post(f"/agents/{entity}/mind")
 
-    Simulation(world).run(10)
-    assert client.asked[0]["perception"]["choices"] == ["food", "wood"]
+        refused = _send(
+            client,
+            {"skill": "steer-my-agent", "agent_id": entity, "token": "guessed", "wants": "wood"},
+        )
+        assert refused["status"]["state"] == "failed"
+        assert world.get(world.first(MindQueue), MindQueue).pending == []
+
+
+def test_a_bad_id_and_a_bad_token_are_refused_identically(tmp_path: pathlib.Path):
+    """Telling a caller which agents exist is a way of enumerating them."""
+    app = create_app(CONFIG, tmp_path / "minds.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        entity = next(iter(world.query(Agent)))
+        world.get(entity, Agent).user_deployed = True
+        client.post(f"/agents/{entity}/mind")
+
+        missing = _send(client, {"skill": "steer-my-agent", "agent_id": 999999, "token": "x"})
+        wrong = _send(client, {"skill": "steer-my-agent", "agent_id": entity, "token": "x"})
+
+        assert (
+            missing["status"]["message"]["parts"][0]["text"]
+            == wrong["status"]["message"]["parts"][0]["text"]
+        )
+
+
+def test_re_attaching_revokes_the_previous_token(tmp_path: pathlib.Path):
+    """The only way to rotate a token that leaked."""
+    app = create_app(CONFIG, tmp_path / "minds.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        entity = next(iter(world.query(Agent)))
+        world.get(entity, Agent).user_deployed = True
+
+        first = client.post(f"/agents/{entity}/mind").json()["token"]
+        second = client.post(f"/agents/{entity}/mind").json()["token"]
+        assert first != second
+
+        stale = _send(client, {"skill": "steer-my-agent", "agent_id": entity, "token": first})
+        assert stale["status"]["state"] == "failed"
+
+
+def test_the_card_advertises_the_mind_skills_only_when_enabled(tmp_path: pathlib.Path):
+    app = create_app(CONFIG, tmp_path / "on.db")
+    with TestClient(app) as client:
+        on = [s["id"] for s in client.get("/.well-known/agent-card.json").json()["skills"]]
+
+    app = create_app(replace(CONFIG, attached_minds_enabled=False), tmp_path / "off.db")
+    with TestClient(app) as client:
+        off = [s["id"] for s in client.get("/.well-known/agent-card.json").json()["skills"]]
+
+    assert "steer-my-agent" in on
+    assert "steer-my-agent" not in off
+
+
+def test_attaching_is_refused_when_the_feature_is_off(tmp_path: pathlib.Path):
+    app = create_app(replace(CONFIG, attached_minds_enabled=False), tmp_path / "off.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        entity = next(iter(world.query(Agent)))
+        world.get(entity, Agent).user_deployed = True
+        assert client.post(f"/agents/{entity}/mind").status_code == 403
 
 
 def test_status_reports_what_is_attached():
     world, _ = _world_with_mind()
-    world.minds = StubMind({"wants": "food"})
     status = minds.status(world)
-
     assert status["enabled"] is True
     assert status["attached"] == 1
-    assert status["answering"] == 1

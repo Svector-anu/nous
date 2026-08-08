@@ -26,11 +26,11 @@ def test_systems_run_in_the_documented_order():
         "trade",
         "resting",
         "combat",
-        # Before the fsm: a visitor's attached mind sets what its agent wants, and the
-        # state machine acts on it in the same tick. After it, every answer would be a
-        # tick stale and a mind would always be reacting to a world that had moved.
-        "minds",
         "fsm",
+        # After the fsm, before movement. The state machine writes `wants` itself every
+        # tick, so a steer applied before it is overwritten within the same tick and never
+        # reaches the world.
+        "minds",
         "movement",
         "build",
         "regrowth",

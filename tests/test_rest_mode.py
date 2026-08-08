@@ -1,4 +1,4 @@
-"""User rest mode: spectator safety valve that still lives by the same rules."""
+"   ""User rest mode: spectator safety valve that still lives by the same rules."""
 
 from __future__ import annotations
 

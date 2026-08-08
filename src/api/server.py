@@ -25,10 +25,18 @@ from ..chain import x402
 from ..chain.x402 import PaymentProof, build_verifier
 from ..chain.x402 import price_units
 from ..persistence.sqlite_store import SqliteWorldStore
-from ..world.components import Agent, Clan, ClanRef, ForceDecisionQueue, Position, RestQueue
+from ..world.components import (
+    Agent,
+    AttachedMind,
+    Clan,
+    ClanRef,
+    ForceDecisionQueue,
+    Position,
+    RestQueue,
+)
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
-from ..world.systems import identity, leadership, markets, resting, spawning
+from ..world.systems import identity, leadership, markets, minds, resting, spawning
 from ..world.tick import Simulation, create_world, ensure_singletons
 
 
@@ -693,6 +701,73 @@ def create_app(
                 )
             )
 
+        if skill in ("observe-my-agent", "steer-my-agent"):
+            # The whole of #22's transport. The mind calls in, so the world never makes a
+            # request to an address a stranger chose — no forgery to defend against, no
+            # dns to re-resolve, no redirect to follow, nothing to pin.
+            if not world.config.attached_minds_enabled:
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.failed_task(
+                            task_id=task_id,
+                            context_id=context_id,
+                            text="attached minds are not enabled on this world.",
+                        ),
+                    )
+                )
+            try:
+                agent_id = int(arguments.get("agent_id"))
+            except (TypeError, ValueError):
+                agent_id = -1
+            mind = world.try_get(agent_id, AttachedMind) if agent_id >= 0 else None
+            token = str(arguments.get("token") or "")
+            # One message for a bad id and a bad token alike: telling a caller which agents
+            # exist is a way of enumerating them.
+            if mind is None or not mind.enabled or not minds.token_matches(mind, token):
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.failed_task(
+                            task_id=task_id,
+                            context_id=context_id,
+                            text="no mind is attached to that agent with that token.",
+                        ),
+                    )
+                )
+
+            if skill == "observe-my-agent":
+                view = minds.perception(world, agent_id)
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.completed_task(
+                            task_id=task_id,
+                            context_id=context_id,
+                            text=f"{view.get('name', 'your agent')} is {view.get('state', 'somewhere')}.",
+                            data=view,
+                        ),
+                    )
+                )
+
+            queued = minds.enqueue_steer(
+                world, agent_id, wants=arguments.get("wants", ""), say=arguments.get("say", "")
+            )
+            return JSONResponse(
+                a2a.rpc_result(
+                    request_id,
+                    a2a.completed_task(
+                        task_id=task_id,
+                        context_id=context_id,
+                        # Queued, not applied: a steer is an input to the simulation, and
+                        # applying it when the request lands would make history depend on
+                        # wall clock.
+                        text="queued for the next tick." if queued else "the world is not ready.",
+                        data={"agent_id": agent_id, "queued": queued, "tick": world.tick},
+                    ),
+                )
+            )
+
         if skill == "nudge-clan":
             if not (world.config.x402_enabled and world.config.llm_force_decision_enabled):
                 return JSONResponse(
@@ -1095,6 +1170,64 @@ def create_app(
         proven = app.state.sessions.address(token) if token else ""
         if proven != agent.owner_address:
             raise HTTPException(403, f"agent {agent_id} is linked to another wallet")
+
+    @app.post("/agents/{agent_id}/mind", status_code=201)
+    async def attach_mind(agent_id: int, http_request: Request) -> JSONResponse:
+        """Attach a mind to an agent, and hand back the token that drives it.
+
+        The token is returned exactly once and stored only as a sha256. World state is
+        saved to disk and shipped in backups, and a credential that exists only as a hash
+        cannot leak from either.
+
+        Nothing here lets the world call out. The mind uses this token against /a2a to ask
+        what its agent sees and to say what it should want — so there is no url for a
+        visitor to supply, and therefore no request for anybody to forge.
+        """
+        world = app.state.simulation.world
+        if not world.config.attached_minds_enabled:
+            raise HTTPException(403, "attached minds are not enabled")
+
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, http_request)
+
+        token = secrets.token_urlsafe(32)
+        existing = world.try_get(agent_id, AttachedMind)
+        if existing is None:
+            world.add(agent_id, AttachedMind(owner=agent.owner_address, token_hash=minds.hash_token(token)))
+        else:
+            # Re-issuing revokes the previous token, which is the only way to rotate one
+            # that leaked.
+            existing.owner = agent.owner_address
+            existing.token_hash = minds.hash_token(token)
+            existing.enabled = True
+
+        return JSONResponse(
+            {
+                "agent_id": agent_id,
+                "token": token,
+                "endpoint": "/a2a",
+                "skills": ["observe-my-agent", "steer-my-agent"],
+                "note": "shown once; re-attach to rotate",
+            },
+            status_code=201,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.delete("/agents/{agent_id}/mind")
+    async def detach_mind(agent_id: int, http_request: Request) -> JSONResponse:
+        world = app.state.simulation.world
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, http_request)
+
+        mind = world.try_get(agent_id, AttachedMind)
+        if mind is not None:
+            mind.enabled = False
+            mind.token_hash = ""
+        return JSONResponse({"detached": True, "agent_id": agent_id})
 
     @app.post("/agents/{agent_id}/rest", status_code=202)
     async def set_rest(

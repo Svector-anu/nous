@@ -500,29 +500,49 @@ class SpendBook:
 
 @dataclass
 class AttachedMind:
-    """An endpoint a visitor attached to the agent they deployed, so something outside
-    this process decides what that agent wants.
+    """A visitor drives the agent they deployed, from outside this process.
 
     The world holds around a hundred agents and can afford to think for almost none of
-    them. A mind brought by a visitor arrives with its own budget, which is the only way
-    the number of thinking agents grows without the operator's bill growing with it.
+    them. A mind a visitor brings arrives with its own budget, which is the only way the
+    number of thinking agents grows without the operator's bill growing with it.
+
+    **The mind calls in; the world never calls out.** An earlier version stored an endpoint
+    here and had the server post to it, which made Nous a http client of fifty strangers —
+    server-side request forgery, dns rebinding, redirect handling, connection pinning, and
+    a thread pool to keep it all off the tick. Inverting it deletes that entire class
+    rather than defending against it, and it costs nothing: the state machine already
+    covers every gap, so a mind that says nothing is a mind that changed nothing.
 
     Deliberately the narrowest possible seam. A mind sets `wants` — food or wood — and may
-    say something. That is all. It picks *differently*, never *better*: both values were
-    already reachable by the state machine, the agent gains no reach, no speed and no
-    exemption from hunger, and an agent with a mind starves exactly as fast as one
-    without. That is what keeps a paid mind from being a bought advantage.
+    say something. It picks *differently*, never *better*: both values were already
+    reachable by the state machine, the agent gains no reach, no speed and no exemption
+    from hunger, and one with a mind starves exactly as fast as one without.
 
-    `failures` backs off an endpoint that keeps timing out, so one broken url cannot cost
-    the world a request every cooldown forever. `last_tick` is the cooldown itself, held
-    per agent rather than globally so one busy mind cannot crowd out another.
+    `token_hash` is a sha256 of a bearer token handed to the owner once. The token itself
+    is never stored: world state is saved to disk and shipped in backups, and a credential
+    that only exists as a hash cannot leak from either.
     """
 
-    endpoint: str = ""
-    # The wallet that attached it. Only the owner may change or remove it.
+    # The wallet that attached it. Only that wallet may attach, detach or re-issue.
     owner: str = ""
+    token_hash: str = ""
     enabled: bool = True
-    last_tick: int = -1
-    failures: int = 0
-    # What it last said, kept so the viewer can show that this agent speaks for itself.
+    # Last tick a steer from this mind was actually applied. Doubles as the rate limit
+    # and as staleness — a mind that stops posting simply stops steering, and the fsm
+    # takes over with nothing to detect and no failure counter to keep.
+    last_steer_tick: int = -1
     last_said: str = ""
+    steers: int = 0
+
+
+@dataclass
+class MindQueue:
+    """Steers waiting for a fixed tick, exactly like SpawnQueue and RestQueue.
+
+    A steer is an input to the simulation, so applying it the moment the request lands
+    would make history depend on wall clock. It queues and drains at a fixed point in the
+    tick instead, which is what keeps the same seed plus the same steers at the same ticks
+    rebuilding the same world.
+    """
+
+    pending: list[dict] = field(default_factory=list)

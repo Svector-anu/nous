@@ -20,6 +20,7 @@ from .components import (
     Inventory,
     MarketBook,
     MessageLog,
+    MindQueue,
     Needs,
     Outbox,
     Position,
@@ -76,10 +77,13 @@ def build_registry() -> SystemRegistry:
     registry.register("trade", trade.run)
     registry.register("resting", resting.run)
     registry.register("combat", combat.run)
-    # Before the fsm: a mind sets what its agent wants, and the state machine then acts
-    # on it in the same tick. After it, the answer would always be a tick stale.
-    registry.register("minds", minds.run)
     registry.register("fsm", fsm.run)
+    # After the fsm and before movement. The state machine decides afresh every tick and
+    # writes `wants` itself, so a steer applied before it is overwritten within the same
+    # tick and never reaches the world; applied after it, the mind adjusts what the rules
+    # chose and movement acts on that immediately. The rules still decide *what state* the
+    # agent is in — a mind only ever changes what it is looking for.
+    registry.register("minds", minds.run)
     registry.register("movement", movement.run)
     registry.register("build", build.run)
     registry.register("regrowth", regrowth.run)
@@ -117,6 +121,7 @@ def create_world(config: WorldConfig) -> World:
     # Disabled, unfunded and unhalted. A new world can no more spend money than an
     # old one — the envelope starts at zero and only an operator raises it.
     world.add(world.create_entity(), SpendBook())
+    world.add(world.create_entity(), MindQueue())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()
@@ -162,6 +167,7 @@ _SINGLETONS = (
     SpawnQueue,
     DecisionLog,
     MessageLog,
+    MindQueue,
     AdvisorState,
     RestQueue,
     ForceDecisionQueue,

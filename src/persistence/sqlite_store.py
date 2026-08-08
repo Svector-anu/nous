@@ -46,6 +46,7 @@ COMPONENT_TYPES: tuple[type, ...] = (
     # worst possible thing to discover late.
     component_module.SpendBook,
     component_module.AttachedMind,
+    component_module.MindQueue,
 )
 
 _BY_NAME = {component_type.__name__: component_type for component_type in COMPONENT_TYPES}

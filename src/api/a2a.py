@@ -41,6 +41,8 @@ PROTOCOL_VERSION = "0.3.0"
 # cannot disagree about what exists — a card that offers a skill nothing implements is
 # worse than one that offers less.
 FREE_SKILLS = ("observe-world", "read-decisions")
+# Owner-only: they need the token handed out when a mind was attached.
+MIND_SKILLS = ("observe-my-agent", "steer-my-agent")
 PAID_SKILLS = ("nudge-clan",)
 
 
@@ -73,6 +75,33 @@ def agent_card(*, base_url: str, config, world_ready: bool = True) -> dict:
             "examples": ["Which clans did a model decide for recently?"],
         },
     ]
+    if getattr(config, "attached_minds_enabled", False):
+        skills.extend(
+            [
+                {
+                    "id": "observe-my-agent",
+                    "name": "See what my agent sees",
+                    "description": (
+                        "Perception for an agent you deployed and attached a mind to. "
+                        "Needs the token issued when the mind was attached."
+                    ),
+                    "tags": ["read", "owner"],
+                    "examples": ["What is my agent doing right now?"],
+                },
+                {
+                    "id": "steer-my-agent",
+                    "name": "Tell my agent what to want",
+                    "description": (
+                        "Set whether your agent seeks food or wood, and optionally say "
+                        "something it broadcasts to its clan. Applied on the next tick. "
+                        "Confers no advantage: both choices were already available to it."
+                    ),
+                    "tags": ["write", "owner"],
+                    "examples": ["Go for wood", "Say: meet me at the river"],
+                },
+            ]
+        )
+
     if paid:
         skills.append(
             {
