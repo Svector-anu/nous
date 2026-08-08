@@ -1074,6 +1074,32 @@ check(
   logOwnership.withoutPredicate.join(" | ")
 );
 
+// --- 11u. every dock button actually shows its panel -----------------------------
+// The payments check below drove the renderer directly and asserted on the list's
+// contents, which passed while the panel was invisible: its card lived in the bottom
+// strip, and the strip decided whether to open from a hardcoded array the card was not
+// in. The button lit up and nothing appeared. So this presses each button the way a
+// person does and asserts something is actually on screen.
+const dockPanels = await page.evaluate(async () => {
+  const wait = () => new Promise((r) => setTimeout(r, 120));
+  const out = [];
+  for (const button of document.querySelectorAll("#bottomDock .dock-btn[data-panel]")) {
+    const id = button.dataset.panel;
+    button.click();
+    await wait();
+    const el = document.getElementById(id);
+    const box = el ? el.getBoundingClientRect() : { width: 0, height: 0 };
+    out.push({ id, visible: box.width > 0 && box.height > 0 });
+  }
+  return out;
+});
+const invisible = dockPanels.filter((p) => !p.visible).map((p) => p.id);
+check(
+  "every dock button opens a panel you can actually see",
+  invisible.length === 0,
+  invisible.length ? `opened nothing: ${invisible.join(", ")}` : `${dockPanels.length} panels`
+);
+
 // --- 11v. driving your own agent has a door -------------------------------------
 // The seam shipped with no way in: attaching a mind meant curling an endpoint and
 // copying a token out of json, which nobody does. A feature a visitor cannot reach is

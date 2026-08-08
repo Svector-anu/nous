@@ -2393,11 +2393,20 @@ function setAgentsOpen(open) {
   if (card) card.classList.toggle("open", open);
 }
 
+/** Every card that lives in the strip, read from the dom rather than listed.
+ *
+ * This was a hardcoded array, and adding a card to the markup without also adding it
+ * here left the card opening inside a strip that stayed shut — the button lit up and
+ * nothing appeared. Two cards were added that way before anyone noticed. A list that has
+ * to be kept in step with the html is a list that eventually is not. */
+function stripCardIds() {
+  return [...document.querySelectorAll("#bottomStrip .floating-card[id]")].map((el) => el.id);
+}
+
 function bottomStripOpen() {
   const strip = document.getElementById("bottomStrip");
-  const bottomCards = ["worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards"];
   if (!strip) return false;
-  return bottomCards.some((id) => {
+  return stripCardIds().some((id) => {
     const el = document.getElementById(id);
     return el && el.classList.contains("open") && !el.classList.contains("collapsed");
   });
@@ -2411,9 +2420,11 @@ function closeAllPanels(exceptId = null) {
   // Single navigation model: exactly one panel is visible at a time, on every
   // viewport. Opening any dock target closes every other overlay, strip card,
   // and the agents sidebar, so the world stays the focus.
+  // The overlay panels are named; the strip's cards are read from the dom, so a new one
+  // is closed by this without anybody remembering to add it.
   const panels = [
     "deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard",
-    "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards",
+    ...stripCardIds(),
   ];
   for (const id of panels) {
     if (id !== exceptId) setPanelOpen(id, false);
