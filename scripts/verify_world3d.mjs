@@ -1074,6 +1074,53 @@ check(
   logOwnership.withoutPredicate.join(" | ")
 );
 
+// --- 11v. driving your own agent has a door -------------------------------------
+// The seam shipped with no way in: attaching a mind meant curling an endpoint and
+// copying a token out of json, which nobody does. A feature a visitor cannot reach is
+// not a feature. These assert the button appears only where the world will honour it,
+// and only on an agent that is actually yours.
+const mindUi = await page.evaluate(() => {
+  const m = window.__mine;
+  const inspector = window.__inspector;
+  localStorage.removeItem(m.MINE_KEY);
+  const mine = { id: 1, name: "mine", user: true, owner: "", x: 1, y: 1, state: "IDLE",
+                 hunger: 50, energy: 50, food: 0, wood: 0, clan: null, mind: false,
+                 rest_mode: false, raids_won: 0, raids_lost: 0, standing: 0, rank: "member" };
+  const theirs = { ...mine, id: 2, name: "stranger" };
+  m.rememberMine(mine);
+
+  const draw = (agent, mindsEnabled) =>
+    inspector.render({ agents: [agent], clans: [], paid: [], buildings: [],
+                       minds: { enabled: mindsEnabled } }, agent.id);
+
+  draw(mine, true);
+  const onMineEnabled = !!document.querySelector("#inspector .attach-mind");
+  draw(mine, false);
+  const onMineDisabled = !!document.querySelector("#inspector .attach-mind");
+  draw(theirs, true);
+  const onStranger = !!document.querySelector("#inspector .attach-mind");
+  draw({ ...mine, mind: true }, true);
+  const badge = document.querySelector("#inspector .mind-badge")?.textContent ?? "";
+
+  localStorage.removeItem(m.MINE_KEY);
+  return { onMineEnabled, onMineDisabled, onStranger, badge };
+});
+check(
+  "my own agent offers a way to drive it, a stranger's never does",
+  mindUi.onMineEnabled === true && mindUi.onStranger === false,
+  `mine=${mindUi.onMineEnabled}, stranger=${mindUi.onStranger}`
+);
+check(
+  "no such button on a world that would refuse it",
+  mindUi.onMineDisabled === false,
+  `offered with minds off: ${mindUi.onMineDisabled}`
+);
+check(
+  "an agent somebody is driving says so",
+  mindUi.badge.trim().length > 0,
+  `badge: "${mindUi.badge}"`
+);
+
 // --- 11x. nothing hides underneath the rail ---------------------------------------
 // The CLANS panel was pinned at a hardcoded left: 78px against an 88px rail inset 12px,
 // so its first 22px sat behind the rail: the title read "LANS", the body lost its first

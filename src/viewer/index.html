@@ -1168,6 +1168,24 @@
   /* Same green as the leader flash on the map, so the two read as one event. */
   #worldLogCard .feed-kind.leader { color: #6ee274; }
   #worldLogCard .feed-kind.paid { color: #d29922; }
+  /* The only visible difference between an agent on rules and one somebody is driving. */
+  .mind-badge {
+    margin-left: 8px; padding: 1px 6px; border-radius: 999px;
+    font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+    color: #6ee274; border: 1px solid rgba(110,226,116,0.4); background: rgba(110,226,116,0.10);
+  }
+  #mindKeyPanel { display: none; }
+  #mindKeyPanel.open { display: flex; flex-direction: column; }
+  .mind-key {
+    display: block; margin: 6px 0 10px; padding: 8px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--line);
+    font-size: 11px; word-break: break-all; color: #6ee274; user-select: all;
+  }
+  .mind-snippet {
+    margin: 6px 0 0; padding: 10px; border-radius: 6px; max-height: 320px; overflow: auto;
+    background: rgba(0,0,0,0.35); border: 1px solid var(--line);
+    font-size: 10.5px; line-height: 1.5; color: var(--text); user-select: all;
+    white-space: pre; }
   /* The receipt. A paid action that cannot be checked is only a claim. */
   #worldLogCard .feed-proof {
     display: inline-block; margin-top: 3px; font-size: 10.5px;
@@ -1986,6 +2004,20 @@
         <div class="card-body">
           <p class="hint" id="paymentsNote">Anyone can pay a clan's leader to stop and decide again. Every payment is on-chain and listed here.</p>
           <ul class="feed-list" id="paymentsList"><li class="feed-empty">Nobody has paid yet...</li></ul>
+        </div>
+      </div>
+      <!-- Shown once, when a key is issued. The server keeps only a hash of it. -->
+      <div class="floating-card" id="mindKeyPanel">
+        <h3 class="card-title">YOUR AGENT&#39;S KEY
+          <span class="card-tools">
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <p class="hint">Shown once. Nous stores only a hash of it — copy it now, or make a new one.</p>
+          <code class="mind-key" id="mindKeyToken"></code>
+          <p class="hint">Your script polls and steers. Nous never calls out to you.</p>
+          <pre class="mind-snippet" id="mindKeySnippet"></pre>
         </div>
       </div>
       <div class="floating-card" id="agentCards">
@@ -3078,6 +3110,47 @@ function rememberMine(agent) {
  * between them — which is exactly how the inspector kept offering Rest on a stranger's
  * agent after My Agents had been fixed.
  */
+/** Whether this world will honour an attached mind. Read from the snapshot rather than
+ * assumed, so a viewer against a world with the feature off offers nothing. */
+/**
+ * The key, shown once.
+ *
+ * The server stores only a sha256 of it, so this is genuinely the only time it exists in
+ * readable form — a modal that can be dismissed without copying would lose it for good,
+ * which is why the snippet is pre-filled rather than described.
+ */
+function showMindKey(issued) {
+  const panel = document.getElementById("mindKeyPanel");
+  const snippet = [
+    "# your agent, driven by whatever model you like.",
+    "# it polls; nous never calls out to you.",
+    "import requests",
+    "",
+    `AGENT = ${issued.agent_id}`,
+    `TOKEN = "${issued.token}"`,
+    'RPC   = "https://nous.city/a2a"',
+    "",
+    "def call(skill, **args):",
+    '    body = {"jsonrpc": "2.0", "id": 1, "method": "message/send",',
+    '            "params": {"message": {"kind": "message", "role": "user",',
+    '                "messageId": "1", "parts": [{"kind": "data",',
+    '                "data": {"skill": skill, "agent_id": AGENT,',
+    '                         "token": TOKEN, **args}}]}}}',
+    "    return requests.post(RPC, json=body).json()",
+    "",
+    "seen = call(\"observe-my-agent\")",
+    "# decide with your own model, then:",
+    "call(\"steer-my-agent\", wants=\"wood\", say=\"heading for timber\")",
+  ].join("\n");
+  document.getElementById("mindKeyToken").textContent = issued.token;
+  document.getElementById("mindKeySnippet").textContent = snippet;
+  panel.classList.add("open");
+}
+
+function mindsOn() {
+  return Boolean(lastSnapshot?.minds?.enabled);
+}
+
 function isMine(agent) {
   if (!agent || !agent.user) return false;
   // Claimed: the chain says who owns it, and that is the end of the argument.
@@ -3798,7 +3871,11 @@ function renderInspector(snapshot) {
     `</div>` +
     `</div>` +
     `<div class="agent-card-body">` +
-    `<div class="agent-card-state">${stateLabel}</div>` +
+    `<div class="agent-card-state">${stateLabel}` +
+    // The only visible difference between an agent on rules and one somebody brought a
+    // mind for. A mind confers no advantage, so this label is the whole tell.
+    (agent.mind ? `<span class="mind-badge" title="driven from outside">mind</span>` : "") +
+    `</div>` +
     `<div class="agent-card-clan">${clanLabel}</div>` +
     `<div class="agent-card-main">` +
     `<div class="agent-card-avatar" style="background:${colour}22">${agentAvatar(agent, colour)}</div>` +
@@ -3831,6 +3908,9 @@ function renderInspector(snapshot) {
   const actionsKey = [
     agent.id, agent.rest_mode ? 1 : 0, clan && clan.centre ? clan.id : "",
     agent.user ? 1 : 0, isMine(agent) ? 1 : 0, agent.name,
+    // Whether a mind is attached decides which of the two buttons is offered, so it is
+    // one of the row's inputs — a key missing one reuses a row that should have changed.
+    agent.mind ? 1 : 0, mindsOn() ? 1 : 0,
   ].join(":");
 
   let actions = `<div class="agent-card-actions" data-key="${escapeHtml(actionsKey)}">` +
@@ -3843,6 +3923,12 @@ function renderInspector(snapshot) {
   // if they claimed it, and works on somebody else's character if they have not.
   if (agent.user && isMine(agent)) {
     actions += `<button class="rest-toggle" data-id="${agent.id}">${agent.rest_mode ? "Resume" : "Rest"}</button>`;
+    // Only on your own agent, and only where the world will honour it. A button that
+    // returns 403 is worse than one that is absent.
+    if (mindsOn()) {
+      actions += `<button class="attach-mind" data-id="${agent.id}">` +
+        `${agent.mind ? "New key" : "Drive it yourself"}</button>`;
+    }
   }
   actions += `</div>`;
 
@@ -3858,6 +3944,31 @@ function renderInspector(snapshot) {
   }
 
   inspector.innerHTML = html + actions + `</div>`;
+
+  inspector.querySelector(".attach-mind")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    const id = button.dataset.id;
+    button.disabled = true;
+    button.textContent = "…";
+    try {
+      const headers = { "Content-Type": "application/json" };
+      // The same bearer the rest of the owner-only routes use. Without it the server
+      // refuses, which is correct — a mind key is a credential for somebody's agent.
+      if (wallet.session) headers.Authorization = `Bearer ${wallet.session}`;
+      const response = await fetch(`/agents/${id}/mind`, { method: "POST", headers });
+      const body = await response.json();
+      if (!response.ok) {
+        button.textContent = body.detail || "refused";
+        return;
+      }
+      showMindKey(body);
+      button.textContent = "New key";
+    } catch {
+      button.textContent = "failed";
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   inspector.querySelector(".follow-agent")?.addEventListener("click", () =>
     flyToSim(agent.x, agent.y, `${agent.name} · ${agent.state}`, 8)
@@ -4436,6 +4547,25 @@ window.__topbar = { setStatDelta, setFollowFromLabel };
 // waiting for the simulation to happen to produce one.
 window.__mine = { myAgents, isMine, bettor, chainPaysFor, rememberMine, mineKeys, mineKey, MINE_KEY, LEGACY_NAME_KEY };
 window.__payments = { renderPayments };
+// The inspector, drivable from a test. It reads module-scope `selectedId` and
+// `lastSnapshot`, so a gate cannot exercise it without a way to set both.
+window.__inspector = {
+  render(snapshot, id) {
+    // Both are module scope and the whole page reads them, so they are put back. A seam
+    // that leaves the viewer holding a test's fake snapshot breaks everything downstream
+    // of it — the renderer went looking for snapshot.grid and found nothing.
+    const previousSnapshot = lastSnapshot;
+    const previousId = selectedId;
+    try {
+      lastSnapshot = snapshot;
+      selectedId = id;
+      renderInspector(snapshot);
+    } finally {
+      lastSnapshot = previousSnapshot;
+      selectedId = previousId;
+    }
+  },
+};
 
 window.__events = {
   findEvents,

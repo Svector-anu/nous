@@ -8,6 +8,7 @@ from typing import Protocol
 from .components import (
     AdvisorState,
     Agent,
+    AttachedMind,
     Blackboard,
     Building,
     Clan,
@@ -291,6 +292,11 @@ class Simulation:
                     ),
                     "rest_mode": agent.rest_mode,
                     "owner": agent.owner_address,
+                    # Whether somebody outside this process is driving it. Shown so a
+                    # spectator can tell an agent running on rules from one a visitor
+                    # brought a mind for — which is the only visible difference between
+                    # them, since a mind confers no advantage.
+                    "mind": world.has(entity, AttachedMind),
                 }
             )
 

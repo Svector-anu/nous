@@ -99,5 +99,8 @@ def test_snapshot_shape():
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
         "user", "personality", "wants", "huts", "raids_won", "raids_lost", "received",
         "target", "standing", "rank", "rest_mode", "owner",
+        # Whether somebody outside this process is driving it. The only visible difference
+        # between an agent on rules and one a visitor brought a mind for.
+        "mind",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}
