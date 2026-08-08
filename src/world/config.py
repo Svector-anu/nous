@@ -99,6 +99,13 @@ class WorldConfig:
     llm_min_ticks_between_calls: int = 3000
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200
+    # Minds a visitor attached to their own agent. Off by default: an endpoint on
+    # somebody else's machine must never be reached until an operator says so.
+    attached_minds_enabled: bool = False
+    # Per agent, so one busy mind cannot crowd out another. 20 ticks is a decision every
+    # twenty seconds, which is frequent enough to look alive and slow enough that a
+    # visitor's own bill stays small.
+    attached_mind_cooldown_ticks: int = 20
     # Seam for future x402 / pay-to-force-decision. Disabled by default.
     llm_force_decision_enabled: bool = False
 

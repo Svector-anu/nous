@@ -45,6 +45,7 @@ COMPONENT_TYPES: tuple[type, ...] = (
     # is silently dropped on reload, and money that evaporates without an error is the
     # worst possible thing to discover late.
     component_module.SpendBook,
+    component_module.AttachedMind,
 )
 
 _BY_NAME = {component_type.__name__: component_type for component_type in COMPONENT_TYPES}

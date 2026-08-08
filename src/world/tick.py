@@ -43,6 +43,7 @@ from .systems import (
     leadership,
     markets,
     messaging,
+    minds,
     movement,
     needs,
     regrowth,
@@ -75,6 +76,9 @@ def build_registry() -> SystemRegistry:
     registry.register("trade", trade.run)
     registry.register("resting", resting.run)
     registry.register("combat", combat.run)
+    # Before the fsm: a mind sets what its agent wants, and the state machine then acts
+    # on it in the same tick. After it, the answer would always be a tick stale.
+    registry.register("minds", minds.run)
     registry.register("fsm", fsm.run)
     registry.register("movement", movement.run)
     registry.register("build", build.run)
@@ -363,6 +367,7 @@ class Simulation:
             # Real money the world may spend on itself. Surfaced so a monitor can
             # alert on a halt or an exhausted envelope without reading world state.
             "spend": spend.status(world),
+            "minds": minds.status(world),
             # Receipts for paid decisions. A payment that leaves no trace in the world
             # is indistinguishable from one that did nothing, so the world says who
             # bought what and carries the transaction it was bought with.

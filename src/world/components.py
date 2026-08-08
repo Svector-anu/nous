@@ -496,3 +496,33 @@ class SpendBook:
     notices: list[dict] = field(default_factory=list)
     # Settled spends, newest last. Bounded.
     spends: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class AttachedMind:
+    """An endpoint a visitor attached to the agent they deployed, so something outside
+    this process decides what that agent wants.
+
+    The world holds around a hundred agents and can afford to think for almost none of
+    them. A mind brought by a visitor arrives with its own budget, which is the only way
+    the number of thinking agents grows without the operator's bill growing with it.
+
+    Deliberately the narrowest possible seam. A mind sets `wants` — food or wood — and may
+    say something. That is all. It picks *differently*, never *better*: both values were
+    already reachable by the state machine, the agent gains no reach, no speed and no
+    exemption from hunger, and an agent with a mind starves exactly as fast as one
+    without. That is what keeps a paid mind from being a bought advantage.
+
+    `failures` backs off an endpoint that keeps timing out, so one broken url cannot cost
+    the world a request every cooldown forever. `last_tick` is the cooldown itself, held
+    per agent rather than globally so one busy mind cannot crowd out another.
+    """
+
+    endpoint: str = ""
+    # The wallet that attached it. Only the owner may change or remove it.
+    owner: str = ""
+    enabled: bool = True
+    last_tick: int = -1
+    failures: int = 0
+    # What it last said, kept so the viewer can show that this agent speaks for itself.
+    last_said: str = ""
