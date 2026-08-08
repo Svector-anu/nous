@@ -441,3 +441,58 @@ class MarketBook:
     balances: dict[str, int] = field(default_factory=dict)
     next_id: int = 1
     last_scheduled_tick: int = 0
+
+
+@dataclass
+class SpendBook:
+    """Real money the world is allowed to spend on its own thinking, and the governor
+    that stands between an agent's intent and the wallet.
+
+    Everything else in this file moves numbers that only mean something inside the
+    simulation. This one moves money that leaves it, autonomously, while nobody is
+    watching — so it is built as a permission system first and a ledger second.
+
+    Three independent brakes, because a single number is a limit and not a control:
+
+    - `budget_units` is an *envelope* an operator approved. Agents spend freely inside
+      it and nothing at all outside it. Raising it is a deliberate act, recorded in
+      `approvals`, which is why a runaway costs exactly one envelope rather than a card.
+    - `per_tick_units` stops a burst. Without it a single tick could drain the whole
+      envelope before any notice is read, which makes the envelope decorative.
+    - `halted` is the kill switch. Set once, spending stops, and nothing but an operator
+      clears it. It is checked before the budget so a halt beats any amount of headroom.
+
+    `notices` is what makes this different from caps alone: threshold crossings are
+    recorded here for the monitor to read and send on. A cap tells you how much you can
+    lose. A notice tells you that you are losing it, which is the part that was missing
+    when an advisor died quietly and nobody knew for two days.
+
+    Units are the token's smallest denomination, never a float — the same reason the
+    payment verifier uses Decimal. `reserved_units` holds money committed to a call that
+    has not settled, so two concurrent spends cannot both fit in the same headroom.
+    """
+
+    # Off unless an operator turns it on. A deploy must never begin spending by itself.
+    enabled: bool = False
+    halted: bool = False
+    budget_units: int = 0
+    spent_units: int = 0
+    reserved_units: int = 0
+    per_tick_units: int = 0
+    spent_this_tick: int = 0
+    # Which tick `spent_this_tick` counts, so the burst cap resets without a scheduler.
+    tick_of_spend: int = -1
+    # agent id -> units earned in world. A claim on the pool, not a wallet: the agent
+    # never holds a key, which is what keeps this a ledger rather than custody.
+    #
+    # Keyed by *string*, like MarketBook.balances and for the same reason: this dict is
+    # persisted as json, and json has no integer keys. Keyed by int it round-tripped to
+    # {"1": 500}, every lookup by agent id missed, and every agent's earnings silently
+    # read as zero after a restart — money that vanishes without an error.
+    balances: dict[str, int] = field(default_factory=dict)
+    # Envelope changes, oldest first. The audit trail for "who approved this spend".
+    approvals: list[dict] = field(default_factory=list)
+    # Threshold crossings waiting to be read. Bounded like every accumulator here.
+    notices: list[dict] = field(default_factory=list)
+    # Settled spends, newest last. Bounded.
+    spends: list[dict] = field(default_factory=list)

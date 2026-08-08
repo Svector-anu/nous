@@ -27,11 +27,13 @@ from .components import (
     ResourceNode,
     RestQueue,
     SpawnQueue,
+    SpendBook,
     Standing,
 )
 from .config import TICKS_PER_DAY, WorldConfig
 from .ecs import SystemRegistry, World
 from .rng import TickRng
+from . import spend
 from .systems import (
     blackboard,
     build,
@@ -108,6 +110,9 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), IdentityQueue())
     world.add(world.create_entity(), EscrowBook())
     world.add(world.create_entity(), MarketBook())
+    # Disabled, unfunded and unhalted. A new world can no more spend money than an
+    # old one — the envelope starts at zero and only an operator raises it.
+    world.add(world.create_entity(), SpendBook())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()
@@ -318,6 +323,9 @@ class Simulation:
                 "user_agents": sum(1 for a in agents if a["user"]),
             },
             "advisor": leadership.advisor_status(world),
+            # Real money the world may spend on itself. Surfaced so a monitor can
+            # alert on a halt or an exhausted envelope without reading world state.
+            "spend": spend.status(world),
             # Receipts for paid decisions. A payment that leaves no trace in the world
             # is indistinguishable from one that did nothing, so the world says who
             # bought what and carries the transaction it was bought with.
