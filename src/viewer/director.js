@@ -46,7 +46,13 @@ function makeRng(seed) {
 
 // What changed between two snapshots. This is where "interesting" comes from: a single
 // snapshot cannot tell you that a raid just happened, only that raid counts are non-zero.
-export function findEvents(previous, snapshot) {
+// `isMine` is passed in rather than assumed. `agent.user` only means "some visitor
+// deployed this" — it says nothing about *which* visitor. Reading it as ownership is the
+// same fault that put strangers' agents under My Agents and offered Rest on them; this
+// was the third copy of it, and the one that kept calling other people's agents "(yours)"
+// in the world log after the other two were fixed. The default is "nothing is mine",
+// because guessing wrong here tells somebody they own a character they do not.
+export function findEvents(previous, snapshot, isMine = () => false) {
   const events = [];
   if (!snapshot) return events;
 
@@ -68,9 +74,11 @@ export function findEvents(previous, snapshot) {
       events.push({ kind: "fleeing", score: SCORE.fleeing, x: agent.x, y: agent.y, agent: agent.id,
         label: `${agent.name} is fleeing` });
     }
+    // Every visitor-deployed agent still scores for the camera — a player's character is
+    // worth looking at whoever made it — but only the viewer's own is labelled as theirs.
     if (agent.user) {
       events.push({ kind: "user", score: SCORE.user, x: agent.x, y: agent.y, agent: agent.id,
-        label: `${agent.name} (yours)` });
+        label: isMine(agent) ? `${agent.name} (yours)` : `${agent.name}` });
     }
   }
 

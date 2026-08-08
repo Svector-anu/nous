@@ -1040,6 +1040,40 @@ await page.evaluate(async () => {
   window.__events.feed(real, real);
 });
 
+// --- 11w. the world log does not call a stranger's agent "yours" ------------------
+// The director kept its own copy of "is this mine?" and read agent.user, which only means
+// "some visitor deployed this". So the log labelled every player's agent "(yours)" to
+// everyone — za, 0xSkyway, prabowo and the rest, all announced as the viewer's own, long
+// after My Agents and the inspector had been fixed. Third copy of one bug.
+const logOwnership = await page.evaluate(async () => {
+  const { findEvents } = await import("/static/director.js");
+  const mine = { id: 1, name: "mine", user: true, owner: "", x: 1, y: 1, raids_won: 0, raids_lost: 0, state: "IDLE" };
+  const theirs = { id: 2, name: "stranger", user: true, owner: "", x: 2, y: 2, raids_won: 0, raids_lost: 0, state: "IDLE" };
+  const world = (agents) => ({ agents, clans: [], paid: [], buildings: [] });
+  const snap = world([mine, theirs]);
+  const userLabels = (previous, fn) =>
+    findEvents(previous, snap, fn)
+      .filter((e) => e.kind === "user")
+      .map((e) => e.label);
+  return {
+    withPredicate: userLabels(world([mine, theirs]), (a) => a.id === 1),
+    // No predicate at all must claim nothing, rather than claiming everything.
+    withoutPredicate: userLabels(world([mine, theirs])),
+  };
+});
+check(
+  "the world log calls only my own agent mine",
+  logOwnership.withPredicate.filter((l) => l.includes("(yours)")).length === 1 &&
+    logOwnership.withPredicate.some((l) => l === "mine (yours)") &&
+    logOwnership.withPredicate.some((l) => l === "stranger"),
+  logOwnership.withPredicate.join(" | ")
+);
+check(
+  "with no way to tell, the log claims nothing is mine",
+  logOwnership.withoutPredicate.every((l) => !l.includes("(yours)")),
+  logOwnership.withoutPredicate.join(" | ")
+);
+
 // --- 11x. nothing hides underneath the rail ---------------------------------------
 // The CLANS panel was pinned at a hardcoded left: 78px against an 88px rail inset 12px,
 // so its first 22px sat behind the rail: the title read "LANS", the body lost its first

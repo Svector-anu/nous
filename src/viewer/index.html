@@ -3481,7 +3481,9 @@ let worldLogEntries = [];
 let previousWorldSnapshot = null;
 
 function processWorldLog(snapshot) {
-  const events = findEvents(previousWorldSnapshot, snapshot);
+  // The one ownership predicate, handed to the director so it cannot answer differently
+  // from the lists and the inspector.
+  const events = findEvents(previousWorldSnapshot, snapshot, isMine);
   previousWorldSnapshot = snapshot;
   if (events.length === 0) return;
 
