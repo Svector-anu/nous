@@ -11,12 +11,14 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from pathlib import Path
+from typing import NamedTuple
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import a2a
 from ..chain import escrow, siwe
 from ..chain import settings as chain_settings
 from ..chain import x402
@@ -203,6 +205,28 @@ CHAIN_FLAG_ENV = {
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}
+
+
+class Spend(NamedTuple):
+    """The result of trying to take a payment.
+
+    This exists because the first version returned `(outcome, detail)` as plain strings,
+    and every refusal — "replayed", "unverified" — is a non-empty string and therefore
+    truthy. The natural thing to write at a call site is `if not result`, and against
+    that shape the natural thing silently treated a refused payment as an accepted one.
+    An a2a caller replaying a spent transaction got `completed` back.
+
+    So the type carries its own answer: `bool(spend)` is whether the payment was taken,
+    and the obvious call site is now the correct one. `outcome` stays for the caller that
+    needs to distinguish a replay (409) from an unverified proof (402), which the http
+    route does and the a2a binding does not.
+    """
+
+    outcome: str
+    detail: str = ""
+
+    def __bool__(self) -> bool:
+        return self.outcome == "queued"
 
 
 def _remember_spent(queue_comp, fingerprint: str, limit: int) -> None:
@@ -471,6 +495,283 @@ def create_app(
     # in-world advantage is a settled decision (NEXT.md, "do not reopen"). These routes
     # exist so a spectator can prove which deployed agents are theirs — which is also
     # what a future ownership check on rest/delete will bind to.
+
+    async def _spend_for_decision(world, proof: PaymentProof, clan_id: int) -> Spend:
+        """Take a payment and queue a forced decision. The whole guard, in one place.
+
+        Both the http route and the a2a skill go through here. A second copy of this
+        would be a second replay guard to keep correct, and the ownership predicate
+        already taught this codebase what happens when the same question gets answered
+        in more than one place.
+
+        Returns a `Spend`, whose truthiness *is* whether the payment was taken — see the
+        class for why it is not a plain string.
+        """
+        verifier = app.state.x402
+        entity = world.first(ForceDecisionQueue)
+        if entity is None:
+            return Spend("unavailable", "world is not ready")
+        queue_comp = world.get(entity, ForceDecisionQueue)
+
+        # Check spent first — no point verifying what has already been honoured.
+        #
+        # Both sets are consulted. The verifier's lives in memory and dies with the
+        # process; `queue_comp.spent` is world state and survives on the volume. Reading
+        # only the first meant every restart made every past payment spendable again, and
+        # a transaction hash is public on the explorer by design — so anyone could copy
+        # one and buy decisions forever. This happened: a proof spent at tick 55604 was
+        # honoured again at tick 100426, after a redeploy.
+        fingerprint = proof.fingerprint()
+        if verifier.is_spent(proof) or (fingerprint and fingerprint in queue_comp.spent):
+            return Spend("replayed", "this payment has already been used")
+
+        # Claim it now, before the await. Verification is a network round trip, and
+        # requests that arrive during it would all pass the check above and all be
+        # honoured — one payment bought five clan decisions in the same tick that way.
+        # Nothing else awaits between here and the check, so the claim is atomic.
+        if fingerprint:
+            _remember_spent(queue_comp, fingerprint, world.config.x402_spent_limit)
+
+        verified = False
+        try:
+            verified = await verifier.verify(
+                proof, world.config.x402_price, world.config.x402_currency
+            )
+        except Exception as error:  # noqa: BLE001 - a verifier failure is a denial
+            logger.warning("x402 verifier failed for clan %d: %r", clan_id, error)
+
+        if not verified:
+            if fingerprint and fingerprint in queue_comp.spent:
+                # Give the claim back: an unverified proof never bought anything, and
+                # holding it would let one bad request permanently burn a hash somebody
+                # may go on to pay with for real.
+                queue_comp.spent.remove(fingerprint)
+            return Spend("unverified", "payment could not be verified")
+
+        # The durable claim was taken before verifying; this is the in-memory twin, which
+        # is what keeps the check cheap for the overwhelming majority of requests.
+        verifier.record_spent(proof)
+
+        # Cap the queue so the seam cannot be used as an unbounded accumulator.
+        if len(queue_comp.pending) >= 16:
+            queue_comp.pending.pop(0)
+        queue_comp.pending.append(
+            {
+                "clan_id": clan_id,
+                "tick": world.tick,
+                "proof": fingerprint,
+                # What was actually charged. The world used to record only that something
+                # was paid, so a receipt could never say how much and the viewer had to
+                # assume the configured price was still the price.
+                "amount": world.config.x402_price,
+                "currency": world.config.x402_currency,
+            }
+        )
+        return Spend("queued")
+
+    # --- a2a ------------------------------------------------------------------------
+    #
+    # Everything below this world was already reachable over http, which serves a person
+    # reading the readme and nobody else's agent. The card makes the same actions
+    # discoverable without a human in between: fetch a well-known url, learn the skills
+    # and what they cost, call them.
+
+    def _base_url(request: Request) -> str:
+        # Behind a proxy the request url is the internal one, so the forwarded headers
+        # win where present. A card that advertises http://0.0.0.0:8080 is discoverable
+        # by nothing.
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+        if not host:
+            host = request.url.netloc
+        return f"{proto}://{host}"
+
+    async def _agent_card(request: Request) -> JSONResponse:
+        world = app.state.simulation.world
+        card = a2a.agent_card(
+            base_url=_base_url(request),
+            config=world.config,
+            world_ready=app.state.simulation is not None,
+        )
+        return JSONResponse(card, headers={"Cache-Control": "public, max-age=300"})
+
+    # Both paths: 0.3 renamed the file and clients in the wild still ask for the old one.
+    # Answering only the current name makes discovery fail for a caller that is not wrong,
+    # merely older.
+    app.add_api_route("/.well-known/agent-card.json", _agent_card, methods=["GET"])
+    app.add_api_route("/.well-known/agent.json", _agent_card, methods=["GET"])
+
+    @app.post("/a2a")
+    async def a2a_rpc(request: Request) -> JSONResponse:
+        """JSON-RPC 2.0, `message/send`. One method, because one method is what the
+        skills here need — a task that finishes within the request or asks for payment.
+
+        Skills resolve to the same code the http routes use. An agent and a browser must
+        not be able to get different answers out of the same world, and a second
+        implementation of the payment guard is exactly how that starts.
+        """
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - a malformed body is a normal client error
+            return JSONResponse(a2a.rpc_error(None, -32700, "parse error"), status_code=400)
+
+        request_id = body.get("id")
+        if body.get("jsonrpc") != "2.0":
+            return JSONResponse(a2a.rpc_error(request_id, -32600, "jsonrpc must be 2.0"))
+        method = body.get("method")
+        if method != "message/send":
+            return JSONResponse(
+                a2a.rpc_error(request_id, -32601, f"unsupported method: {method}")
+            )
+
+        params = body.get("params") or {}
+        message = params.get("message") or {}
+        task_id = str(params.get("taskId") or secrets.token_hex(8))
+        context_id = str(params.get("contextId") or secrets.token_hex(8))
+
+        arguments = a2a.data_of(message)
+        skill = str(arguments.get("skill") or "").strip()
+        if not skill:
+            # A caller that sent only prose gets told what exists rather than guessed at.
+            return JSONResponse(
+                a2a.rpc_result(
+                    request_id,
+                    a2a.failed_task(
+                        task_id=task_id,
+                        context_id=context_id,
+                        text=(
+                            "Send a data part with a 'skill' field. Available: "
+                            + ", ".join(a2a.FREE_SKILLS + a2a.PAID_SKILLS)
+                        ),
+                    ),
+                )
+            )
+
+        world = app.state.simulation.world
+
+        if skill == "observe-world":
+            snapshot = app.state.simulation.snapshot()
+            summary = {
+                "day": snapshot["day"],
+                "tick": snapshot["tick"],
+                "stats": snapshot["stats"],
+                "advisor": snapshot["advisor"],
+                "clans": snapshot["clans"],
+            }
+            return JSONResponse(
+                a2a.rpc_result(
+                    request_id,
+                    a2a.completed_task(
+                        task_id=task_id,
+                        context_id=context_id,
+                        text=(
+                            f"Day {snapshot['day']}: {snapshot['stats']['agents']} agents "
+                            f"in {snapshot['stats']['clans']} clans."
+                        ),
+                        data=summary,
+                    ),
+                )
+            )
+
+        if skill == "read-decisions":
+            current = leadership.log(world)
+            entries = list(current.entries) if current is not None else []
+            return JSONResponse(
+                a2a.rpc_result(
+                    request_id,
+                    a2a.completed_task(
+                        task_id=task_id,
+                        context_id=context_id,
+                        text=f"{len(entries)} recent decisions.",
+                        data={"decisions": entries},
+                    ),
+                )
+            )
+
+        if skill == "nudge-clan":
+            if not (world.config.x402_enabled and world.config.llm_force_decision_enabled):
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.failed_task(
+                            task_id=task_id,
+                            context_id=context_id,
+                            text="Paid decisions are not enabled on this world.",
+                        ),
+                    )
+                )
+            try:
+                clan_id = int(arguments.get("clan_id"))
+            except (TypeError, ValueError):
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.failed_task(
+                            task_id=task_id,
+                            context_id=context_id,
+                            text="nudge-clan needs an integer 'clan_id'.",
+                        ),
+                    )
+                )
+
+            payload = a2a.payment_payload(message)
+            proof = PaymentProof(
+                tx_hash=str(payload.get("transaction") or payload.get("txHash") or ""),
+                header_value=str(payload.get("verified") or ""),
+            )
+            if not proof.fingerprint():
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.payment_required_task(
+                            task_id=task_id,
+                            context_id=context_id,
+                            skill=skill,
+                            config=world.config,
+                            recipient=chain_settings.x402_recipient(),
+                            asset=chain_settings.usdg_address(testnet=False),
+                        ),
+                    )
+                )
+
+            # Compared against "queued" explicitly. The helper returns an outcome *string*,
+            # and every non-success value is truthy — reading it as a boolean made a
+            # replayed payment come back `completed`, which is the hole the http route
+            # had closed hours earlier.
+            spend = await _spend_for_decision(world, proof, clan_id)
+            if not spend:
+                return JSONResponse(
+                    a2a.rpc_result(
+                        request_id,
+                        a2a.failed_task(
+                            task_id=task_id, context_id=context_id, text=spend.detail
+                        ),
+                    )
+                )
+            return JSONResponse(
+                a2a.rpc_result(
+                    request_id,
+                    a2a.completed_task(
+                        task_id=task_id,
+                        context_id=context_id,
+                        text=f"Clan {clan_id} will decide again next tick.",
+                        data={
+                            "clan_id": clan_id,
+                            "applies_at_tick": world.tick + 1,
+                            a2a.PAYMENT_STATUS: "payment-completed",
+                        },
+                    ),
+                )
+            )
+
+        return JSONResponse(
+            a2a.rpc_result(
+                request_id,
+                a2a.failed_task(
+                    task_id=task_id, context_id=context_id, text=f"unknown skill: {skill}"
+                ),
+            )
+        )
 
     @app.get("/chain/config")
     async def chain_config() -> JSONResponse:
@@ -861,45 +1162,14 @@ def create_app(
             tx_hash=request.headers.get("X402-Transaction-Hash", ""),
             header_value=request.headers.get("X402-Payment-Verified", ""),
         )
-        verifier = app.state.x402
 
-        entity = world.first(ForceDecisionQueue)
-        if entity is None:
-            raise HTTPException(503, "world is not ready")
-        queue_comp = world.get(entity, ForceDecisionQueue)
+        spend = await _spend_for_decision(world, proof, clan_id)
+        if spend.outcome == "unavailable":
+            raise HTTPException(503, spend.detail)
+        if spend.outcome == "replayed":
+            raise HTTPException(409, spend.detail)
 
-        # Check spent first — no point verifying what has already been honoured.
-        #
-        # Both sets are consulted. The verifier's lives in memory and dies with the
-        # process; `queue_comp.spent` is world state and survives on the volume. Reading
-        # only the first meant every restart made every past payment spendable again, and
-        # a transaction hash is public on the explorer by design — so anyone could copy
-        # one and buy decisions forever. This happened: a proof spent at tick 55604 was
-        # honoured again at tick 100426, after a redeploy.
-        fingerprint = proof.fingerprint()
-        if verifier.is_spent(proof) or (fingerprint and fingerprint in queue_comp.spent):
-            raise HTTPException(409, "this payment has already been used")
-
-        # Claim it now, before the await. Verification is a network round trip, and
-        # requests that arrive during it would all pass the check above and all be
-        # honoured — one payment bought five clan decisions in the same tick that way.
-        # Nothing else awaits between here and the check, so the claim is atomic.
-        if fingerprint:
-            _remember_spent(queue_comp, fingerprint, world.config.x402_spent_limit)
-
-        verified = False
-        try:
-            verified = await verifier.verify(proof, world.config.x402_price, world.config.x402_currency)
-        except Exception as error:  # noqa: BLE001 - a verifier failure is a denial
-            logger.warning("x402 verifier failed for clan %d: %r", clan_id, error)
-
-        if not verified and fingerprint and fingerprint in queue_comp.spent:
-            # Give the claim back: an unverified proof never bought anything, and holding
-            # it would let one bad request permanently burn a hash somebody may go on to
-            # pay with for real.
-            queue_comp.spent.remove(fingerprint)
-
-        if not verified:
+        if not spend:
             # Everything a wallet needs to construct the payment itself. Price and
             # currency alone are not actionable: without the recipient, the token
             # contract and the chain id, a client cannot build the transfer, and the
@@ -940,25 +1210,6 @@ def create_app(
                 },
             )
 
-        # The durable claim was taken before verifying; this is the in-memory twin, which
-        # is what keeps the check cheap for the overwhelming majority of requests.
-        verifier.record_spent(proof)
-
-        # Cap the queue so the seam cannot be used as an unbounded accumulator.
-        if len(queue_comp.pending) >= 16:
-            queue_comp.pending.pop(0)
-        queue_comp.pending.append(
-            {
-                "clan_id": clan_id,
-                "tick": world.tick,
-                "proof": fingerprint,
-                # What was actually charged. The world used to record only that something
-                # was paid, so a receipt could never say how much and the viewer had to
-                # assume the configured price was still the price.
-                "amount": world.config.x402_price,
-                "currency": world.config.x402_currency,
-            }
-        )
         return JSONResponse(
             {
                 "queued": True,
