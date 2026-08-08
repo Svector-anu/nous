@@ -3128,7 +3128,10 @@ function showMindKey(issued) {
     "",
     `AGENT = ${issued.agent_id}`,
     `TOKEN = "${issued.token}"`,
-    'RPC   = "https://nous.city/a2a"',
+    // Whatever host this page was served from, not a hardcoded one. The card already
+    // advertises the requested host, so a second domain in front of the same service
+    // works everywhere except a snippet that names one.
+    `RPC   = "${window.location.origin}/a2a"`,
     "",
     "def call(skill, **args):",
     '    body = {"jsonrpc": "2.0", "id": 1, "method": "message/send",',
