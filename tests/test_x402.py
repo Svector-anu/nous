@@ -799,3 +799,20 @@ def test_attached_minds_can_be_turned_on_without_a_new_world(monkeypatch):
     config, changed = apply_chain_env(WorldConfig(agent_count=0))
     assert config.attached_minds_enabled is True
     assert "attached_minds_enabled=True" in changed
+
+
+def test_the_user_agent_limit_can_be_raised_without_a_new_world(monkeypatch):
+    """Reaching it refuses every new deploy with a 409, so the one setting that decides
+    whether anybody new can join must not need a new world to change."""
+    monkeypatch.setenv("MAX_USER_AGENTS", "200")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.max_user_agents == 200
+    assert "max_user_agents=200" in changed
+
+
+def test_a_zero_user_agent_limit_is_refused(monkeypatch):
+    """Zero would lock every visitor out of a world that looks fine from the outside."""
+    monkeypatch.setenv("MAX_USER_AGENTS", "0")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.max_user_agents == 50
+    assert changed == []

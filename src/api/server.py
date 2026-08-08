@@ -323,6 +323,11 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
     # enforced: zero would ask every clan on every tick.
     for field, name, floor in (
         ("llm_max_calls_per_session", "LLM_MAX_CALLS_PER_SESSION", 0),
+        # How many agents visitors may have in the world at once. A persisted world keeps
+        # the number it was created with, and reaching it refuses every new deploy with a
+        # 409 — so the one setting that decides whether anybody new can join was the one
+        # that could not be changed without starting again.
+        ("max_user_agents", "MAX_USER_AGENTS", 1),
         ("llm_min_ticks_between_calls", "LLM_MIN_TICKS_BETWEEN_CALLS", 1),
     ):
         raw = os.getenv(name, "").strip()
