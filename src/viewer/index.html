@@ -1186,12 +1186,17 @@
     background: rgba(0,0,0,0.35); border: 1px solid var(--line);
     font-size: 10.5px; line-height: 1.5; color: var(--text); user-select: all;
     white-space: pre; }
-  /* The receipt. A paid action that cannot be checked is only a claim. */
-  #worldLogCard .feed-proof {
-    display: inline-block; margin-top: 3px; font-size: 10.5px;
+  /* The receipt. A paid action that cannot be checked is only a claim.
+     Scoped to the class rather than to the world log: the payments panel reuses it, and
+     scoped to one card it fell back to the browser's default link styling there —
+     underlined blue, purple once visited, and butted straight against the sentence
+     before it with no space. It read as an unstyled page. */
+  .feed-proof {
+    display: inline-block; margin-top: 3px; margin-left: 6px; font-size: 10.5px;
     color: #d29922; text-decoration: none; border-bottom: 1px dotted rgba(210,153,34,.5);
   }
-  #worldLogCard .feed-proof:hover { color: #f0b429; }
+  .feed-proof:visited { color: #d29922; }
+  .feed-proof:hover { color: #f0b429; border-bottom-color: rgba(240,180,41,.8); }
   /* A leader's own words. Italic and indented so it reads as something the world said
      rather than something the log observed about it. Only ever present when a model
      actually reasoned — the rules leave goal_reason empty. */

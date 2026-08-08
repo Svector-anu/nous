@@ -1223,6 +1223,33 @@ check(
   payments.empty.length > 0,
   payments.empty
 );
+// The receipt link was styled only inside the world log, so in this panel it fell back to
+// the browser default: underlined blue, purple once visited, and butted straight against
+// the sentence before it. It looked like an unstyled page in the one screenshot anybody
+// would take of this feature.
+const proofStyle = await page.evaluate(() => {
+  window.__payments.renderPayments({
+    paid: [{ clan_id: 4, tick: 111000, proof: "tx:0xfeed", amount: "0.10", currency: "USDG" }],
+  });
+  const link = document.querySelector("#paymentsList a.feed-proof");
+  if (!link) return { found: false };
+  const style = getComputedStyle(link);
+  return {
+    found: true,
+    colour: style.color,
+    gap: parseFloat(style.marginLeft) || 0,
+    underlined: style.textDecorationLine.includes("underline"),
+  };
+});
+check(
+  "the receipt link is styled here, not left to the browser",
+  proofStyle.found &&
+    // The brand amber, not the default link blue.
+    proofStyle.colour.replace(/\s/g, "") === "rgb(210,153,34)" &&
+    proofStyle.gap > 0 &&
+    !proofStyle.underlined,
+  `colour=${proofStyle.colour}, gap=${proofStyle.gap}px, underlined=${proofStyle.underlined}`
+);
 
 // --- 11z. the link preview -------------------------------------------------------
 // A launch link with no og:image renders as a grey rectangle, and that rectangle is the
