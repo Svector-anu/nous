@@ -154,6 +154,16 @@ class WorldConfig:
     x402_price: str = "0.10"
     x402_currency: str = "USDG"
 
+    # Funding the world's own thinking. A visitor pays what they like and the amount is
+    # credited to the spend envelope, so the people watching pay for the minds instead of
+    # the operator. Off by default, because taking money for compute is a decision.
+    #
+    # The floor exists so a dust transfer cannot mint an approval: every credit is an
+    # entry in the audit trail, and one worth 0.000001 is noise in a record that is
+    # supposed to answer "who paid for this".
+    world_funding_enabled: bool = False
+    world_funding_minimum: str = "0.10"
+
     # Real-money markets. Off until an operator configures custody; the demo credit
     # markets above are unaffected either way and stay labelled demo in the viewer.
     real_money_enabled: bool = False

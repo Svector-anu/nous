@@ -43,7 +43,7 @@ PROTOCOL_VERSION = "0.3.0"
 FREE_SKILLS = ("observe-world", "read-decisions")
 # Owner-only: they need the token handed out when a mind was attached.
 MIND_SKILLS = ("observe-my-agent", "steer-my-agent")
-PAID_SKILLS = ("nudge-clan",)
+PAID_SKILLS = ("nudge-clan", "fund-the-minds")
 
 
 def agent_card(*, base_url: str, config, world_ready: bool = True) -> dict:
@@ -100,6 +100,22 @@ def agent_card(*, base_url: str, config, world_ready: bool = True) -> dict:
                     "examples": ["Go for wood", "Say: meet me at the river"],
                 },
             ]
+        )
+
+    if getattr(config, "world_funding_enabled", False):
+        skills.append(
+            {
+                "id": "fund-the-minds",
+                "name": "Pay for the world's thinking",
+                "description": (
+                    "Clan leaders consult a model and somebody pays for every call. Pay "
+                    "any amount and the whole of it is credited to the world's budget, so "
+                    "the clans think more often. Buys no advantage and no influence over "
+                    "what they decide."
+                ),
+                "tags": ["write", "paid", "x402"],
+                "examples": ["Fund the world for a day"],
+            }
         )
 
     if paid:

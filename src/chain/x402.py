@@ -118,6 +118,16 @@ class X402Verifier(Protocol):
         by a restart."""
         ...
 
+    async def settle(self, proof: PaymentProof, price: str, currency: str) -> int:
+        """How much this payment was actually worth, in the token's smallest units, or 0
+        if it does not verify.
+
+        `verify` answers "did they pay the asking price", which is all a fixed-price
+        action needs. Funding is different: the payer chooses the amount, and what they
+        chose has to come back or the world cannot credit it.
+        """
+        ...
+
     def record_spent(self, proof: PaymentProof) -> None:
         """Mark this proof consumed. A verifier that checks the chain still needs to
         remember what it has honoured so the same transaction cannot pay twice."""
@@ -145,6 +155,18 @@ class HeaderVerifier:
         if not fingerprint or self.is_spent(proof):
             return False
         return True
+
+    async def settle(self, proof: PaymentProof, price: str, currency: str) -> int:
+        """The asking price, because that is the most this verifier can honestly claim.
+
+        It never sees a transaction — an upstream proxy told it the payment happened, and
+        a proxy that says "verified" has not said "and it was for more than you asked".
+        Crediting the asking price is the conservative reading; crediting anything larger
+        would be inventing money on somebody else's say-so.
+        """
+        if not await self.verify(proof, price, currency):
+            return 0
+        return max(0, price_units(price, USDG_DECIMALS))
 
     def record_spent(self, proof: PaymentProof) -> None:
         fingerprint = proof.fingerprint()
@@ -230,6 +252,41 @@ class ChainVerifier:
             if await self._verify_on(rail, proof, price):
                 return True
         return False
+
+    async def settle(self, proof: PaymentProof, price: str, currency: str) -> int:
+        """Units actually received, on whichever rail this transaction settled on.
+
+        `verify` answers a yes/no question against a fixed price. This answers "how much",
+        which is what funding needs — the payer chooses the amount and the world credits
+        what arrived, not what it asked for.
+
+        Both assets use six decimals, so the number is directly comparable across rails.
+        A rail that did not would need converting here rather than at the call site, and
+        the call site is where that would be forgotten.
+        """
+        if not proof.tx_hash:
+            return 0
+        if not proof.fingerprint() or self.is_spent(proof):
+            return 0
+
+        rails = self.rails()
+        if proof.chain_id:
+            rails = [rail for rail in rails if rail.chain_id == proof.chain_id]
+        for rail in rails:
+            paid = await self._paid_on(rail, proof)
+            if paid > 0:
+                return paid
+        return 0
+
+    async def _paid_on(self, rail, proof: PaymentProof) -> int:
+        try:
+            receipt = await self._rpc_for(rail).transaction_receipt(proof.tx_hash)
+        except Exception as error:  # noqa: BLE001 - a network failure is a normal denial
+            logger.info("could not fetch %s on %s: %r", proof.tx_hash, rail.chain_name, error)
+            return 0
+        if receipt is None or receipt.get("status") != "0x1":
+            return 0
+        return transferred_to(receipt, rail.asset, rail.recipient)
 
     async def _verify_on(self, rail, proof: PaymentProof, price: str) -> bool:
         try:

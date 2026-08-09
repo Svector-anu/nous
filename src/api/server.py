@@ -36,6 +36,7 @@ from ..world.components import (
 )
 from ..world.config import WorldConfig
 from ..llm.advisor import build_advisor
+from ..world import spend
 from ..world.systems import identity, leadership, markets, minds, resting, spawning
 from ..world.tick import Simulation, create_world, ensure_singletons
 
@@ -592,6 +593,70 @@ def create_app(
         )
         return Spend("queued")
 
+    def _accepts(world) -> list[dict]:
+        """Every rail, in the shape the http 402 uses. Shared so the two payment
+        endpoints cannot come to describe the same rails differently."""
+        return [
+            {
+                "scheme": "exact",
+                "network": rail.chain_name,
+                "chain_id": rail.chain_id,
+                "currency": rail.currency,
+                "asset": rail.asset,
+                "recipient": rail.recipient,
+                "amount": world.config.x402_price,
+                "amount_units": str(price_units(world.config.x402_price, rail.decimals)),
+                "decimals": rail.decimals,
+            }
+            for rail in chain_settings.rails(world.config)
+        ]
+
+    async def _fund_the_minds(world, proof: PaymentProof) -> tuple[int, str]:
+        """Take a payment and credit it to the spend envelope. Returns (units, detail).
+
+        The same guard the paid decision uses, for the same reason: this is the second
+        place money enters the world, and a second replay check would be a second thing to
+        keep correct. The claim is taken before the network round trip and released if the
+        payment does not verify.
+
+        What is different is the amount. A forced decision costs a fixed price, so `verify`
+        is enough; funding is whatever the payer chose, so the world has to be told what
+        actually arrived rather than what it asked for.
+        """
+        verifier = app.state.x402
+        entity = world.first(ForceDecisionQueue)
+        book = spend.book(world)
+        if entity is None or book is None:
+            return 0, "world is not ready"
+        queue_comp = world.get(entity, ForceDecisionQueue)
+
+        fingerprint = proof.fingerprint()
+        if verifier.is_spent(proof) or (fingerprint and fingerprint in queue_comp.spent):
+            return 0, "this payment has already been used"
+        if fingerprint:
+            _remember_spent(queue_comp, fingerprint, world.config.x402_spent_limit)
+
+        units = 0
+        try:
+            units = await verifier.settle(
+                proof, world.config.world_funding_minimum, world.config.x402_currency
+            )
+        except Exception as error:  # noqa: BLE001 - a verifier failure is a denial
+            logger.warning("x402 settle failed while funding: %r", error)
+
+        floor = price_units(world.config.world_funding_minimum, chain_settings.USDG_DECIMALS)
+        if units < max(1, floor):
+            if fingerprint and fingerprint in queue_comp.spent:
+                queue_comp.spent.remove(fingerprint)
+            return 0, "payment could not be verified, or was below the minimum"
+
+        verifier.record_spent(proof)
+        # `approve` is what an operator calls to raise the envelope. A payment doing the
+        # same thing is the whole idea: the people watching fund the thinking, and every
+        # credit lands in the same audit trail as an operator's.
+        spend.approve(book, units, by=f"payment:{fingerprint}", tick=world.tick)
+        return units, ""
+
     # --- a2a ------------------------------------------------------------------------
     #
     # Everything below this world was already reachable over http, which serves a person
@@ -778,6 +843,32 @@ def create_app(
                 )
             )
 
+        if skill == "fund-the-minds":
+            if not world.config.world_funding_enabled:
+                return JSONResponse(a2a.rpc_result(request_id, a2a.failed_task(
+                    task_id=task_id, context_id=context_id,
+                    text="funding is not enabled on this world.")))
+            payload = a2a.payment_payload(message)
+            proof = PaymentProof(
+                tx_hash=str(payload.get("transaction") or payload.get("txHash") or ""),
+                header_value=str(payload.get("verified") or ""),
+                chain_id=payload.get("chainId") or payload.get("network") or 0,
+            )
+            if not proof.fingerprint():
+                return JSONResponse(a2a.rpc_result(request_id, a2a.payment_required_task(
+                    task_id=task_id, context_id=context_id, skill=skill,
+                    config=world.config, rails=chain_settings.rails(world.config))))
+            units, detail = await _fund_the_minds(world, proof)
+            if units <= 0:
+                return JSONResponse(a2a.rpc_result(request_id, a2a.failed_task(
+                    task_id=task_id, context_id=context_id, text=detail)))
+            status = spend.status(world)
+            return JSONResponse(a2a.rpc_result(request_id, a2a.completed_task(
+                task_id=task_id, context_id=context_id,
+                text=f"credited {units} units to the world's thinking.",
+                data={"units": units, "budget_units": status["budget_units"],
+                      a2a.PAYMENT_STATUS: "payment-completed"})))
+
         if skill == "nudge-clan":
             if not (world.config.x402_enabled and world.config.llm_force_decision_enabled):
                 return JSONResponse(
@@ -831,13 +922,13 @@ def create_app(
             # and every non-success value is truthy — reading it as a boolean made a
             # replayed payment come back `completed`, which is the hole the http route
             # had closed hours earlier.
-            spend = await _spend_for_decision(world, proof, clan_id)
-            if not spend:
+            taken = await _spend_for_decision(world, proof, clan_id)
+            if not taken:
                 return JSONResponse(
                     a2a.rpc_result(
                         request_id,
                         a2a.failed_task(
-                            task_id=task_id, context_id=context_id, text=spend.detail
+                            task_id=task_id, context_id=context_id, text=taken.detail
                         ),
                     )
                 )
@@ -864,6 +955,57 @@ def create_app(
                     task_id=task_id, context_id=context_id, text=f"unknown skill: {skill}"
                 ),
             )
+        )
+
+    @app.post("/world/fund", status_code=202)
+    async def fund_the_minds(request: Request) -> JSONResponse:
+        """Pay for the world's thinking.
+
+        Clan leaders consult a model, and somebody pays for every call. Until now that was
+        always the operator, which caps how much the world can think at whatever one
+        person will spend. This lets the people watching fund it instead.
+
+        Unpaid, this returns the same 402 the paid decision does, with every rail — so a
+        wallet holding either asset can fund it.
+        """
+        world = app.state.simulation.world
+        if not world.config.world_funding_enabled:
+            raise HTTPException(403, "funding is not enabled")
+
+        proof = PaymentProof(
+            tx_hash=request.headers.get("X402-Transaction-Hash", ""),
+            header_value=request.headers.get("X402-Payment-Verified", ""),
+            chain_id=request.headers.get("X402-Chain-Id", 0) or 0,
+        )
+        units, detail = await _fund_the_minds(world, proof)
+        if units <= 0:
+            if detail == "this payment has already been used":
+                raise HTTPException(409, detail)
+            if detail == "world is not ready":
+                raise HTTPException(503, detail)
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "payment": {
+                        "scheme": "x402",
+                        "amount": world.config.world_funding_minimum,
+                        "note": "pay any amount at or above this; the whole of it is credited",
+                    },
+                    "accepts": _accepts(world),
+                },
+                headers={"X402-Payment-Required": "true", "X402-Version": "0.1"},
+            )
+
+        status = spend.status(world)
+        return JSONResponse(
+            {
+                "funded": True,
+                "units": units,
+                "budget_units": status["budget_units"],
+                "available_units": status["available_units"],
+            },
+            status_code=202,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
     @app.get("/chain/config")
@@ -1317,13 +1459,13 @@ def create_app(
             chain_id=request.headers.get("X402-Chain-Id", 0) or 0,
         )
 
-        spend = await _spend_for_decision(world, proof, clan_id)
-        if spend.outcome == "unavailable":
-            raise HTTPException(503, spend.detail)
-        if spend.outcome == "replayed":
-            raise HTTPException(409, spend.detail)
+        taken = await _spend_for_decision(world, proof, clan_id)
+        if taken.outcome == "unavailable":
+            raise HTTPException(503, taken.detail)
+        if taken.outcome == "replayed":
+            raise HTTPException(409, taken.detail)
 
-        if not spend:
+        if not taken:
             # Everything a wallet needs to construct the payment itself, on every rail
             # this world accepts. Price and currency alone are not actionable: without the
             # recipient, the token contract and the chain id, a client cannot build the
