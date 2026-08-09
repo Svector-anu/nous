@@ -216,6 +216,11 @@ CHAIN_FLAG_ENV = {
     # this was when it was created, which would have made the feature unreachable on
     # exactly the world it was built for.
     "attached_minds_enabled": "ATTACHED_MINDS_ENABLED",
+    # Visitors paying for the world's thinking. Off by default and needing an override for
+    # the same reason as the rest: a persisted world keeps the config it was created with,
+    # so a flag with no key here is a feature that can never be switched on where it
+    # matters.
+    "world_funding_enabled": "WORLD_FUNDING_ENABLED",
 }
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off"}

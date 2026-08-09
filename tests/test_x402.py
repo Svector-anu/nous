@@ -923,3 +923,12 @@ def test_the_original_rail_stays_first(monkeypatch):
     monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
     monkeypatch.delenv("BASE_ENABLED", raising=False)
     assert chain_settings.rails()[0].chain_id == 4663
+
+
+def test_funding_can_be_turned_on_without_a_new_world(monkeypatch):
+    """A flag with no override is a feature that can never be switched on where it
+    matters — the live world keeps the config it was created with."""
+    monkeypatch.setenv("WORLD_FUNDING_ENABLED", "true")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.world_funding_enabled is True
+    assert "world_funding_enabled=True" in changed
