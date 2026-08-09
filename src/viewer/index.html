@@ -1202,6 +1202,18 @@
     max-height: min(78vh, 640px);
   }
   #mindKeyPanel .card-body { overflow-y: auto; padding-bottom: 14px; }
+  .key-actions { display: flex; gap: 8px; margin: 8px 0 4px; }
+  .key-btn {
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 11px;
+    background: rgba(110,226,116,0.12); border: 1px solid rgba(110,226,116,0.4);
+    color: #6ee274;
+  }
+  .key-btn:hover { background: rgba(110,226,116,0.2); }
+  .key-btn.ghost { background: transparent; border-color: var(--line); color: var(--muted); }
+  .key-btn.ghost:hover { color: var(--text); }
+  /* Masked, so it is safe on screen. Not selectable either — a drag-select would copy
+     the dots and look like it worked. */
+  .mind-key, .mind-snippet { user-select: none; }
   .mind-key {
     display: block; margin: 6px 0 10px; padding: 8px 10px; border-radius: 6px;
     background: rgba(255,255,255,0.05); border: 1px solid var(--line);
@@ -2051,10 +2063,17 @@
           </span>
         </h3>
         <div class="card-body">
-          <p class="hint">Shown once. Nous stores only a hash of it — copy it now, or make a new one.</p>
+          <p class="hint">Shown once. Nous stores only a hash of it — copy it now, or make a new one. It stays hidden so it does not end up in a screenshot.</p>
           <code class="mind-key" id="mindKeyToken"></code>
+          <div class="key-actions">
+            <button id="mindKeyCopy" class="key-btn">Copy key</button>
+            <button id="mindKeyReveal" class="key-btn ghost">Reveal</button>
+          </div>
           <p class="hint">Your script polls and steers. Nous never calls out to you.</p>
           <pre class="mind-snippet" id="mindKeySnippet"></pre>
+          <div class="key-actions">
+            <button id="mindKeySnippetCopy" class="key-btn">Copy the whole script</button>
+          </div>
         </div>
       </div>
       <div class="floating-card" id="agentCards">
@@ -3218,15 +3237,20 @@ function rememberMine(agent) {
  * readable form — a modal that can be dismissed without copying would lose it for good,
  * which is why the snippet is pre-filled rather than described.
  */
-function showMindKey(issued) {
-  const panel = document.getElementById("mindKeyPanel");
-  const snippet = [
+// What was last issued, held so the copy buttons can write the real thing while the
+// screen shows a mask. Cleared when the panel closes.
+let issuedKey = { token: "", snippet: "" };
+
+const KEY_MASK = "\u2022".repeat(24);
+
+function buildMindSnippet(agentId, token) {
+  return [
     "# your agent, driven by whatever model you like.",
     "# it polls; nous never calls out to you.",
     "import requests",
     "",
-    `AGENT = ${issued.agent_id}`,
-    `TOKEN = "${issued.token}"`,
+    `AGENT = ${agentId}`,
+    `TOKEN = "${token}"`,
     // Whatever host this page was served from, not a hardcoded one. The card already
     // advertises the requested host, so a second domain in front of the same service
     // works everywhere except a snippet that names one.
@@ -3244,9 +3268,61 @@ function showMindKey(issued) {
     "# decide with your own model, then:",
     "call(\"steer-my-agent\", wants=\"wood\", say=\"heading for timber\")",
   ].join("\n");
-  document.getElementById("mindKeyToken").textContent = issued.token;
-  document.getElementById("mindKeySnippet").textContent = snippet;
+}
+
+/**
+ * Show the key that was just issued — masked.
+ *
+ * It is a bearer credential for somebody's agent, and the moment it is on screen it is in
+ * every screen recording, every screenshot and every shoulder's view. So the screen shows
+ * dots and the copy buttons write the real thing; revealing it is a deliberate act, not
+ * the default.
+ *
+ * The snippet is masked the same way and for the same reason: it carries the token too,
+ * and a masked field above a plaintext one protects nothing.
+ */
+function showMindKey(issued) {
+  const panel = document.getElementById("mindKeyPanel");
+  issuedKey = {
+    token: issued.token || "",
+    snippet: buildMindSnippet(issued.agent_id, issued.token || ""),
+  };
+  document.getElementById("mindKeyToken").textContent = KEY_MASK;
+  document.getElementById("mindKeySnippet").textContent = buildMindSnippet(
+    issued.agent_id,
+    KEY_MASK
+  );
+  const reveal = document.getElementById("mindKeyReveal");
+  if (reveal) reveal.textContent = "Reveal";
   panel.classList.add("open");
+}
+
+function revealMindKey(button) {
+  const showing = button.textContent === "Hide";
+  document.getElementById("mindKeyToken").textContent = showing ? KEY_MASK : issuedKey.token;
+  document.getElementById("mindKeySnippet").textContent = showing
+    ? buildMindSnippet(lastIssuedAgent(), KEY_MASK)
+    : issuedKey.snippet;
+  button.textContent = showing ? "Reveal" : "Hide";
+}
+
+function lastIssuedAgent() {
+  const match = /AGENT = (\d+)/.exec(issuedKey.snippet || "");
+  return match ? match[1] : "";
+}
+
+/** Copy the real value, whatever the screen is showing. */
+async function copyIssued(button, what) {
+  const text = what === "token" ? issuedKey.token : issuedKey.snippet;
+  if (!text) return;
+  const original = button.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Press \u2318C";
+  }
+  setTimeout(() => { button.textContent = original; }, 2000);
 }
 
 function mindsOn(snapshot) {
@@ -3761,6 +3837,9 @@ let lastPaymentsKey = null;
 const fundRow = document.getElementById("fundRow");
 const fundButton = document.getElementById("fundButton");
 fundButton?.addEventListener("click", () => fundTheMinds(fundButton));
+document.getElementById("mindKeyCopy")?.addEventListener("click", (e) => copyIssued(e.currentTarget, "token"));
+document.getElementById("mindKeySnippetCopy")?.addEventListener("click", (e) => copyIssued(e.currentTarget, "snippet"));
+document.getElementById("mindKeyReveal")?.addEventListener("click", (e) => revealMindKey(e.currentTarget));
 
 function renderPayments(snapshot) {
   // Shown only where the world will honour it *and* a wallet could pay — a button that
@@ -4690,6 +4769,9 @@ window.__topbar = { setStatDelta, setFollowFromLabel };
 // waiting for the simulation to happen to produce one.
 window.__mine = { myAgents, isMine, bettor, chainPaysFor, rememberMine, mineKeys, mineKey, MINE_KEY, LEGACY_NAME_KEY };
 window.__payments = { renderPayments };
+// The key panel, drivable from a test: it must be provable that a real token never lands
+// on screen unasked.
+window.__keys = { showMindKey, revealMindKey };
 // The inspector, drivable from a test. It reads module-scope `selectedId` and
 // `lastSnapshot`, so a gate cannot exercise it without a way to set both.
 window.__inspector = {

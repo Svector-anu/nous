@@ -1100,6 +1100,45 @@ check(
   invisible.length ? `opened nothing: ${invisible.join(", ")}` : `${dockPanels.length} panels`
 );
 
+// --- 11s. the key is not left sitting on screen ----------------------------------
+// It is a bearer credential for somebody's agent, and the moment it is on screen it is in
+// every screen recording and screenshot taken while it is. So it renders masked and the
+// copy buttons write the real thing.
+const keyPanel = await page.evaluate(() => {
+  const secret = "TOP-SECRET-KEY-abc123";
+  window.__keys.showMindKey({ agent_id: 42, token: secret });
+  const shownAtFirst = document.getElementById("mindKeyToken").textContent;
+  const snippetAtFirst = document.getElementById("mindKeySnippet").textContent;
+
+  const reveal = document.getElementById("mindKeyReveal");
+  reveal.click();
+  const afterReveal = document.getElementById("mindKeyToken").textContent;
+  reveal.click();
+  const afterHide = document.getElementById("mindKeyToken").textContent;
+
+  return {
+    secret,
+    shownAtFirst,
+    snippetLeaks: snippetAtFirst.includes(secret),
+    afterReveal,
+    afterHide,
+    hasCopy: Boolean(document.getElementById("mindKeyCopy")),
+    hasSnippetCopy: Boolean(document.getElementById("mindKeySnippetCopy")),
+  };
+});
+check(
+  "a freshly issued key is masked, not printed on screen",
+  !keyPanel.shownAtFirst.includes(keyPanel.secret) && !keyPanel.snippetLeaks,
+  `token shows "${keyPanel.shownAtFirst.slice(0, 12)}…", snippet leaks: ${keyPanel.snippetLeaks}`
+);
+check(
+  "it can still be copied, and revealed deliberately",
+  keyPanel.hasCopy && keyPanel.hasSnippetCopy &&
+    keyPanel.afterReveal === keyPanel.secret &&
+    !keyPanel.afterHide.includes(keyPanel.secret),
+  `copy=${keyPanel.hasCopy}, snippetCopy=${keyPanel.hasSnippetCopy}, revealed=${keyPanel.afterReveal === keyPanel.secret}`
+);
+
 // --- 11t. nothing opens off the bottom of the window ------------------------------
 // A strip card is a fixed height with a hidden overflow, which suits a market and clips
 // anything taller. The key panel put a twenty-line snippet in one and the bottom half was
