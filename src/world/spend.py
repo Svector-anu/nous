@@ -58,12 +58,17 @@ def tick_headroom(spend: SpendBook, tick: int) -> int:
     return max(0, spend.per_tick_units - used)
 
 
-def refuse(spend: SpendBook, agent_id: int, units: int, tick: int) -> str:
+def refuse(spend: SpendBook, agent_id, units: int, tick: int) -> str:
     """Why this spend may not happen, or "" if it may.
 
     Ordered deliberately. `halted` is checked before anything else so a kill switch beats
     any amount of headroom, and `enabled` before that so a world nobody switched on can
     never be argued into spending.
+
+    `agent_id=None` means the world itself is spending — a clan leader consulting a model
+    on the world's behalf rather than an agent spending what it earned. Everything else
+    still applies; only the balance check is skipped, because the world's balance *is* the
+    envelope and requiring it to have earned its own money twice would be nonsense.
     """
     if not spend.enabled:
         return "spending is not enabled"
@@ -75,7 +80,7 @@ def refuse(spend: SpendBook, agent_id: int, units: int, tick: int) -> str:
         return f"over budget: {units} needed, {available(spend)} left"
     if units > tick_headroom(spend, tick):
         return f"over the per-tick cap: {units} needed, {tick_headroom(spend, tick)} left this tick"
-    if units > spend.balances.get(key(agent_id), 0):
+    if agent_id is not None and units > spend.balances.get(key(agent_id), 0):
         return f"agent {agent_id} has not earned {units}"
     return ""
 
@@ -88,7 +93,7 @@ def credit(spend: SpendBook, agent_id: int, units: int) -> None:
     spend.balances[key(agent_id)] = spend.balances.get(key(agent_id), 0) + units
 
 
-def reserve(spend: SpendBook, agent_id: int, units: int, tick: int) -> str:
+def reserve(spend: SpendBook, agent_id, units: int, tick: int) -> str:
     """Claim headroom before the money is actually sent.
 
     Same shape as the payment guard, for the same reason: settlement is a network round
@@ -109,7 +114,7 @@ def release(spend: SpendBook, units: int) -> None:
     spend.reserved_units = max(0, spend.reserved_units - units)
 
 
-def commit(spend: SpendBook, agent_id: int, units: int, tick: int, note: str = "") -> list[dict]:
+def commit(spend: SpendBook, agent_id, units: int, tick: int, note: str = "") -> list[dict]:
     """Money has left. Records it, debits the agent, and returns any notices raised.
 
     Returns the notices rather than sending them: this module has no business knowing
@@ -122,7 +127,8 @@ def commit(spend: SpendBook, agent_id: int, units: int, tick: int, note: str = "
         spend.tick_of_spend = tick
         spend.spent_this_tick = 0
     spend.spent_this_tick += units
-    spend.balances[key(agent_id)] = max(0, spend.balances.get(key(agent_id), 0) - units)
+    if agent_id is not None:
+        spend.balances[key(agent_id)] = max(0, spend.balances.get(key(agent_id), 0) - units)
 
     spend.spends.append({"agent_id": agent_id, "units": units, "tick": tick, "note": note})
     del spend.spends[:-SPEND_LIMIT]

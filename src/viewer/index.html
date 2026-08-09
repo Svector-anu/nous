@@ -961,8 +961,15 @@
   #bottomStrip .floating-card .card-body {
     flex: 1 1 auto;
     min-height: 0;
-    overflow: hidden;
+    /* Scrolls rather than hides. A strip card is a fixed height, and `hidden` meant
+       anything taller was simply gone — the log was cutting 326px and the chat 667px,
+       with no scrollbar and nothing to drag. Content you cannot reach is not content. */
+    overflow-y: auto;
+    overflow-x: hidden;
   }
+  /* Markets is the exception: it lays out as columns and each column scrolls on its own
+     axis, so the body itself must not. */
+  #bottomStrip #marketsCard .card-body { overflow: hidden; }
   #bottomStrip #marketsCard .card-body {
     display: flex;
     flex-direction: row;
@@ -1182,8 +1189,19 @@
   }
   .fund-button:hover:not(:disabled) { background: rgba(210,153,34,0.2); color: #f0b429; }
   .fund-button:disabled { opacity: .6; cursor: default; }
+  /* Out of the strip entirely. This is shown once, must be read, and must be copied
+     before it is dismissed — a short card at the bottom of the window with its content
+     cut off is the worst possible place for it. Centred, with its own scroll, and never
+     taller than the window it is in. */
   #mindKeyPanel { display: none; }
-  #mindKeyPanel.open { display: flex; flex-direction: column; }
+  #mindKeyPanel.open {
+    display: flex; flex-direction: column;
+    position: fixed; z-index: 60;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(560px, calc(100vw - 32px));
+    max-height: min(78vh, 640px);
+  }
+  #mindKeyPanel .card-body { overflow-y: auto; padding-bottom: 14px; }
   .mind-key {
     display: block; margin: 6px 0 10px; padding: 8px 10px; border-radius: 6px;
     background: rgba(255,255,255,0.05); border: 1px solid var(--line);
@@ -3231,8 +3249,42 @@ function showMindKey(issued) {
   panel.classList.add("open");
 }
 
-function mindsOn() {
-  return Boolean(lastSnapshot?.minds?.enabled);
+function mindsOn(snapshot) {
+  return Boolean((snapshot ?? lastSnapshot)?.minds?.enabled);
+}
+
+/**
+ * Ask for a key for this agent, and show it once.
+ *
+ * Shared by both places the button appears — the inspector and the My Agents row. Two
+ * copies of a flow that issues a credential would drift, and the one that drifted would
+ * be the one nobody was looking at.
+ */
+async function attachMind(button) {
+  const id = button.dataset.id;
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "…";
+  try {
+    const headers = { "Content-Type": "application/json" };
+    // The same bearer the other owner-only routes use. Without it the server refuses,
+    // which is correct — a mind key is a credential for somebody's agent.
+    if (wallet.session) headers.Authorization = `Bearer ${wallet.session}`;
+    const response = await fetch(`/agents/${id}/mind`, { method: "POST", headers });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      button.textContent = typeof body.detail === "string" ? body.detail : "refused";
+      setTimeout(() => { button.textContent = original; }, 3000);
+      return;
+    }
+    showMindKey(body);
+    button.textContent = "New key";
+  } catch {
+    button.textContent = "failed";
+    setTimeout(() => { button.textContent = original; }, 3000);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function isMine(agent) {
@@ -3259,7 +3311,10 @@ let lastDeployedKey = null;
 function renderDeployed(snapshot) {
   const mine = myAgents(snapshot);
   const key = mine
-    .map((a) => `${a.id}:${a.rest_mode ? 1 : 0}:${a.state}:${a.clan}:${a.name}:${a.personality}`)
+    // Whether a mind is attached, and whether this world offers one, both decide which
+    // buttons the row carries — a key missing one of its inputs reuses a row that should
+    // have changed.
+    .map((a) => `${a.id}:${a.rest_mode ? 1 : 0}:${a.state}:${a.clan}:${a.name}:${a.personality}:${a.mind ? 1 : 0}:${mindsOn(snapshot) ? 1 : 0}`)
     .join("|");
   if (key === lastDeployedKey) return;
   lastDeployedKey = key;
@@ -3383,6 +3438,13 @@ function renderMyAgents(snapshot) {
       `<button class="find-agent" aria-label="Locate" title="Locate">${AGENT_ICONS.locate}<span>Locate</span></button>` +
       `<button class="rest-agent" aria-label="${restLabel}" title="${restLabel}">${restIcon}<span>${restLabel}</span></button>` +
       `<button class="copy-btn copy-agent" aria-label="Copy" title="Copy">${AGENT_ICONS.copy}<span>Copy</span></button>` +
+      // Here as well as in the inspector. My Agents is where somebody looks for what they
+      // can do with an agent they own; a control only reachable by finding the agent on
+      // the map is a control most people never find.
+      (mindsOn()
+        ? `<button class="attach-mind" data-id="${agent.id}" aria-label="Drive" ` +
+          `title="Drive this agent with your own model">${agent.mind ? "New key" : "Drive"}</button>`
+        : "") +
       // Only for an agent nobody has claimed, and only while a wallet is connected.
       // Reaching this row at all now means the agent is ours — myAgents() admits an
       // unclaimed agent only when this browser deployed it — so Claim can no longer
@@ -3399,6 +3461,10 @@ function renderMyAgents(snapshot) {
     // fly to where the agent stood several seconds ago and Rest could toggle the wrong way.
     const current = () =>
       (lastSnapshot?.agents || []).find((a) => a.id === agent.id) || agent;
+
+    item.querySelector(".attach-mind")?.addEventListener("click", (event) =>
+      attachMind(event.currentTarget)
+    );
 
     item.querySelector(".find-agent").addEventListener("click", () => {
       const now = current();
@@ -4043,30 +4109,9 @@ function renderInspector(snapshot) {
 
   inspector.innerHTML = html + actions + `</div>`;
 
-  inspector.querySelector(".attach-mind")?.addEventListener("click", async (event) => {
-    const button = event.currentTarget;
-    const id = button.dataset.id;
-    button.disabled = true;
-    button.textContent = "…";
-    try {
-      const headers = { "Content-Type": "application/json" };
-      // The same bearer the rest of the owner-only routes use. Without it the server
-      // refuses, which is correct — a mind key is a credential for somebody's agent.
-      if (wallet.session) headers.Authorization = `Bearer ${wallet.session}`;
-      const response = await fetch(`/agents/${id}/mind`, { method: "POST", headers });
-      const body = await response.json();
-      if (!response.ok) {
-        button.textContent = body.detail || "refused";
-        return;
-      }
-      showMindKey(body);
-      button.textContent = "New key";
-    } catch {
-      button.textContent = "failed";
-    } finally {
-      button.disabled = false;
-    }
-  });
+  inspector.querySelector(".attach-mind")?.addEventListener("click", (event) =>
+    attachMind(event.currentTarget)
+  );
 
   inspector.querySelector(".follow-agent")?.addEventListener("click", () =>
     flyToSim(agent.x, agent.y, `${agent.name} · ${agent.state}`, 8)

@@ -1100,6 +1100,42 @@ check(
   invisible.length ? `opened nothing: ${invisible.join(", ")}` : `${dockPanels.length} panels`
 );
 
+// --- 11t. nothing opens off the bottom of the window ------------------------------
+// A strip card is a fixed height with a hidden overflow, which suits a market and clips
+// anything taller. The key panel put a twenty-line snippet in one and the bottom half was
+// simply gone — no scrollbar, nothing to drag, the content just was not there. A panel
+// that cannot be read is not open.
+const spill = await page.evaluate(async () => {
+  const wait = () => new Promise((r) => setTimeout(r, 140));
+  const offenders = [];
+  for (const button of document.querySelectorAll("#bottomDock .dock-btn[data-panel]")) {
+    button.click();
+    await wait();
+    const el = document.getElementById(button.dataset.panel);
+    if (!el) continue;
+    const box = el.getBoundingClientRect();
+    if (box.height <= 0) continue;
+    // Past the bottom edge, or taller than the window it lives in.
+    if (box.bottom > window.innerHeight + 1 || box.height > window.innerHeight) {
+      offenders.push(`${button.dataset.panel} bottom=${Math.round(box.bottom)} vs ${window.innerHeight}`);
+    }
+    // Content clipped with no way to reach it: taller than its box and not scrollable.
+    const body = el.querySelector(".card-body");
+    if (body && body.scrollHeight > body.clientHeight + 2) {
+      const overflow = getComputedStyle(body).overflowY;
+      if (overflow !== "auto" && overflow !== "scroll") {
+        offenders.push(`${button.dataset.panel} clips ${body.scrollHeight - body.clientHeight}px with overflow-y:${overflow}`);
+      }
+    }
+  }
+  return offenders;
+});
+check(
+  "no panel opens past the bottom of the window, or clips what it cannot scroll",
+  spill.length === 0,
+  spill.join("; ") || "every panel fits or scrolls"
+);
+
 // --- 11v. driving your own agent has a door -------------------------------------
 // The seam shipped with no way in: attaching a mind meant curling an endpoint and
 // copying a token out of json, which nobody does. A feature a visitor cannot reach is
