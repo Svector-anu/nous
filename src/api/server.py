@@ -808,6 +808,10 @@ def create_app(
             proof = PaymentProof(
                 tx_hash=str(payload.get("transaction") or payload.get("txHash") or ""),
                 header_value=str(payload.get("verified") or ""),
+                # Which rail it settled on. A caller that says is checked against that one
+                # only; one that does not is checked against all of them, which is what
+                # keeps clients written before there was a second chain working.
+                chain_id=payload.get("chainId") or payload.get("network") or 0,
             )
             if not proof.fingerprint():
                 return JSONResponse(
@@ -818,8 +822,7 @@ def create_app(
                             context_id=context_id,
                             skill=skill,
                             config=world.config,
-                            recipient=chain_settings.x402_recipient(),
-                            asset=chain_settings.usdg_address(testnet=False),
+                            rails=chain_settings.rails(world.config),
                         ),
                     )
                 )
@@ -1309,6 +1312,9 @@ def create_app(
         proof = PaymentProof(
             tx_hash=request.headers.get("X402-Transaction-Hash", ""),
             header_value=request.headers.get("X402-Payment-Verified", ""),
+            # Optional. Naming the chain pins the check to that rail; omitting it keeps
+            # every client written before there was a second one working unchanged.
+            chain_id=request.headers.get("X402-Chain-Id", 0) or 0,
         )
 
         spend = await _spend_for_decision(world, proof, clan_id)
@@ -1318,43 +1324,62 @@ def create_app(
             raise HTTPException(409, spend.detail)
 
         if not spend:
-            # Everything a wallet needs to construct the payment itself. Price and
-            # currency alone are not actionable: without the recipient, the token
-            # contract and the chain id, a client cannot build the transfer, and the
-            # 402 is a locked door with no keyhole.
-            recipient = chain_settings.x402_recipient()
-            token = chain_settings.usdg_address(testnet=False)
+            # Everything a wallet needs to construct the payment itself, on every rail
+            # this world accepts. Price and currency alone are not actionable: without the
+            # recipient, the token contract and the chain id, a client cannot build the
+            # transfer, and the 402 is a locked door with no keyhole.
+            #
+            # `accepts` is plural because the payer chooses. Offering only the asset this
+            # world started with is how a payment endpoint ends up discoverable by wallets
+            # that cannot settle it.
+            rails = chain_settings.rails(world.config)
+            accepts = [
+                {
+                    "scheme": "exact",
+                    "network": rail.chain_name,
+                    "chain_id": rail.chain_id,
+                    "currency": rail.currency,
+                    "asset": rail.asset,
+                    "recipient": rail.recipient,
+                    "amount": world.config.x402_price,
+                    # Integer token units — what transfer() actually takes. Sending the
+                    # decimal string alone invites a client to guess at decimals.
+                    "amount_units": str(price_units(world.config.x402_price, rail.decimals)),
+                    "decimals": rail.decimals,
+                }
+                for rail in rails
+            ]
+            first = accepts[0] if accepts else {}
             raise HTTPException(
                 status_code=402,
                 detail={
+                    # The first rail, flat, for every client written before there was a
+                    # second one.
                     "payment": {
                         "scheme": "x402",
-                        "network": world.config.chain_name,
-                        "chain_id": world.config.chain_id,
+                        "network": first.get("network", world.config.chain_name),
+                        "chain_id": first.get("chain_id", world.config.chain_id),
                         "amount": world.config.x402_price,
-                        "currency": world.config.x402_currency,
-                        # Integer token units — what transfer() actually takes. Sending
-                        # the decimal string alone invites a client to guess at decimals.
-                        "amount_units": str(
-                            price_units(world.config.x402_price, chain_settings.USDG_DECIMALS)
-                        ),
-                        "decimals": chain_settings.USDG_DECIMALS,
-                        "recipient": recipient,
-                        "token": token,
+                        "currency": first.get("currency", world.config.x402_currency),
+                        "amount_units": first.get("amount_units", "0"),
+                        "decimals": first.get("decimals", chain_settings.USDG_DECIMALS),
+                        "recipient": first.get("recipient", ""),
+                        "token": first.get("asset", ""),
                         # False means the operator has not finished configuring payment;
                         # the viewer shows why rather than offering a button that cannot work.
-                        "payable": bool(recipient and token),
+                        "payable": bool(accepts),
                     },
+                    "accepts": accepts,
                     "clan_id": clan_id,
                 },
                 headers={
                     "X402-Payment-Required": "true",
                     "X402-Version": "0.1",
                     "X402-Price": world.config.x402_price,
-                    "X402-Currency": world.config.x402_currency,
-                    "X402-Chain-Id": str(world.config.chain_id),
-                    "X402-Recipient": recipient,
-                    "X402-Token": token,
+                    "X402-Currency": first.get("currency", world.config.x402_currency),
+                    "X402-Chain-Id": str(first.get("chain_id", world.config.chain_id)),
+                    "X402-Recipient": first.get("recipient", ""),
+                    "X402-Token": first.get("asset", ""),
                 },
             )
 

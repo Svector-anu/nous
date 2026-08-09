@@ -816,3 +816,110 @@ def test_a_zero_user_agent_limit_is_refused(monkeypatch):
     config, changed = apply_chain_env(WorldConfig(agent_count=0))
     assert config.max_user_agents == 50
     assert changed == []
+
+
+# --- two rails -------------------------------------------------------------------
+#
+# The world charged USDG on Robinhood Chain and the wallets that might pay it hold USDC on
+# Base. Accepting both is what turns a discoverable payment endpoint into a payable one —
+# and every chain added is a new replay surface, because a transaction hash is unique only
+# within a chain.
+
+
+def _rail(chain_id, asset, recipient, decimals=6, name="Test"):
+    from src.chain.settings import Rail
+
+    return Rail(
+        chain_id=chain_id, chain_name=name, currency="TST", asset=asset,
+        decimals=decimals, recipient=recipient, rpc_url="http://stub",
+    )
+
+
+def test_the_same_hash_on_two_chains_is_two_payments():
+    """A transaction hash is unique only *within* a chain. Keyed on the hash alone, one
+    spent proof could be presented again against the chain that had not seen it."""
+    robinhood = PaymentProof(tx_hash=TX, chain_id=4663)
+    base = PaymentProof(tx_hash=TX, chain_id=8453)
+    assert robinhood.fingerprint() != base.fingerprint()
+
+
+def test_a_proof_that_names_no_chain_keeps_its_old_fingerprint():
+    """Every payment already recorded in world state has to still match itself."""
+    assert PaymentProof(tx_hash=TX).fingerprint() == f"tx:{TX}"
+
+
+def test_a_payment_verifies_on_the_second_rail(monkeypatch):
+    """The whole point: an agent holding the other asset can pay."""
+    recipient = "0x" + "c" * 40
+    other = "0x" + "d" * 40
+    rails = [
+        _rail(4663, USDG_MAINNET, recipient),
+        _rail(8453, other, recipient, name="Base"),
+    ]
+    # A receipt that only moves the *second* rail's token.
+    rpc = _StubRpc(receipt=_paid_receipt(recipient, 100_000, token=other))
+    verifier = ChainVerifier(rpc=rpc, rails=rails)
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is True
+
+
+def test_naming_a_chain_pins_the_check_to_it():
+    """Otherwise a payment made on a cheap chain could be judged against an expensive
+    one's price, by presenting it against whichever rail happens to accept it."""
+    recipient = "0x" + "c" * 40
+    other = "0x" + "d" * 40
+    rails = [
+        _rail(4663, USDG_MAINNET, recipient),
+        _rail(8453, other, recipient, name="Base"),
+    ]
+    rpc = _StubRpc(receipt=_paid_receipt(recipient, 100_000, token=other))
+    verifier = ChainVerifier(rpc=rpc, rails=rails)
+
+    # The receipt only satisfies the Base rail, and the caller says Robinhood.
+    named = PaymentProof(tx_hash=TX, chain_id=4663)
+    assert asyncio.run(verifier.verify(named, "0.10", "USDG")) is False
+
+
+def test_a_proof_naming_an_unaccepted_chain_is_refused():
+    rails = [_rail(4663, USDG_MAINNET, "0x" + "c" * 40)]
+    verifier = ChainVerifier(rpc=_StubRpc(receipt=None), rails=rails)
+    proof = PaymentProof(tx_hash=TX, chain_id=999999)
+    assert asyncio.run(verifier.verify(proof, "0.10", "USDG")) is False
+
+
+def test_each_rail_is_priced_in_its_own_decimals():
+    """Both assets here use six. Hardcoding that would be a silent mispricing the first
+    time one does not."""
+    recipient = "0x" + "c" * 40
+    token = "0x" + "d" * 40
+    # 18 decimals: 0.10 is 10^17 units, so 100000 units is far short.
+    rails = [_rail(8453, token, recipient, decimals=18)]
+    rpc = _StubRpc(receipt=_paid_receipt(recipient, 100_000, token=token))
+    verifier = ChainVerifier(rpc=rpc, rails=rails)
+    assert asyncio.run(verifier.verify(PaymentProof(tx_hash=TX), "0.10", "USDG")) is False
+
+
+def test_a_rail_with_no_recipient_is_never_offered(monkeypatch):
+    """A payment option with an empty payTo is a locked door with a painted-on keyhole."""
+    from src.chain import settings as chain_settings
+
+    monkeypatch.delenv("X402_RECIPIENT_ADDRESS", raising=False)
+    monkeypatch.delenv("BASE_RECIPIENT_ADDRESS", raising=False)
+    assert chain_settings.rails() == []
+
+
+def test_base_can_be_switched_off(monkeypatch):
+    from src.chain import settings as chain_settings
+
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
+    monkeypatch.setenv("BASE_ENABLED", "false")
+    chains = {rail.chain_id for rail in chain_settings.rails()}
+    assert chains == {4663}
+
+
+def test_the_original_rail_stays_first(monkeypatch):
+    """A client that reads only accepts[0] keeps working. Base is added, not substituted."""
+    from src.chain import settings as chain_settings
+
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
+    monkeypatch.delenv("BASE_ENABLED", raising=False)
+    assert chain_settings.rails()[0].chain_id == 4663

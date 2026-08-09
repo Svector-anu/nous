@@ -161,7 +161,7 @@ def agent_card(*, base_url: str, config, world_ready: bool = True) -> dict:
 
 
 def payment_required_task(
-    *, task_id: str, context_id: str, skill: str, config, recipient: str, asset: str
+    *, task_id: str, context_id: str, skill: str, config, rails
 ) -> dict:
     """A task parked in `input-required`, carrying what a wallet needs to pay.
 
@@ -169,8 +169,28 @@ def payment_required_task(
     caller exactly like one waiting on a missing argument, and what makes it a payment is
     the metadata. That distinction matters for a client that does not speak the extension
     — it still sees a well-formed task it cannot satisfy, rather than a protocol error.
+
+    `accepts` carries every rail. That array is plural in the spec precisely so a payer can
+    choose one it can actually settle, and offering only the asset this world happened to
+    start with is how a card can be discoverable by agents that cannot pay it.
     """
-    units = _units(config.x402_price)
+    options = [
+        {
+            "scheme": "exact",
+            "network": rail.chain_name,
+            "chainId": rail.chain_id,
+            "resource": f"a2a:{skill}",
+            "asset": rail.asset,
+            "payTo": rail.recipient,
+            # Integer token units, from the rail's own decimals — a client should never
+            # have to guess at those to build a transfer.
+            "maxAmountRequired": str(_units(config.x402_price, rail.decimals)),
+            "maxTimeoutSeconds": 600,
+            "description": f"{config.x402_price} {rail.currency}",
+        }
+        for rail in rails
+    ]
+    first = rails[0] if rails else None
     return {
         "kind": "task",
         "id": task_id,
@@ -185,31 +205,15 @@ def payment_required_task(
                     {
                         "kind": "text",
                         "text": (
-                            f"{config.x402_price} {config.x402_currency} is required to "
-                            f"use {skill}."
+                            f"{config.x402_price} "
+                            f"{first.currency if first else config.x402_currency} "
+                            f"is required to use {skill}."
                         ),
                     }
                 ],
                 "metadata": {
                     PAYMENT_STATUS: "payment-required",
-                    PAYMENT_REQUIRED: {
-                        "x402Version": 1,
-                        "accepts": [
-                            {
-                                "scheme": "exact",
-                                "network": config.chain_name,
-                                "chainId": config.chain_id,
-                                "resource": f"a2a:nudge-clan",
-                                "asset": asset,
-                                "payTo": recipient,
-                                "maxAmountRequired": str(units),
-                                "maxTimeoutSeconds": 600,
-                                "description": (
-                                    f"{config.x402_price} {config.x402_currency}"
-                                ),
-                            }
-                        ],
-                    },
+                    PAYMENT_REQUIRED: {"x402Version": 1, "accepts": options},
                 },
             },
         },
@@ -254,14 +258,16 @@ def rpc_result(request_id: Any, result: Any) -> dict:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
-def _units(price: str) -> int:
+def _units(price: str, decimals: int) -> int:
     """Price in the token's smallest unit. Decimal rather than float for the same reason
     the payment verifier uses it: 0.10 has no exact binary form and this number decides
-    whether somebody's payment is judged sufficient."""
-    from ..chain.x402 import price_units
-    from ..chain.settings import USDG_DECIMALS
+    whether somebody's payment is judged sufficient.
 
-    return price_units(price, USDG_DECIMALS)
+    Decimals come from the rail. Both assets here use six, and hardcoding that would be a
+    silent mispricing the first time one does not."""
+    from ..chain.x402 import price_units
+
+    return price_units(price, decimals)
 
 
 def text_of(message: dict) -> str:

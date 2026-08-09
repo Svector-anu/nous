@@ -146,7 +146,8 @@ def test_an_unsupported_method_is_a_jsonrpc_error(tmp_path):
 # --- the paid skill ----------------------------------------------------------------
 
 
-def test_an_unpaid_nudge_asks_for_payment_in_extension_metadata(tmp_path):
+def test_an_unpaid_nudge_asks_for_payment_in_extension_metadata(tmp_path, monkeypatch):
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
     app, config = _paid_world(tmp_path)
     with TestClient(app) as client:
         task = _send(client, {"skill": "nudge-clan", "clan_id": 1})["result"]
@@ -161,6 +162,35 @@ def test_an_unpaid_nudge_asks_for_payment_in_extension_metadata(tmp_path):
     # Integer token units, not the decimal string — a client should never have to guess
     # at decimals to build a transfer.
     assert accepts["maxAmountRequired"] == "100000"
+
+
+def test_the_challenge_offers_every_rail_the_world_accepts(tmp_path, monkeypatch):
+    """`accepts` is plural in the spec precisely so a payer can choose one it can settle.
+    Offering only the asset this world started with is how a payment endpoint ends up
+    discoverable by wallets that cannot pay it."""
+    monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
+    app, _ = _paid_world(tmp_path)
+    with TestClient(app) as client:
+        task = _send(client, {"skill": "nudge-clan", "clan_id": 1})["result"]
+
+    offered = task["status"]["message"]["metadata"][a2a.PAYMENT_REQUIRED]["accepts"]
+    chains = {option["chainId"] for option in offered}
+    assert 4663 in chains, "the original rail must stay first and present"
+    assert 8453 in chains, "base is where the counterparty wallets are"
+    for option in offered:
+        assert option["payTo"], "a rail with no recipient must never be advertised"
+        assert int(option["maxAmountRequired"]) > 0
+
+
+def test_a_world_with_no_recipient_advertises_no_rail(tmp_path, monkeypatch):
+    """A payment option with an empty payTo is a locked door with a painted-on keyhole."""
+    monkeypatch.delenv("X402_RECIPIENT_ADDRESS", raising=False)
+    monkeypatch.delenv("BASE_RECIPIENT_ADDRESS", raising=False)
+    app, _ = _paid_world(tmp_path)
+    with TestClient(app) as client:
+        task = _send(client, {"skill": "nudge-clan", "clan_id": 1})["result"]
+
+    assert task["status"]["message"]["metadata"][a2a.PAYMENT_REQUIRED]["accepts"] == []
 
 
 def test_a_paid_nudge_queues_the_decision(tmp_path):
