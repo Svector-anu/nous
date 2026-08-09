@@ -334,6 +334,17 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
         # 409 — so the one setting that decides whether anybody new can join was the one
         # that could not be changed without starting again.
         ("max_user_agents", "MAX_USER_AGENTS", 1),
+        # How many huts one agent may own. This is a *simulation rule*, not a deployment
+        # flag, and the rest of them are deliberately restored from the save so replay
+        # holds — so this is the one override here that changes the world's physics rather
+        # than how it is served.
+        #
+        # It earns the exception by being the thing that decides whether a mature world
+        # has anything left to do. On the live world every one of 101 agents had built its
+        # five and stopped: fed, rested, nothing to want, so the state machine's fallback
+        # put them all to sleep. A world that finishes is worse than one that replays
+        # imperfectly.
+        ("max_huts_per_agent", "MAX_HUTS_PER_AGENT", 1),
         ("llm_min_ticks_between_calls", "LLM_MIN_TICKS_BETWEEN_CALLS", 1),
     ):
         raw = os.getenv(name, "").strip()
