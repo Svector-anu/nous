@@ -1100,6 +1100,97 @@ check(
   invisible.length ? `opened nothing: ${invisible.join(", ")}` : `${dockPanels.length} panels`
 );
 
+// --- 11r. a wallet pays on the chain it is already on -----------------------------
+// The 402 offers every chain the world accepts, and reading only the first meant a base
+// wallet was asked to switch to a network it had probably never added, to spend an asset
+// it did not hold. Discoverable is not the same as payable.
+const railPick = await page.evaluate(async () => {
+  const detail = {
+    payment: { payable: true, chain_id: 4663, token: "0xUSDG", recipient: "0xr", amount_units: "100000" },
+    accepts: [
+      { chain_id: 4663, network: "Robinhood Chain", currency: "USDG", asset: "0xUSDG", recipient: "0xr", amount_units: "100000" },
+      { chain_id: 8453, network: "Base", currency: "USDC", asset: "0xUSDC", recipient: "0xr", amount_units: "100000" },
+    ],
+  };
+  const real = window.ethereum;
+  const pick = async (chainIdHex) => {
+    window.ethereum = chainIdHex ? { request: async () => chainIdHex } : undefined;
+    const rail = await window.__pay.railFor(detail);
+    window.ethereum = real;
+    return rail;
+  };
+  return {
+    onBase: await pick("0x2105"),      // 8453
+    onRobinhood: await pick("0x1237"), // 4663
+    noWallet: await pick(null),
+    // A world that offers nothing payable must not invent a rail.
+    nothingOffered: await (async () => {
+      const rail = await window.__pay.railFor({ accepts: [], payment: undefined });
+      return rail === undefined;
+    })(),
+  };
+});
+check(
+  "a wallet pays on the chain it is already on",
+  railPick.onBase.chain_id === 8453 &&
+    railPick.onBase.currency === "USDC" &&
+    railPick.onRobinhood.chain_id === 4663,
+  `base->${railPick.onBase.chain_id}/${railPick.onBase.currency}, robinhood->${railPick.onRobinhood.chain_id}`
+);
+// Driving railFor alone proved the picker and not that anything used it — reverting
+// fetchWithPayment to the old one-rail read left every check green. So this runs the
+// actual payment path against a fake wallet and asserts which token it moved.
+const railUsed = await page.evaluate(async () => {
+  const realFetch = window.fetch;
+  const realEth = window.ethereum;
+  const detail = {
+    payment: { payable: true, chain_id: 4663, token: "0xUSDG", recipient: "0xrecipient", amount_units: "100000" },
+    accepts: [
+      { chain_id: 4663, network: "Robinhood Chain", currency: "USDG", asset: "0xUSDG", recipient: "0xrecipient", amount_units: "100000" },
+      { chain_id: 8453, network: "Base", currency: "USDC", asset: "0xUSDC", recipient: "0xrecipient", amount_units: "100000" },
+    ],
+  };
+  let sentTo = null;
+  let retryChain = null;
+
+  window.fetch = async (url, options = {}) => {
+    if (!options.headers || !options.headers["X402-Transaction-Hash"]) {
+      return { status: 402, ok: false, json: async () => ({ detail }) };
+    }
+    retryChain = options.headers["X402-Chain-Id"];
+    return { status: 202, ok: true, json: async () => ({ funded: true }) };
+  };
+  window.ethereum = {
+    request: async ({ method, params }) => {
+      if (method === "eth_requestAccounts") return ["0xme"];
+      if (method === "eth_chainId") return "0x2105"; // base
+      if (method === "eth_sendTransaction") { sentTo = params[0].to; return "0xhash"; }
+      if (method === "eth_getTransactionReceipt") return { status: "0x1" };
+      return null;
+    },
+  };
+
+  try {
+    await window.__pay.fetchWithPayment("/world/fund", { method: "POST" });
+  } catch (error) {
+    return { error: String(error) };
+  } finally {
+    window.fetch = realFetch;
+    window.ethereum = realEth;
+  }
+  return { sentTo, retryChain };
+});
+check(
+  "the payment path moves the token for the wallet's own chain",
+  railUsed.sentTo === "0xUSDC" && railUsed.retryChain === "8453",
+  `sent to ${railUsed.sentTo}, retried naming chain ${railUsed.retryChain}${railUsed.error ? " · " + railUsed.error : ""}`
+);
+check(
+  "with no wallet it falls back to the first rail, and invents none",
+  railPick.noWallet.chain_id === 4663 && railPick.nothingOffered === true,
+  `fallback=${railPick.noWallet.chain_id}, invented=${!railPick.nothingOffered}`
+);
+
 // --- 11s. the key is not left sitting on screen ----------------------------------
 // It is a bearer credential for somebody's agent, and the moment it is on screen it is in
 // every screen recording and screenshot taken while it is. So it renders masked and the

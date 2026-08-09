@@ -3019,7 +3019,14 @@ async function payAndRetry(url, payment, options = {}) {
   // token, the recipient and the amount. Nothing here is trusted.
   return fetch(url, {
     ...options,
-    headers: { ...(options.headers || {}), "X402-Transaction-Hash": txHash },
+    headers: {
+      ...(options.headers || {}),
+      "X402-Transaction-Hash": txHash,
+      // Name the chain. Without it the server checks every rail it accepts, and a hash
+      // is only unique within one — saying which closes that rather than relying on the
+      // receipt not existing elsewhere.
+      "X402-Chain-Id": String(payment.chain_id || ""),
+    },
   });
 }
 
@@ -3029,11 +3036,48 @@ async function payAndRetry(url, payment, options = {}) {
  * One retry only: a loop that keeps paying on repeated 402s would spend real money
  * on a server bug.
  */
+/**
+ * Pick the rail this wallet can actually settle on.
+ *
+ * The 402 carries every chain the world accepts, and the plural is the point — a wallet
+ * holding USDC on base and one holding USDG on robinhood should both be able to pay.
+ * Reading only `detail.payment` meant always building the first rail's transfer and
+ * asking every wallet to switch chains to a network most of them have never added.
+ *
+ * Whatever the wallet is already on wins. Failing that, the first rail, which is what
+ * happened before this existed.
+ */
+async function railFor(detail) {
+  const offered = Array.isArray(detail?.accepts) ? detail.accepts.filter((r) => r.recipient) : [];
+  const fallback = detail?.payment;
+  if (!offered.length) return fallback;
+
+  let current = 0;
+  try {
+    current = parseInt(await window.ethereum?.request({ method: "eth_chainId" }), 16) || 0;
+  } catch {
+    current = 0;
+  }
+  const here = offered.find((rail) => rail.chain_id === current);
+  const chosen = here || offered[0];
+  // Shaped like the flat `payment` object payAndRetry already takes, so there is one
+  // payment path rather than two.
+  return {
+    payable: true,
+    chain_id: chosen.chain_id,
+    network: chosen.network,
+    token: chosen.asset,
+    recipient: chosen.recipient,
+    amount_units: chosen.amount_units,
+    currency: chosen.currency,
+  };
+}
+
 async function fetchWithPayment(url, options = {}) {
   const first = await fetch(url, options);
   if (first.status !== 402) return first;
   const body = await first.json().catch(() => null);
-  const payment = body?.detail?.payment;
+  const payment = await railFor(body?.detail);
   if (!payment || !payment.payable) return first;
   return payAndRetry(url, payment, options);
 }
@@ -3041,7 +3085,7 @@ async function fetchWithPayment(url, options = {}) {
 window.__wallet = { applyChainConfig, setWalletSession, walletAuthHeaders, shortAddress, walletTrouble, onAPhone, state: wallet };
 // Test seam: the gate has no wallet extension, so the encoding and the 402 handling are
 // asserted directly rather than by driving MetaMask.
-window.__pay = { encodeTransfer, fetchWithPayment, ERC20_TRANSFER_SELECTOR };
+window.__pay = { encodeTransfer, fetchWithPayment, railFor, ERC20_TRANSFER_SELECTOR };
 
 // --- ambient sound ----------------------------------------------------------
 // Off until asked for. Browsers refuse to start audio without a gesture anyway, so the
