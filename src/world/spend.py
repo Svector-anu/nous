@@ -158,6 +158,26 @@ def _raise_notices(spend: SpendBook, tick: int) -> list[dict]:
     return fresh
 
 
+def fund(spend: SpendBook, units: int, by: str, tick: int) -> None:
+    """Raise the envelope with money somebody paid. Never clears a halt.
+
+    This is `approve` minus the authority. An operator lifting a halt has looked at the
+    numbers and decided; a payment arriving has decided nothing, and the first version of
+    this used `approve` — so a stranger with 0.10 to spend could have cleared an operator's
+    kill switch, which is the one control that is supposed to answer to nobody.
+
+    Notices are kept for the same reason: they are the record that somebody was warned,
+    and a payment is not somebody reading them.
+    """
+    if units <= 0:
+        return
+    spend.budget_units += units
+    spend.approvals.append(
+        {"units": units, "by": by, "tick": tick, "budget_units": spend.budget_units}
+    )
+    del spend.approvals[:-APPROVAL_LIMIT]
+
+
 def approve(spend: SpendBook, units: int, by: str, tick: int) -> None:
     """Raise the envelope. The only way more money becomes spendable.
 

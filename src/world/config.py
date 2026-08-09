@@ -163,6 +163,13 @@ class WorldConfig:
     # supposed to answer "who paid for this".
     world_funding_enabled: bool = False
     world_funding_minimum: str = "0.10"
+    # What share of a paid decision the clan's leader keeps as its own earnings. The rest
+    # stays in the envelope for any clan to draw on.
+    #
+    # This is the only way an agent earns, and deliberately so: a balance is a *claim* on
+    # the pool, so minting one for winning a raid or building a hut would create claims the
+    # world has no money behind. Earnings can only come from money that actually arrived.
+    agent_earning_share: float = 0.5
 
     # Real-money markets. Off until an operator configures custody; the demo credit
     # markets above are unaffected either way and stay labelled demo in the viewer.

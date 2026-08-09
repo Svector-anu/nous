@@ -370,6 +370,7 @@ def apply_forced_decisions(world: World) -> list[int]:
             }
         )
     del queue.applied[:-PAID_RECEIPT_LIMIT]
+    _bank_payments(world, queue.pending)
     queue.pending.clear()
 
     forced: list[int] = []
@@ -381,6 +382,46 @@ def apply_forced_decisions(world: World) -> list[int]:
             clan.goal_set_tick = 0
             forced.append(clan.clan_id)
     return forced
+
+
+def _bank_payments(world: World, entries: list[dict]) -> None:
+    """Turn a paid decision into money the world can spend on thinking, and into earnings
+    for the leader who was interrupted.
+
+    The whole payment enters the envelope; a share of it is also credited to the clan's
+    leader as its own balance. Both, not either — a balance is a *claim* on the pool, so
+    crediting an agent without funding the pool would promise money the world does not
+    have. That invariant is the reason this is the only place an agent earns: paying out
+    for a won raid or a finished hut would mint claims against nothing.
+
+    Silent when the world has no spend book, which is every world that has not been
+    resumed since it existed.
+    """
+    from .. import spend as governor
+    from ..config import TICKS_PER_DAY  # noqa: F401 - kept for symmetry with callers
+
+    book = governor.book(world)
+    if book is None or not entries:
+        return
+
+    from ...chain.settings import USDG_DECIMALS
+    from ...chain.x402 import price_units
+
+    share = min(1.0, max(0.0, float(getattr(world.config, "agent_earning_share", 0.0))))
+    for entry in entries:
+        units = price_units(str(entry.get("amount", "")), USDG_DECIMALS)
+        if units <= 0:
+            continue
+        governor.fund(book, units, by=f"paid:{entry.get('proof', '')}", tick=world.tick)
+        if share <= 0:
+            continue
+        clan = _clan_by_id(world, int(entry.get("clan_id", 0)))
+        leader = clan.leader if clan is not None else None
+        if leader is None or not world.is_alive(leader):
+            # Nobody to pay. The money stays in the envelope, which is the honest outcome
+            # — it does not vanish and it is not credited to whoever happens to be next.
+            continue
+        governor.credit(book, leader, int(units * share))
 
 
 def run(world: World, rng: TickRng) -> None:

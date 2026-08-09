@@ -197,3 +197,94 @@ def test_a_funded_envelope_is_spendable_once_an_operator_enables_it(tmp_path: pa
         governor.credit(book, 1, book.budget_units)
 
         assert governor.refuse(book, 1, 1, tick=1) == ""
+
+
+def test_a_payment_cannot_lift_an_operator_s_halt(tmp_path: pathlib.Path):
+    """The kill switch answers to the operator alone. `approve` clears it because somebody
+    looked at the numbers and decided; a payment arriving has decided nothing — and the
+    first version of this used `approve`, so anyone with 0.10 to spend could clear it."""
+    app = create_app(CONFIG, tmp_path / "f.db")
+    with TestClient(app) as client:
+        book = _book(app)
+        # Enabled, so the halt is the operative refusal rather than the off switch.
+        book.enabled = True
+        governor.halt(book, "operator stopped it", tick=0)
+
+        assert client.post("/world/fund", headers=_paid()).status_code == 202
+
+        assert book.halted is True, "a payment lifted the halt"
+        assert book.budget_units > 0, "the money should still be credited"
+        governor.credit(book, 1, 10_000)
+        assert "halted" in governor.refuse(book, 1, 1, tick=1)
+
+
+# --- agents earning -----------------------------------------------------------------
+
+
+def test_a_paid_decision_funds_the_pool_and_pays_the_leader(tmp_path: pathlib.Path):
+    """Both, not either. A balance is a claim on the pool, so crediting an agent without
+    funding the pool would promise money the world does not have."""
+    from src.world.components import Clan
+    from src.world.systems import leadership
+
+    app = create_app(CONFIG, tmp_path / "e.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        # Give clan 1 a living leader to be paid.
+        clan_entity = next(iter(world.query(Clan)), None)
+        if clan_entity is None:
+            world.add(world.create_entity(), Clan(clan_id=1))
+            clan_entity = next(iter(world.query(Clan)))
+        clan = world.get(clan_entity, Clan)
+        leader = next(iter(world.query(*[])), None)
+        from src.world.components import Agent
+        leader = next(iter(world.query(Agent)))
+        clan.leader = leader
+        clan.members = [leader]
+
+        client.post(f"/clans/{clan.clan_id}/force-decision", headers=_paid())
+        leadership.apply_forced_decisions(world)
+        book = _book(app)
+
+    assert book.budget_units == 100_000, "the whole payment should enter the envelope"
+    assert book.balances.get(str(leader)) == 50_000, "half should reach the leader"
+
+
+def test_earnings_never_exceed_the_money_the_world_holds(tmp_path: pathlib.Path):
+    """The invariant that makes a balance meaningful: claims cannot outrun the pool."""
+    from src.world.components import Agent, Clan
+    from src.world.systems import leadership
+
+    app = create_app(CONFIG, tmp_path / "e.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        clan = world.get(next(iter(world.query(Clan))), Clan) if list(world.query(Clan)) else None
+        if clan is None:
+            world.add(world.create_entity(), Clan(clan_id=1))
+            clan = world.get(next(iter(world.query(Clan))), Clan)
+        clan.leader = next(iter(world.query(Agent)))
+
+        for index in range(5):
+            client.post(
+                f"/clans/{clan.clan_id}/force-decision",
+                headers=_paid("0x" + f"{index:064x}"),
+            )
+            leadership.apply_forced_decisions(world)
+        book = _book(app)
+
+    assert sum(book.balances.values()) <= book.budget_units
+
+
+def test_a_payment_for_a_leaderless_clan_still_funds_the_pool(tmp_path: pathlib.Path):
+    """The money does not vanish, and it is not credited to whoever happens to be next."""
+    from src.world.systems import leadership
+
+    app = create_app(CONFIG, tmp_path / "e.db")
+    with TestClient(app) as client:
+        world = app.state.simulation.world
+        client.post("/clans/99999/force-decision", headers=_paid())
+        leadership.apply_forced_decisions(world)
+        book = _book(app)
+
+    assert book.budget_units == 100_000
+    assert sum(book.balances.values()) == 0

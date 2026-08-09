@@ -656,10 +656,11 @@ def create_app(
             return 0, "payment could not be verified, or was below the minimum"
 
         verifier.record_spent(proof)
-        # `approve` is what an operator calls to raise the envelope. A payment doing the
-        # same thing is the whole idea: the people watching fund the thinking, and every
-        # credit lands in the same audit trail as an operator's.
-        spend.approve(book, units, by=f"payment:{fingerprint}", tick=world.tick)
+        # `fund`, not `approve`. The credit lands in the same audit trail as an
+        # operator's, which is the whole idea — but a payment must not lift a halt. That
+        # control answers to the operator alone, and the first version of this let anyone
+        # with 0.10 to spend clear it.
+        spend.fund(book, units, by=f"payment:{fingerprint}", tick=world.tick)
         return units, ""
 
     # --- a2a ------------------------------------------------------------------------
