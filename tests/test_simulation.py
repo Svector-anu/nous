@@ -34,6 +34,10 @@ def test_systems_run_in_the_documented_order():
         "movement",
         "build",
         "regrowth",
+        # After build, so a hut raised this tick is not judged on the same one. Buildings
+        # were permanent until this existed, which is why the world had no size it could
+        # settle at.
+        "decay",
         "leadership",
         "social",
         "standing",

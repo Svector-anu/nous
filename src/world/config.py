@@ -41,6 +41,14 @@ class WorldConfig:
     node_max_amount: int = 12
 
     max_huts_per_agent: int = 5
+    # A hut nobody owns falls down. Buildings were permanent, so the world had no
+    # equilibrium at all: a low cap left every agent idle with nothing left to build, and
+    # a high one covered the map until the agents were invisible under the roofs. Decay
+    # gives it a ceiling it finds by itself.
+    #
+    # Only *unowned* huts crumble — an owner who is alive keeps theirs standing however
+    # long they live. So this thins the sprawl left by the dead, not the town.
+    hut_decay_ticks: int = 900
     global_build_stop_fraction: float = 0.6
 
     blackboard_ttl_ticks: int = 300

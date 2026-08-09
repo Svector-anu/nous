@@ -345,6 +345,9 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
         # put them all to sleep. A world that finishes is worse than one that replays
         # imperfectly.
         ("max_huts_per_agent", "MAX_HUTS_PER_AGENT", 1),
+        # How long an abandoned hut stands. Zero switches decay off entirely, which is
+        # what every world saved before it existed effectively had.
+        ("hut_decay_ticks", "HUT_DECAY_TICKS", 0),
         ("llm_min_ticks_between_calls", "LLM_MIN_TICKS_BETWEEN_CALLS", 1),
     ):
         raw = os.getenv(name, "").strip()

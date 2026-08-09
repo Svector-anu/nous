@@ -40,6 +40,7 @@ from .systems import (
     blackboard,
     build,
     combat,
+    decay,
     fsm,
     identity,
     leadership,
@@ -88,6 +89,8 @@ def build_registry() -> SystemRegistry:
     registry.register("movement", movement.run)
     registry.register("build", build.run)
     registry.register("regrowth", regrowth.run)
+    # After build, so a hut raised this tick is not judged on the same one.
+    registry.register("decay", decay.run)
     registry.register("leadership", leadership.run)
     registry.register("social", social.run)
     registry.register("standing", standing.run)

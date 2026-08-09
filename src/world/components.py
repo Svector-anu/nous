@@ -131,8 +131,17 @@ class ResourceNode:
 
 @dataclass
 class Building:
+    """A hut. Somebody built it, and until now nothing ever removed one.
+
+    That was the whole reason the world had no equilibrium: buildings only ever
+    accumulated, so a low cap left every agent with nothing to do and a high one buried
+    the map. `decay` is how a hut forgets it was ever needed — reset whenever its owner
+    is alive to use it, climbing when nobody is.
+    """
+
     kind: str
     owner: Entity | None = None
+    decay: int = 0
 
 
 class ClanGoal(str, Enum):
