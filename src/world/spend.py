@@ -187,9 +187,18 @@ def status(world) -> dict:
     into world state."""
     spend = book(world)
     if spend is None:
-        return {"enabled": False, "halted": False, "budget_units": 0, "spent_units": 0}
+        return {
+            "enabled": False,
+            "funding_enabled": bool(getattr(world.config, "world_funding_enabled", False)),
+            "halted": False,
+            "budget_units": 0,
+            "spent_units": 0,
+        }
     return {
         "enabled": spend.enabled,
+        # Whether visitors may *add* to the envelope, which is a different question from
+        # whether the world may spend from it. Money arriving is not permission to spend.
+        "funding_enabled": bool(getattr(world.config, "world_funding_enabled", False)),
         "halted": spend.halted,
         "budget_units": spend.budget_units,
         "spent_units": spend.spent_units,

@@ -1223,6 +1223,37 @@ check(
   payments.empty.length > 0,
   payments.empty
 );
+// Paying for the world's thinking needs a door, the same way driving your own agent did.
+// A button that returns 403, or that a visitor with no wallet cannot use, is worse than
+// no button — so it appears only where the world will honour it and a wallet could pay.
+const fundUi = await page.evaluate(() => {
+  const w = window.__wallet;
+  const show = (funding, x402) => {
+    w.applyChainConfig({
+      chain_id: 4663, chain_name: "Robinhood Chain", x402_enabled: x402,
+      x402_price: "0.10", x402_currency: "USDG", identity_enabled: true, ready: true,
+      explorer_url: "https://robinhoodchain.blockscout.com",
+    });
+    window.__payments.renderPayments({ paid: [], spend: { funding_enabled: funding } });
+    const row = document.getElementById("fundRow");
+    return { shown: row ? !row.hidden : false, label: document.getElementById("fundButton")?.textContent ?? "" };
+  };
+  const on = show(true, true);
+  const fundingOff = show(false, true);
+  const noPayments = show(true, false);
+  return { on, fundingOff, noPayments };
+});
+check(
+  "the world can be funded from the page, and says what it costs",
+  fundUi.on.shown === true && /0\.10\s+USDG/.test(fundUi.on.label),
+  `shown=${fundUi.on.shown}, label="${fundUi.on.label}"`
+);
+check(
+  "no funding button on a world that would refuse it",
+  fundUi.fundingOff.shown === false && fundUi.noPayments.shown === false,
+  `fundingOff=${fundUi.fundingOff.shown}, paymentsOff=${fundUi.noPayments.shown}`
+);
+
 // The receipt link was styled only inside the world log, so in this panel it fell back to
 // the browser default: underlined blue, purple once visited, and butted straight against
 // the sentence before it. It looked like an unstyled page in the one screenshot anybody

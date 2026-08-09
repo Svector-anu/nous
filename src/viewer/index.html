@@ -1174,6 +1174,14 @@
     font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
     color: #6ee274; border: 1px solid rgba(110,226,116,0.4); background: rgba(110,226,116,0.10);
   }
+  #fundRow { padding: 0 0 10px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .fund-button {
+    margin-top: 6px; padding: 7px 14px; border-radius: 6px; cursor: pointer;
+    background: rgba(210,153,34,0.12); border: 1px solid rgba(210,153,34,0.45);
+    color: #d29922; font-size: 11.5px; letter-spacing: .02em;
+  }
+  .fund-button:hover:not(:disabled) { background: rgba(210,153,34,0.2); color: #f0b429; }
+  .fund-button:disabled { opacity: .6; cursor: default; }
   #mindKeyPanel { display: none; }
   #mindKeyPanel.open { display: flex; flex-direction: column; }
   .mind-key {
@@ -2008,6 +2016,12 @@
         </h3>
         <div class="card-body">
           <p class="hint" id="paymentsNote">Anyone can pay a clan's leader to stop and decide again. Every payment is on-chain and listed here.</p>
+          <!-- Hidden unless this world actually takes it, so the offer cannot outlive the
+               configuration that makes it true. -->
+          <div id="fundRow" hidden>
+            <p class="hint">The clan leaders consult a model, and every call costs somebody money. You can pay for some of that thinking. It buys no influence over what they decide.</p>
+            <button id="fundButton" class="fund-button"></button>
+          </div>
           <ul class="feed-list" id="paymentsList"><li class="feed-empty">Nobody has paid yet...</li></ul>
         </div>
       </div>
@@ -2481,6 +2495,57 @@ async function nudgeClan(clanId, button) {
       button.textContent = "not yet";
       showHint("Payment sent but not confirmed yet. Give it a moment and try again — " +
                "you will not be charged twice for the same transaction.", 9000);
+    } else {
+      button.textContent = "refused";
+    }
+  } catch (error) {
+    const trouble = walletTrouble(error);
+    button.textContent = trouble.label;
+    showHint(trouble.hint, 9000);
+  } finally {
+    setTimeout(() => { button.disabled = false; button.textContent = original; }, 3500);
+  }
+}
+
+/** Whether this world takes money for its own thinking.
+ *
+ * Takes the snapshot rather than reaching for the module-scope one. A renderer that
+ * ignores the argument it was handed is a renderer that cannot be tested and that shows
+ * whatever the last live tick happened to say — it offered the button against a world
+ * with funding switched off. */
+function fundingOn(snapshot) {
+  return Boolean((snapshot ?? lastSnapshot)?.spend?.funding_enabled);
+}
+
+/**
+ * Pay for the world's thinking.
+ *
+ * Same flow as nudging a clan and deliberately so — ask, pay, wait for the block, retry —
+ * because a second payment flow would be a second set of failure cases to get right, and
+ * the interesting ones here are identical: a person needs to know whether their money
+ * moved, so a refusal after a transfer must read differently from one before it.
+ */
+async function fundTheMinds(button) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "check wallet…";
+  try {
+    const response = await fetchWithPayment("/world/fund", { method: "POST" });
+    if (response.ok) {
+      const body = await response.json().catch(() => ({}));
+      button.textContent = "thank you";
+      showHint(
+        "Paid. That goes to the clan leaders' thinking — they consult a model, and " +
+        "somebody has to pay for every call. It buys no influence over what they decide.",
+        9000
+      );
+      if (body.budget_units) renderPayments(lastSnapshot || {});
+    } else if (response.status === 402) {
+      button.textContent = "not yet";
+      showHint("Payment sent but not confirmed yet. Give it a moment and try again — " +
+               "you will not be charged twice for the same transaction.", 9000);
+    } else if (response.status === 409) {
+      button.textContent = "already used";
     } else {
       button.textContent = "refused";
     }
@@ -3627,7 +3692,21 @@ function processWorldLog(snapshot) {
 const paymentsList = document.getElementById("paymentsList");
 let lastPaymentsKey = null;
 
+const fundRow = document.getElementById("fundRow");
+const fundButton = document.getElementById("fundButton");
+fundButton?.addEventListener("click", () => fundTheMinds(fundButton));
+
 function renderPayments(snapshot) {
+  // Shown only where the world will honour it *and* a wallet could pay — a button that
+  // returns 403, or that a visitor with no wallet cannot use, is worse than none.
+  if (fundRow) {
+    const offered = fundingOn(snapshot) && chainPaysFor();
+    fundRow.hidden = !offered;
+    if (offered && fundButton && !fundButton.disabled) {
+      fundButton.textContent = `Fund the minds · ${payPrice()}`;
+    }
+  }
+
   const paid = (snapshot.paid || []).slice().reverse();
   // Rebuilding identical html every second destroyed the links under any cursor already
   // on them. Same fault the agent lists had, same fix: redraw only when it changed.
