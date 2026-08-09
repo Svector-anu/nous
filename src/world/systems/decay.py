@@ -29,6 +29,17 @@ def run(world: World, rng: TickRng) -> None:
     limit = getattr(world.config, "hut_decay_ticks", 0)
     if limit <= 0:
         return
+    keep = max(0, getattr(world.config, "max_huts_per_agent", 0))
+
+    # How many each living owner holds. A hut only counts as lived-in while its owner is
+    # within their allowance — the first version aged only the huts of the dead, and with
+    # ninety-seven living agents holding twenty-four each it would have removed almost
+    # nothing while the map stayed buried.
+    held: dict[int, int] = {}
+    for entity in world.query(Building):
+        owner = world.get(entity, Building).owner
+        if owner is not None and world.is_alive(owner):
+            held[owner] = held.get(owner, 0) + 1
 
     doomed: list[int] = []
     checked = 0
@@ -38,13 +49,18 @@ def run(world: World, rng: TickRng) -> None:
         checked += 1
         building = world.get(entity, Building)
         owner = building.owner
-        if owner is not None and world.is_alive(owner):
-            # Someone lives here. A hut in use never ages.
+        alive = owner is not None and world.is_alive(owner)
+        if alive and held.get(owner, 0) <= keep:
+            # Someone lives here and it is within what they can keep up. Never ages.
             building.decay = 0
             continue
         building.decay += 1
         if building.decay >= limit:
             doomed.append(entity)
+            if alive:
+                # Their surplus shrinks as it falls, so an owner stops losing huts the
+                # moment they are back within their allowance.
+                held[owner] = held.get(owner, 1) - 1
 
     for entity in doomed:
         world.destroy_entity(entity)

@@ -88,3 +88,35 @@ def test_a_world_thins_rather_than_filling_forever():
 
     Simulation(world).run(CONFIG.hut_decay_ticks * 2)
     assert len(list(world.query(Building))) < start
+
+
+def test_huts_beyond_what_an_owner_can_keep_up_fall():
+    """The first version aged only the huts of the dead. With ninety-seven living agents
+    holding twenty-four each it removed almost nothing while the map stayed buried."""
+    world = create_world(replace(CONFIG, max_huts_per_agent=2, hut_decay_ticks=5))
+    owner = next(iter(world.query(Agent)))
+    huts = [_hut(world, owner=owner) for _ in range(8)]
+
+    Simulation(world).run(60)
+    left = [h for h in huts if world.is_alive(h)]
+    assert len(left) <= 2, f"{len(left)} huts survived a cap of 2"
+    assert len(left) >= 1, "an owner within their allowance should keep some"
+
+
+def test_an_owner_stops_losing_huts_once_back_within_the_cap():
+    """Counted against everything the owner ends up holding, not just the huts placed
+    here — it is a live world and the agent keeps building, so the originals are not the
+    whole story."""
+    world = create_world(replace(CONFIG, max_huts_per_agent=3, hut_decay_ticks=5))
+    owner = next(iter(world.query(Agent)))
+    for _ in range(5):
+        _hut(world, owner=owner)
+
+    Simulation(world).run(200)
+    held = sum(
+        1
+        for entity in world.query(Building)
+        if world.get(entity, Building).owner == owner
+    )
+    assert held <= 3, f"owner kept {held} huts against a cap of 3"
+    assert held >= 1, "decay should stop, not strip an owner bare"
