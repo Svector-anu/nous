@@ -15,7 +15,7 @@ Runs after `build` so a hut raised this tick is not judged on the same one.
 
 from __future__ import annotations
 
-from ..components import Building
+from ..components import Agent, Building
 from ..ecs import World
 from ..rng import TickRng
 
@@ -63,4 +63,13 @@ def run(world: World, rng: TickRng) -> None:
                 held[owner] = held.get(owner, 1) - 1
 
     for entity in doomed:
+        # Give the owner its allowance back. `huts_owned` is a counter, not a query, and
+        # leaving it standing while the hut falls tells an agent it is at its cap when it
+        # owns nothing — it stops building for good and the world goes quiet again, which
+        # is the failure this whole system exists to prevent.
+        owner = world.get(entity, Building).owner
+        if owner is not None and world.is_alive(owner):
+            agent = world.try_get(owner, Agent)
+            if agent is not None:
+                agent.huts_owned = max(0, agent.huts_owned - 1)
         world.destroy_entity(entity)

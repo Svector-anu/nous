@@ -120,3 +120,23 @@ def test_an_owner_stops_losing_huts_once_back_within_the_cap():
     )
     assert held <= 3, f"owner kept {held} huts against a cap of 3"
     assert held >= 1, "decay should stop, not strip an owner bare"
+
+
+def test_a_fallen_hut_gives_its_owner_the_allowance_back():
+    """`huts_owned` is a counter, not a query. Left standing while the hut falls, an agent
+    believes it is at its cap while owning nothing — it stops building for good and the
+    world goes quiet, which is the failure this whole system exists to prevent."""
+    world = create_world(replace(CONFIG, max_huts_per_agent=2, hut_decay_ticks=5))
+    owner = next(iter(world.query(Agent)))
+    agent = world.get(owner, Agent)
+    for _ in range(6):
+        _hut(world, owner=owner)
+    agent.huts_owned = 6
+
+    Simulation(world).run(80)
+    standing = sum(
+        1 for e in world.query(Building) if world.get(e, Building).owner == owner
+    )
+    assert agent.huts_owned == standing, (
+        f"counter says {agent.huts_owned}, {standing} huts actually stand"
+    )
