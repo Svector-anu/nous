@@ -3897,18 +3897,44 @@ function renderPayments(snapshot) {
   }
 
   const paid = (snapshot.paid || []).slice().reverse();
+  // Credits that funded the world's thinking. They live in the spend book rather than the
+  // receipt list, so without this a payment landed and the panel showed nothing.
+  const funded = (snapshot.spend?.recent || [])
+    .filter((entry) => String(entry.by || "").startsWith("payment:"))
+    .slice()
+    .reverse();
   // Rebuilding identical html every second destroyed the links under any cursor already
   // on them. Same fault the agent lists had, same fix: redraw only when it changed.
-  const key = paid.map((p) => `${p.clan_id}:${p.tick}:${p.proof}`).join("|");
+  const key = [
+    ...paid.map((p) => `${p.clan_id}:${p.tick}:${p.proof}`),
+    ...funded.map((f) => `f${f.tick}:${f.units}:${f.by}`),
+  ].join("|");
   if (key === lastPaymentsKey) return;
   lastPaymentsKey = key;
 
-  if (!paid.length) {
+  if (!paid.length && !funded.length) {
     paymentsList.innerHTML = '<li class="feed-empty">Nobody has paid yet...</li>';
     return;
   }
 
   paymentsList.innerHTML = "";
+  for (const entry of funded) {
+    const proof = String(entry.by || "").replace(/^payment:/, "");
+    const link = explorerTx(proof);
+    const item = document.createElement("li");
+    item.className = "feed-item";
+    item.innerHTML =
+      `<span class="feed-icon">${WORLD_LOG_ICONS.paid || ""}</span>` +
+      `<span class="feed-body">` +
+      escapeHtml(`${(entry.units / 1e6).toFixed(2)} toward the world's thinking`) +
+      (link
+        ? `<a class="feed-proof" target="_blank" rel="noopener" ` +
+          `href="${escapeHtml(link)}">view the payment ↗</a>`
+        : "") +
+      `</span>` +
+      `<span class="feed-kind paid">day ${dayNumber(entry.tick)}</span>`;
+    paymentsList.appendChild(item);
+  }
   for (const receipt of paid) {
     const link = explorerTx(receipt.proof);
     // Older receipts predate the world recording an amount, and a row that invents one

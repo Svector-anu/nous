@@ -235,4 +235,9 @@ def status(world) -> dict:
         # What the monitor reads to decide whether to wake somebody.
         "notices": [dict(n) for n in spend.notices],
         "approvals": len(spend.approvals),
+        # The recent credits themselves, not just how many. A payment that raises the
+        # envelope left no trace anybody could see: the payments panel renders nudge
+        # receipts, and funding writes here instead — so paying worked and looked like
+        # nothing happened.
+        "recent": [dict(a) for a in spend.approvals[-12:]],
     }
