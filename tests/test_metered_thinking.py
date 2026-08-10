@@ -155,3 +155,108 @@ def test_spending_survives_a_restart(tmp_path):
     store.save(world)
     after = store.load()
     assert after.get(after.first(SpendBook), SpendBook).spent_units == spent
+
+
+# --- switching it on at all -------------------------------------------------------
+#
+# The spend book is world state rather than config, so none of the config overrides can
+# reach it, and it is created switched off. Everything above this line was unreachable in
+# production until these existed: the metering ran, the money arrived, and nothing short
+# of editing the database by hand could let the world spend a cent of it.
+
+
+def _booted(monkeypatch, **env):
+    from src.api.server import apply_spend_env
+
+    world = create_world(CONFIG)
+    book = world.get(world.first(SpendBook), SpendBook)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    return world, book, apply_spend_env(world)
+
+
+def test_an_operator_can_switch_spending_on(monkeypatch):
+    world, book, applied = _booted(monkeypatch, SPEND_ENABLED="true")
+    assert book.enabled is True
+    assert "enabled=True" in applied
+
+
+def test_an_operator_can_switch_spending_off_again(monkeypatch):
+    """The variable has to be a two-way switch. One that can only turn spending on is a
+    control you cannot use to stop."""
+    world, book, _ = _booted(monkeypatch, SPEND_ENABLED="true")
+    monkeypatch.setenv("SPEND_ENABLED", "false")
+
+    from src.api.server import apply_spend_env
+
+    apply_spend_env(world)
+    assert book.enabled is False
+
+
+def test_nothing_changes_when_the_variable_is_absent(monkeypatch):
+    monkeypatch.delenv("SPEND_ENABLED", raising=False)
+    world, book, applied = _booted(monkeypatch)
+    assert book.enabled is False
+    assert applied == []
+
+
+def test_the_envelope_is_a_floor_not_a_top_up(monkeypatch):
+    """Restarts are routine on this world. A variable that added its amount on every boot
+    would turn a crash loop into an unbounded budget — the one failure this whole system
+    exists to make impossible."""
+    world, book, _ = _booted(monkeypatch, SPEND_ENABLED="true", SPEND_BUDGET_UNITS="50000")
+    assert book.budget_units == 50_000
+
+    from src.api.server import apply_spend_env
+
+    for _ in range(5):
+        apply_spend_env(world)
+    assert book.budget_units == 50_000, "a restart topped the envelope up"
+
+
+def test_spending_already_done_is_never_forgotten(monkeypatch):
+    """It only ever raises. Rebuilding the book on boot would hand the world a fresh
+    envelope every deploy, which is exactly the accounting the durable counter exists to
+    prevent."""
+    world, book, _ = _booted(monkeypatch, SPEND_ENABLED="true", SPEND_BUDGET_UNITS="50000")
+    governor.commit(book, None, 20_000, tick=1)
+
+    from src.api.server import apply_spend_env
+
+    apply_spend_env(world)
+    assert book.spent_units == 20_000
+    # 30k was left, so the floor tops it back up to 50k available — never resets it.
+    assert governor.available(book) == 50_000
+
+
+def test_a_nonsense_envelope_is_ignored(monkeypatch):
+    """A mistake here is somebody's money."""
+    for bad in ("lots", "-5", "1e6"):
+        world, book, _ = _booted(monkeypatch, SPEND_ENABLED="true", SPEND_BUDGET_UNITS=bad)
+        assert book.budget_units == 0, f"{bad!r} was accepted"
+
+
+def test_a_per_tick_cap_can_be_set(monkeypatch):
+    """The burst control. Without it one tick can spend the whole envelope."""
+    world, book, _ = _booted(monkeypatch, SPEND_ENABLED="true", SPEND_PER_TICK_UNITS="3000")
+    assert book.per_tick_units == 3000
+
+
+def test_a_negative_per_tick_cap_is_refused(monkeypatch):
+    """Zero means unlimited here, matching every other optional cap in this project — so a
+    negative one reads as unlimited too. A minus sign in the wrong place would quietly
+    remove the burst control rather than tighten it, which is the opposite of what
+    somebody typing a number into this field is trying to do.
+    """
+    world, book, _ = _booted(monkeypatch, SPEND_ENABLED="true", SPEND_PER_TICK_UNITS="-3000")
+    assert book.per_tick_units == 0
+    assert governor.tick_headroom(book, tick=1) > 0
+
+    # And the guard is on the value, not on it happening to be the first thing set.
+    monkeypatch.setenv("SPEND_PER_TICK_UNITS", "3000")
+    from src.api.server import apply_spend_env
+
+    apply_spend_env(world)
+    monkeypatch.setenv("SPEND_PER_TICK_UNITS", "-1")
+    apply_spend_env(world)
+    assert book.per_tick_units == 3000, "a negative wiped a cap that was already set"

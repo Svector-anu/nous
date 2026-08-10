@@ -177,6 +177,56 @@ class ConnectionManager:
                 self.disconnect(websocket)
 
 
+def apply_spend_env(world) -> list[str]:
+    """Let an operator switch spending on, set the envelope, and cap a tick.
+
+    Separate from the config overrides because the spend book is durable world state: the
+    envelope has been spent against and the notices are the record that somebody was
+    warned, so this must never rebuild it — it only ever raises.
+
+    `SPEND_BUDGET_UNITS` is the *floor* the world should have available, not an amount to
+    add. Restarts are routine here, and a variable that topped up on every boot would turn
+    a crash loop into an unbounded budget.
+    """
+    book = spend.book(world)
+    if book is None:
+        return []
+
+    applied: list[str] = []
+    raw = os.getenv("SPEND_ENABLED", "").strip().lower()
+    if raw in _TRUE or raw in _FALSE:
+        wanted = raw in _TRUE
+        if book.enabled != wanted:
+            book.enabled = wanted
+            applied.append(f"enabled={wanted}")
+
+    for name, field in (("SPEND_BUDGET_UNITS", "budget"), ("SPEND_PER_TICK_UNITS", "per_tick")):
+        value = os.getenv(name, "").strip()
+        if not value:
+            continue
+        try:
+            units = int(value)
+        except ValueError:
+            logger.warning("ignoring %s=%r: not a whole number of units", name, value)
+            continue
+        if units < 0:
+            logger.warning("ignoring %s=%r: negative", name, value)
+            continue
+        if field == "per_tick":
+            if book.per_tick_units != units:
+                book.per_tick_units = units
+                applied.append(f"per_tick_units={units}")
+            continue
+        # Raise to the floor rather than adding, so a restart is not a top-up. Goes
+        # through `approve` because an operator setting this by hand is exactly the
+        # deliberate act that is allowed to lift a halt.
+        short = units - spend.available(book)
+        if short > 0:
+            spend.approve(book, short, by="operator (env)", tick=world.tick)
+            applied.append(f"budget raised to {units} available")
+    return applied
+
+
 def _nonce_in(message: str) -> str:
     """Pull the nonce out of an EIP-4361 message.
 
@@ -406,6 +456,12 @@ def create_app(
         world.config, changed = apply_chain_env(world.config)
         if changed:
             logger.info("chain flags from environment: %s", ", ".join(changed))
+        # The spend book is world state, not config, so none of the overrides above can
+        # reach it — and it is created switched off. Without this the governor is a
+        # permanent no: the metering exists, the money arrives, and there is no way to
+        # let the world spend a cent of it short of editing the database by hand.
+        for line in apply_spend_env(world):
+            logger.info("spend: %s", line)
         # Built from the world's config, not the module default, so an env override of
         # the verifier actually takes effect.
         app.state.x402 = build_verifier(
