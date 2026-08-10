@@ -309,6 +309,10 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
         ("llm_model", "LLM_MODEL"),
         ("llm_base_url", "LLM_BASE_URL"),
         ("llm_api_key_env", "LLM_API_KEY_ENV"),
+        # What the world charges for a decision. Money, on a world that keeps the config
+        # it was born with — so without this the price is whatever it was the day the
+        # world was created, for as long as the world lives.
+        ("x402_price", "X402_PRICE"),
     ):
         value = os.getenv(name, "").strip()
         if value and getattr(config, field) != value:
@@ -349,6 +353,11 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
         # what every world saved before it existed effectively had.
         ("hut_decay_ticks", "HUT_DECAY_TICKS", 0),
         ("llm_min_ticks_between_calls", "LLM_MIN_TICKS_BETWEEN_CALLS", 1),
+        # What one clan decision costs the envelope, in micro-dollars. An estimate of the
+        # call, not a reading of the tokens it used — so it wants tuning against the real
+        # bill from time to time, which is exactly why it has to be settable without a
+        # deploy.
+        ("llm_cost_units_per_call", "LLM_COST_UNITS_PER_CALL", 0),
     ):
         raw = os.getenv(name, "").strip()
         if not raw:

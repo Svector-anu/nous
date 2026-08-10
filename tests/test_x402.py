@@ -932,3 +932,61 @@ def test_funding_can_be_turned_on_without_a_new_world(monkeypatch):
     config, changed = apply_chain_env(WorldConfig(agent_count=0))
     assert config.world_funding_enabled is True
     assert "world_funding_enabled=True" in changed
+
+
+# --- every knob has a way in ------------------------------------------------------
+
+
+def test_the_cost_of_a_call_can_be_retuned_without_a_new_world(monkeypatch):
+    """It is an estimate of what a decision costs, not a reading of the tokens it used,
+    so it will be wrong and will need correcting against a real bill. A world keeps the
+    config it was born with, so a wrong number that needs a deploy to fix is a wrong
+    number that stays."""
+    monkeypatch.setenv("LLM_COST_UNITS_PER_CALL", "12000")
+    config, changed = apply_chain_env(WorldConfig(agent_count=0))
+    assert config.llm_cost_units_per_call == 12000
+    assert "llm_cost_units_per_call=12000" in changed
+
+
+def test_every_setting_that_sets_the_rate_of_spending_is_reachable():
+    """Five settings in a row shipped with no way to read them: the flag was added, the
+    world was deployed, and the operator's only lever was throwing the world away and
+    starting a new one. Each was found in production, one at a time — the rate of calls,
+    attached minds, world funding, the agent cap, hut decay.
+
+    So this asserts the property rather than the instances, over the class all five
+    belonged to: what the world spends and how fast. Most of the config is simulation
+    tuning that can wait for a deploy. These cannot, because the reason to reach for one
+    is that the world is being expensive right now and the world is persistent — it keeps
+    the config it was born with, so unreachable means unreachable for its whole life.
+
+    A new one is either listed as deliberately fixed, or it is settable on a running
+    world.
+    """
+    import re
+    from pathlib import Path
+
+    # Plumbing bounds rather than spending controls: concurrency, retries, and the size of
+    # two in-memory logs. Turning any of these down saves nothing.
+    FIXED = {
+        "llm_max_inflight",
+        "llm_max_recovery_attempts",
+        "llm_log_limit",
+        "llm_only_clan_id",
+        "llm_effort",
+        "llm_timeout_seconds",
+    }
+
+    source = Path("src/api/server.py").read_text()
+    reachable = set(re.findall(r'"(\w+)"[,:]\s*"[A-Z0-9_]+"', source))
+
+    spending = {
+        name
+        for name in WorldConfig.__dataclass_fields__
+        if name.startswith("llm_") or "cost_units" in name or name == "x402_price"
+    }
+    unreachable = sorted(spending - reachable - FIXED)
+    assert not unreachable, (
+        f"no environment variable can set {unreachable} — add it to the overrides in "
+        "src/api/server.py, or to FIXED if it truly cannot change on a running world"
+    )

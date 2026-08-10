@@ -105,6 +105,14 @@ class WorldConfig:
     # answering roughly once a minute — still visible to anyone watching — for a twentieth
     # of the calls. Override per deployment with LLM_MIN_TICKS_BETWEEN_CALLS.
     llm_min_ticks_between_calls: int = 3000
+    # What one advisor call costs, in the token's smallest unit — micro-dollars, since
+    # both accepted assets use six decimals. Measured against this world's actual prompt
+    # shape (~750 in, ~120 out) at Opus-tier pricing: about $0.0068.
+    #
+    # An estimate rather than a reading of token usage. The error is fractions of a cent
+    # per call, the per-tick cap bounds any drift, and a number that is slightly wrong and
+    # visible beats one that is exact and never arrives.
+    llm_cost_units_per_call: int = 6800
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200
     # Minds a visitor attached to their own agent. Off by default: an endpoint on

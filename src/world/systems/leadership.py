@@ -424,6 +424,46 @@ def _bank_payments(world: World, entries: list[dict]) -> None:
         governor.credit(book, leader, int(units * share))
 
 
+def _metered(world) -> tuple:
+    """The spend book and the cost of a call, when the world is metering its own thinking.
+
+    Returns (None, 0) unless an operator has switched spending on. That default matters:
+    every world so far has billed the operator's gateway account directly and known
+    nothing about the envelope, and enabling this must be a decision rather than a
+    consequence of deploying.
+    """
+    from .. import spend as governor
+
+    book = governor.book(world)
+    if book is None or not book.enabled:
+        return None, 0
+    return book, max(0, int(getattr(world.config, "llm_cost_units_per_call", 0)))
+
+
+def _unreserve(world, book, cost: int) -> None:
+    """Give back what a call that never happened was holding."""
+    if book is None or cost <= 0:
+        return
+    from .. import spend as governor
+
+    governor.release(book, cost)
+
+
+def _reconcile_reserved(world, book, cost: int, state: AdvisorState) -> None:
+    """Hold no more than the requests actually in flight are worth.
+
+    A reservation is released when its decision lands, but an advisor that times out
+    returns nothing at all — the world never learns, and the reservation would sit there
+    forever holding budget nobody can spend. Rebuilding the figure from what is genuinely
+    pending is self-healing and needs no bookkeeping to go wrong.
+    """
+    from .. import spend as governor
+
+    owed = len(state.pending) * cost
+    if book.reserved_units > owed:
+        governor.release(book, book.reserved_units - owed)
+
+
 def run(world: World, rng: TickRng) -> None:
     """Nothing an advisor does may break the world.
 
@@ -453,14 +493,29 @@ def run(world: World, rng: TickRng) -> None:
         logger.warning("advisor.collect failed (%s); clans stay on rule-based goals", error)
         decisions = []
 
+    book, cost = _metered(world)
+
     for decision in decisions:
         state.drop_pending(decision.clan_id)
         _apply(world, decision)
+        if book is not None and cost > 0:
+            # The money has left. `commit` releases the reservation this call made and
+            # records the spend, so what the world paid to think is visible in the same
+            # place as what people paid to fund it.
+            from .. import spend as governor
+
+            governor.commit(book, None, cost, world.tick, note=f"clan {decision.clan_id}")
 
     # A request that failed or timed out leaves the advisor with nothing in flight for
     # that clan; clear it so recovery does not keep re-sending a doomed request.
     live = _inflight_clans(advisor)
     state.pending = [e for e in state.pending if e["clan_id"] in live]
+
+    # Once pending holds only what is genuinely still in flight, it is the truth about
+    # what the envelope should be holding. Reconciling here rather than at the top of the
+    # tick is the difference between exact and a tick behind.
+    if book is not None:
+        _reconcile_reserved(world, book, cost, state)
 
     config = world.config
     for entity in world.query(Clan):
@@ -485,6 +540,20 @@ def run(world: World, rng: TickRng) -> None:
         # a restart must not hand the world a fresh budget.
         if state.calls_made >= config.llm_max_calls_per_session:
             continue
+        # And the money. The call cap counts calls; this counts what they cost, against an
+        # envelope somebody paid for. Refused means the rules decide this tick, which is
+        # what happens for every other reason a clan is not asked — it is the floor, not a
+        # degraded mode.
+        #
+        # agent_id is None: the world is spending on its own behalf rather than an agent
+        # spending what it earned, so there is no balance to check.
+        if book is not None and cost > 0:
+            from .. import spend as governor
+
+            refused = governor.reserve(book, None, cost, world.tick)
+            if refused:
+                logger.debug("clan %d: not asking, %s", clan.clan_id, refused)
+                continue
 
         try:
             accepted = advisor.submit(_brief(world, clan, _nearby_clan_count(world, clan)))
@@ -492,7 +561,14 @@ def run(world: World, rng: TickRng) -> None:
             logger.warning("advisor.submit failed for clan %d (%s)", clan.clan_id, error)
             # Back off this clan for a full cooldown rather than retrying every tick.
             clan.last_advisor_tick = world.tick
+            _unreserve(world, book, cost)
             continue
+
+        if not accepted:
+            # The advisor declined — no call was made, so the money it was holding goes
+            # back. `_reconcile_reserved` would catch this on the next tick anyway, but a
+            # reservation released where it was taken is one nobody has to reason about.
+            _unreserve(world, book, cost)
 
         if accepted:
             clan.last_advisor_tick = world.tick
