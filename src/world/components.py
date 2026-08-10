@@ -542,6 +542,19 @@ class AttachedMind:
     last_steer_tick: int = -1
     last_said: str = ""
     steers: int = 0
+    # A model the visitor bought instead of running one themselves. Empty means the
+    # original arrangement: they run the mind and push steers in.
+    #
+    # This is a model *name*, checked against a catalog the marketplace publishes, never a
+    # url. That distinction is what keeps the rule above intact — the world calls one
+    # fixed host it already trusts, not an address a stranger chose.
+    model: str = ""
+    # Spent on this mind's thinking, in micro-dollars. Their money, so they get to see
+    # what it went on.
+    spent_units: int = 0
+    # Why the last attempt bought nothing, shown to the owner. A mind that silently stops
+    # is the failure the whole advisor-status work existed to stop repeating.
+    last_error: str = ""
 
 
 @dataclass

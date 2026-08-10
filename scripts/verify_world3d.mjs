@@ -1230,6 +1230,95 @@ check(
   `copy=${keyPanel.hasCopy}, snippetCopy=${keyPanel.hasSnippetCopy}, revealed=${keyPanel.afterReveal === keyPanel.secret}`
 );
 
+// --- 11s2. buying a mind ----------------------------------------------------------
+// A visitor picks a model and pays for what it uses. Two things have to be true on screen
+// before anyone spends: the price has to be legible as money, and it has to be clear the
+// number is an estimate rather than a quote.
+const buying = await page.evaluate(async () => {
+  const catalog = {
+    enabled: true,
+    buying: true,
+    steers_quoted: 1000,
+    models: [
+      {
+        model: "cheap-one",
+        name: "Cheap One",
+        provider: "Somebody",
+        estimated_units_per_steer: 3,
+        estimated_units_per_1000_steers: 3000,
+      },
+      {
+        model: "dear-one",
+        name: "Dear One",
+        provider: "Somebody Else",
+        estimated_units_per_steer: 9000,
+        estimated_units_per_1000_steers: 9000000,
+      },
+    ],
+  };
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("/minds/catalog")) {
+      return new Response(JSON.stringify(catalog), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return real(url, options);
+  };
+
+  await window.__minds.openMindBuy(7);
+  const panel = document.getElementById("mindBuyPanel");
+  const rows = [...document.querySelectorAll("#mindModelList .model-row")];
+  const confirm = document.getElementById("mindBuyConfirm");
+  const disabledBeforePicking = confirm.disabled;
+  rows[0]?.click();
+  const state = {
+    open: panel.classList.contains("open"),
+    rows: rows.length,
+    costs: rows.map((r) => r.querySelector(".model-cost").textContent),
+    disabledBeforePicking,
+    disabledAfterPicking: confirm.disabled,
+    pressed: rows[0]?.getAttribute("aria-pressed"),
+    intro: document.getElementById("mindBuyIntro").textContent,
+    dollars: window.__minds.unitsAsUsd(3000),
+  };
+  window.__minds.closeMindBuy();
+  state.closed = !panel.classList.contains("open");
+  window.fetch = real;
+  return state;
+});
+check(
+  "the model picker lists what is on offer with a price",
+  buying.open && buying.rows === 2 && buying.costs.every((c) => c.startsWith("$")),
+  `open=${buying.open}, rows=${buying.rows}, costs=${JSON.stringify(buying.costs)}`
+);
+check(
+  "prices read as money, not as units",
+  buying.dollars === "$0.003",
+  `3000 units rendered as "${buying.dollars}"`
+);
+check(
+  "the spread between a cheap model and a dear one is visible",
+  buying.costs[0] !== buying.costs[1],
+  `both models quoted ${buying.costs[0]}`
+);
+check(
+  "nothing can be paid for until a model is picked",
+  buying.disabledBeforePicking && !buying.disabledAfterPicking && buying.pressed === "true",
+  `before=${buying.disabledBeforePicking}, after=${buying.disabledAfterPicking}, pressed=${buying.pressed}`
+);
+check(
+  "the panel says the price is an estimate before anybody pays",
+  /estimate/i.test(buying.intro),
+  `intro reads "${buying.intro.slice(0, 80)}…"`
+);
+check(
+  "closing the picker puts it away",
+  buying.closed,
+  `still open: ${!buying.closed}`
+);
+
 // --- 11t. nothing opens off the bottom of the window ------------------------------
 // A strip card is a fixed height with a hidden overflow, which suits a market and clips
 // anything taller. The key panel put a twenty-line snippet in one and the bottom half was

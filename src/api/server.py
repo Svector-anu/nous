@@ -35,8 +35,9 @@ from ..world.components import (
     RestQueue,
 )
 from ..world.config import WorldConfig
+from ..llm import surplus
 from ..llm.advisor import build_advisor
-from ..world import spend
+from ..world import bought_minds, spend
 from ..world.systems import identity, leadership, markets, minds, resting, spawning
 from ..world.tick import Simulation, create_world, ensure_singletons
 
@@ -471,29 +472,41 @@ def create_app(
         world.advisor = build_advisor(world.config)
         logger.info("clan advisor: %s", type(world.advisor).__name__)
 
+        def _report_stall(task: asyncio.Task, what: str) -> None:
+            """Nothing awaits these tasks until shutdown, so without this a crash inside
+            one leaves no trace at all — the http api would keep serving a frozen world
+            and everything would look alive."""
+            if task.cancelled():
+                return
+            error = task.exception()
+            if error is not None:
+                logger.error("%s stopped: %r", what, error, exc_info=error)
+
         simulation = Simulation(world, store=store)
         simulation.last_tick_at = None
         app.state.simulation = simulation
         loop_task = asyncio.create_task(_run_loop(simulation, manager))
         app.state.loop_task = loop_task
 
-        def _report_stall(task: asyncio.Task) -> None:
-            """Nothing awaits the loop task until shutdown, so without this a crash inside
-            it leaves no trace at all."""
-            if task.cancelled():
-                return
-            error = task.exception()
-            if error is not None:
-                logger.error("simulation loop stopped: %r", error, exc_info=error)
+        # Bought minds run beside the loop, never inside it: every steer is a network call
+        # to a marketplace, and a system that waited on one would stall the world and make
+        # its history depend on somebody else's latency.
+        app.state.mind_buyer = surplus.Buyer(api_key=os.getenv(surplus.API_KEY_ENV, "").strip())
+        minds_task = asyncio.create_task(_run_bought_minds(app))
+        app.state.minds_task = minds_task
+        minds_task.add_done_callback(
+            lambda task: _report_stall(task, "bought minds")
+        )
 
-        loop_task.add_done_callback(_report_stall)
+        loop_task.add_done_callback(lambda task: _report_stall(task, "simulation loop"))
 
         try:
             yield
         finally:
-            loop_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await loop_task
+            for task in (loop_task, minds_task):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             if world.advisor is not None:
                 world.advisor.close()
             store.save(simulation.world)
@@ -503,6 +516,10 @@ def create_app(
     app = FastAPI(title="Nous", lifespan=lifespan)
     # Per-app rather than module-level so two apps in one test process cannot see each
     # other's challenges, sessions or spent payments.
+    # Shared by the catalog route and the background job so one price list serves both,
+    # and so a world with no key still shows visitors what a mind would cost.
+    app.state.mind_catalog = surplus.Catalog()
+    app.state.mind_buyer = surplus.Buyer()
     app.state.nonces = siwe.NonceStore()
     app.state.sessions = SessionStore()
     # A default so the attribute always exists; lifespan replaces it with one built from
@@ -695,17 +712,18 @@ def create_app(
             for rail in chain_settings.rails(world.config)
         ]
 
-    async def _fund_the_minds(world, proof: PaymentProof) -> tuple[int, str]:
-        """Take a payment and credit it to the spend envelope. Returns (units, detail).
+    async def _take_payment(world, proof: PaymentProof) -> tuple[int, str]:
+        """Verify a payment once and report what arrived. Returns (units, detail).
 
-        The same guard the paid decision uses, for the same reason: this is the second
-        place money enters the world, and a second replay check would be a second thing to
-        keep correct. The claim is taken before the network round trip and released if the
-        payment does not verify.
+        The single place money enters the world outside a forced decision. Extracted
+        because there are now two things a visitor can pay for — the world's thinking and
+        their own agent's mind — and a second copy of the replay check would be a second
+        thing to keep correct. There has already been one replay hole here; it survived a
+        redeploy and honoured a proof spent forty-five thousand ticks earlier.
 
-        What is different is the amount. A forced decision costs a fixed price, so `verify`
-        is enough; funding is whatever the payer chose, so the world has to be told what
-        actually arrived rather than what it asked for.
+        The claim is taken before the network round trip and released if the payment does
+        not verify, because settlement is a round trip and anything that checks before
+        awaiting and records after lets everything arriving in between through.
         """
         verifier = app.state.x402
         entity = world.first(ForceDecisionQueue)
@@ -726,7 +744,7 @@ def create_app(
                 proof, world.config.world_funding_minimum, world.config.x402_currency
             )
         except Exception as error:  # noqa: BLE001 - a verifier failure is a denial
-            logger.warning("x402 settle failed while funding: %r", error)
+            logger.warning("x402 settle failed: %r", error)
 
         floor = price_units(world.config.world_funding_minimum, chain_settings.USDG_DECIMALS)
         if units < max(1, floor):
@@ -735,11 +753,35 @@ def create_app(
             return 0, "payment could not be verified, or was below the minimum"
 
         verifier.record_spent(proof)
+        return units, ""
+
+    async def _fund_the_minds(world, proof: PaymentProof) -> tuple[int, str]:
+        """Take a payment and credit it to the spend envelope."""
+        units, detail = await _take_payment(world, proof)
+        if units <= 0:
+            return units, detail
         # `fund`, not `approve`. The credit lands in the same audit trail as an
         # operator's, which is the whole idea — but a payment must not lift a halt. That
         # control answers to the operator alone, and the first version of this let anyone
         # with 0.10 to spend clear it.
-        spend.fund(book, units, by=f"payment:{fingerprint}", tick=world.tick)
+        spend.fund(spend.book(world), units, by=f"payment:{proof.fingerprint()}", tick=world.tick)
+        return units, ""
+
+    async def _credit_a_mind(world, agent_id: int, proof: PaymentProof) -> tuple[int, str]:
+        """Take a payment and credit it to one agent's balance.
+
+        Different from funding in who ends up able to spend it. Funding raises the
+        envelope the *world* thinks out of; this raises what one visitor's agent may
+        spend on the model they chose. The envelope is raised too, because a balance
+        nobody can spend against an exhausted envelope is a balance that buys nothing —
+        the visitor is bringing their own money, not drawing on the operator's.
+        """
+        units, detail = await _take_payment(world, proof)
+        if units <= 0:
+            return units, detail
+        book = spend.book(world)
+        spend.fund(book, units, by=f"mind:{agent_id}:{proof.fingerprint()}", tick=world.tick)
+        spend.credit(book, agent_id, units)
         return units, ""
 
     # --- a2a ------------------------------------------------------------------------
@@ -1455,6 +1497,115 @@ def create_app(
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
+    @app.get("/minds/catalog")
+    async def mind_catalog() -> JSONResponse:
+        """Models a visitor can buy a mind from, cheapest first.
+
+        Prices are the marketplace's, refreshed on a timer and served stale rather than
+        empty when it is unreachable — a price list going blank because a third party had
+        a bad minute turns their outage into ours.
+
+        Every cost here is named an estimate, because it is one: the real charge is the
+        token usage the call reports back, and this cannot know that in advance.
+        """
+        world = app.state.simulation.world
+        catalog = app.state.mind_catalog
+        await catalog.refresh()
+        return JSONResponse(
+            {
+                "enabled": bool(world.config.attached_minds_enabled),
+                "buying": bool(app.state.mind_buyer.ready),
+                "prompt_tokens": surplus.PROMPT_TOKENS,
+                "completion_tokens": surplus.COMPLETION_TOKENS,
+                "steers_quoted": surplus.STEERS_QUOTED,
+                "catalog": catalog.status(),
+                "models": [model.as_dict() for model in catalog.models],
+            }
+        )
+
+    @app.post("/agents/{agent_id}/mind/buy", status_code=202)
+    async def buy_mind(agent_id: int, request: Request) -> JSONResponse:
+        """Pick a model for your agent and pay for its thinking.
+
+        Unpaid, this answers 402 with every rail, so a wallet holding either asset can buy
+        one. The money credits this agent's balance rather than the operator's — their
+        model, their bill, which is the only way the number of thinking agents grows
+        without one person's costs growing with it.
+
+        The model is a *name*, checked against the marketplace's own catalog. Never a url:
+        the world calls one fixed host it already trusts, so nothing here lets a visitor
+        point this server at an address they chose.
+        """
+        world = app.state.simulation.world
+        if not world.config.attached_minds_enabled:
+            raise HTTPException(403, "attached minds are not enabled")
+
+        agent = world.try_get(agent_id, Agent)
+        if agent is None or not agent.user_deployed:
+            raise HTTPException(404, f"agent {agent_id} is not a deployed agent")
+        _authorize_agent(agent, agent_id, request)
+
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - an empty body is a missing model, not a crash
+            body = {}
+        wanted = str((body or {}).get("model") or "").strip()
+        if not wanted:
+            raise HTTPException(400, "name a model")
+
+        catalog = app.state.mind_catalog
+        await catalog.refresh()
+        if not any(model.model_id == wanted for model in catalog.models):
+            # Checked against the published list rather than trusted. This is the gate
+            # that keeps an untrusted string from becoming something the world acts on.
+            raise HTTPException(400, f"{wanted} is not a model on the price list")
+
+        proof = PaymentProof(
+            tx_hash=request.headers.get("X402-Transaction-Hash", ""),
+            header_value=request.headers.get("X402-Payment-Verified", ""),
+            chain_id=request.headers.get("X402-Chain-Id", 0) or 0,
+        )
+        units, detail = await _credit_a_mind(world, agent_id, proof)
+        if units <= 0:
+            if detail == "this payment has already been used":
+                raise HTTPException(409, detail)
+            # Same shape as /world/fund's 402, because the viewer has one payment
+            # path and it reads the rails out of `detail`. A second shape here would be
+            # a second thing for that path to understand, and the one it did not
+            # understand would fail as an unexplained refusal.
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "payment": {
+                        "scheme": "x402",
+                        "amount": world.config.world_funding_minimum,
+                        "note": "pay any amount at or above this; the whole of it buys this mind's thinking",
+                    },
+                    "accepts": _accepts(world),
+                },
+                headers={"X402-Payment-Required": "true", "X402-Version": "0.1"},
+            )
+
+        mind = world.try_get(agent_id, AttachedMind)
+        if mind is None:
+            mind = AttachedMind(owner=agent.owner_address)
+            world.add(agent_id, mind)
+        mind.model = wanted
+        mind.enabled = True
+        mind.last_error = ""
+
+        book = spend.book(world)
+        return JSONResponse(
+            {
+                "agent_id": agent_id,
+                "model": wanted,
+                "credited_units": units,
+                "balance_units": book.balances.get(spend.key(agent_id), 0) if book else 0,
+            },
+            status_code=202,
+        )
+
     @app.delete("/agents/{agent_id}/mind")
     async def detach_mind(agent_id: int, http_request: Request) -> JSONResponse:
         world = app.state.simulation.world
@@ -1633,6 +1784,37 @@ def create_app(
             manager.disconnect(websocket)
 
     return app
+
+
+# How often bought minds are offered a turn. The world's own cooldown decides whether any
+# of them is actually due, so this only has to be finer-grained than that — it is a poll
+# interval, not a rate.
+BOUGHT_MIND_INTERVAL_SECONDS = 5.0
+
+
+async def _run_bought_minds(app: FastAPI) -> None:
+    """Buy steers for the visitors who paid for them, forever.
+
+    Deliberately separate from the tick loop. The world must keep ticking at its own pace
+    whatever a marketplace is doing, and one visitor's slow model must never be something
+    every other agent waits on.
+
+    Nothing here may raise. A crash in this task is a feature going quiet with the world
+    still apparently healthy, which is precisely the failure this project has been bitten
+    by before — an advisor died and nobody knew for two days.
+    """
+    while True:
+        try:
+            await asyncio.sleep(BOUGHT_MIND_INTERVAL_SECONDS)
+            simulation = getattr(app.state, "simulation", None)
+            buyer = getattr(app.state, "mind_buyer", None)
+            if simulation is None or buyer is None:
+                continue
+            await bought_minds.run_once(simulation.world, app.state.mind_catalog, buyer)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one bad pass must not end the job
+            logger.exception("bought minds pass failed; continuing")
 
 
 async def _run_loop(simulation: Simulation, manager: ConnectionManager) -> None:

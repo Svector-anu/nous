@@ -1193,6 +1193,30 @@
      before it is dismissed — a short card at the bottom of the window with its content
      cut off is the worst possible place for it. Centred, with its own scroll, and never
      taller than the window it is in. */
+  /* Buying a mind. Same panel treatment as the key: it is a decision involving money,
+     so it gets the middle of the window rather than a strip that clips it. */
+  #mindBuyPanel { display: none; }
+  #mindBuyPanel.open {
+    display: flex; flex-direction: column;
+    position: fixed; z-index: 60;
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(560px, calc(100vw - 32px));
+    max-height: min(78vh, 640px);
+  }
+  #mindBuyPanel .card-body { overflow-y: auto; padding-bottom: 14px; }
+  .model-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 4px; }
+  .model-row {
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--line); color: var(--text);
+    font-size: 11.5px;
+  }
+  .model-row:hover { border-color: rgba(110,226,116,0.45); }
+  .model-row[aria-pressed="true"] { border-color: #6ee274; background: rgba(110,226,116,0.10); }
+  .model-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .model-by { color: var(--muted); font-size: 10px; }
+  .model-cost { flex: 0 0 auto; color: #6ee274; font-variant-numeric: tabular-nums; }
+  .model-note { color: var(--muted); font-size: 10.5px; line-height: 1.5; margin: 6px 0 0; }
   #mindKeyPanel { display: none; }
   #mindKeyPanel.open {
     display: flex; flex-direction: column;
@@ -2074,6 +2098,21 @@
           <div class="key-actions">
             <button id="mindKeySnippetCopy" class="key-btn">Copy the whole script</button>
           </div>
+        </div>
+      </div>
+      <div class="floating-card" id="mindBuyPanel">
+        <h3 class="card-title">BUY A MIND
+          <span class="card-tools">
+            <button class="card-close" title="Close" aria-label="Close">×</button>
+          </span>
+        </h3>
+        <div class="card-body">
+          <p class="hint" id="mindBuyIntro">Pick a model. Your agent thinks with it, and you pay for what it uses — nobody else.</p>
+          <div class="model-list" id="mindModelList"></div>
+          <div class="key-actions">
+            <button id="mindBuyConfirm" class="key-btn" disabled>Pay and attach</button>
+          </div>
+          <p class="hint" id="mindBuyStatus"></p>
         </div>
       </div>
       <div class="floating-card" id="agentCards">
@@ -3407,6 +3446,126 @@ async function attachMind(button) {
   }
 }
 
+/** Money, in the smallest unit both accepted assets use. Rendered as dollars because
+ *  "6800 units" means nothing to somebody deciding whether to spend it. */
+function unitsAsUsd(units) {
+  const dollars = (Number(units) || 0) / 1e6;
+  if (dollars >= 1) return `$${dollars.toFixed(2)}`;
+  // Small money, with the trailing zeros taken off: $0.00300 reads like a rounding
+  // artefact, and the whole point of quoting a thousand steers is to give somebody a
+  // number they can weigh.
+  const small = dollars.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  return `$${small === "0" || small === "" ? "0.00" : small}`;
+}
+
+let mindBuyFor = null;
+let mindBuyModel = "";
+
+/**
+ * Show the model list for one agent.
+ *
+ * Prices come from the marketplace and are estimates by construction — the real charge is
+ * the token usage the call reports back. Quoting a thousand steers rather than one is
+ * deliberate: a single steer is a fraction of a cent on most models, which reads as free
+ * and tells nobody anything.
+ */
+async function openMindBuy(agentId) {
+  mindBuyFor = agentId;
+  mindBuyModel = "";
+  const panel = document.getElementById("mindBuyPanel");
+  const list = document.getElementById("mindModelList");
+  const status = document.getElementById("mindBuyStatus");
+  const confirm = document.getElementById("mindBuyConfirm");
+  if (!panel || !list) return;
+
+  panel.classList.add("open");
+  confirm.disabled = true;
+  status.textContent = "";
+  list.innerHTML = `<p class="hint">Loading prices…</p>`;
+
+  let body = null;
+  try {
+    body = await (await fetch("/minds/catalog")).json();
+  } catch {
+    body = null;
+  }
+  const models = Array.isArray(body?.models) ? body.models : [];
+  if (!models.length) {
+    list.innerHTML = `<p class="hint">No prices available right now.</p>`;
+    return;
+  }
+
+  list.innerHTML = models
+    .slice(0, 40)
+    .map(
+      (m) =>
+        `<button class="model-row" data-model="${escapeHtml(m.model)}" aria-pressed="false">` +
+        `<span class="model-name">${escapeHtml(m.name || m.model)}` +
+        `<span class="model-by"> · ${escapeHtml(m.provider || "")}</span></span>` +
+        `<span class="model-cost">${unitsAsUsd(m.estimated_units_per_1000_steers)}</span>` +
+        `</button>`
+    )
+    .join("");
+
+  // Said plainly rather than left to be discovered on the bill.
+  const intro = document.getElementById("mindBuyIntro");
+  if (intro) {
+    intro.textContent =
+      `Price shown is roughly ${body.steers_quoted || 1000} steers. It is an estimate — ` +
+      `you are charged what the model actually uses.` +
+      (body.buying ? "" : " Buying is not switched on yet, so this is a price list for now.");
+  }
+
+  list.querySelectorAll(".model-row").forEach((row) =>
+    row.addEventListener("click", () => {
+      mindBuyModel = row.dataset.model;
+      list.querySelectorAll(".model-row").forEach((other) =>
+        other.setAttribute("aria-pressed", String(other === row))
+      );
+      confirm.disabled = false;
+    })
+  );
+}
+
+function closeMindBuy() {
+  document.getElementById("mindBuyPanel")?.classList.remove("open");
+  mindBuyFor = null;
+  mindBuyModel = "";
+}
+
+/** Pay for the chosen model. Goes through the one payment path, so a wallet holding
+ *  either asset can buy one. */
+async function confirmMindBuy() {
+  const confirm = document.getElementById("mindBuyConfirm");
+  const status = document.getElementById("mindBuyStatus");
+  if (!confirm || mindBuyFor === null || !mindBuyModel) return;
+
+  confirm.disabled = true;
+  status.textContent = "Waiting for the payment…";
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (wallet.session) headers.Authorization = `Bearer ${wallet.session}`;
+    const response = await fetchWithPayment(`/agents/${mindBuyFor}/mind/buy`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ model: mindBuyModel }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      status.textContent =
+        typeof body.detail === "string" ? body.detail : "that was refused.";
+      confirm.disabled = false;
+      return;
+    }
+    status.textContent =
+      `${body.model} attached. ${unitsAsUsd(body.balance_units)} of thinking in hand.`;
+    setTimeout(closeMindBuy, 2500);
+  } catch {
+    status.textContent = "that did not go through.";
+    confirm.disabled = false;
+  }
+}
+
 function isMine(agent) {
   if (!agent || !agent.user) return false;
   // Claimed: the chain says who owns it, and that is the end of the argument.
@@ -4241,6 +4400,9 @@ function renderInspector(snapshot) {
     if (mindsOn()) {
       actions += `<button class="attach-mind" data-id="${agent.id}">` +
         `${agent.mind ? "New key" : "Drive it yourself"}</button>`;
+      // The other way to have a mind: buy one instead of running it. Same narrow set of
+      // things it may do — it picks differently, never better.
+      actions += `<button class="buy-mind" data-id="${agent.id}">Buy a mind</button>`;
     }
   }
   actions += `</div>`;
@@ -4260,6 +4422,10 @@ function renderInspector(snapshot) {
 
   inspector.querySelector(".attach-mind")?.addEventListener("click", (event) =>
     attachMind(event.currentTarget)
+  );
+
+  inspector.querySelector(".buy-mind")?.addEventListener("click", (event) =>
+    openMindBuy(event.currentTarget.dataset.id)
   );
 
   inspector.querySelector(".follow-agent")?.addEventListener("click", () =>
@@ -4842,6 +5008,9 @@ window.__payments = { renderPayments };
 // The key panel, drivable from a test: it must be provable that a real token never lands
 // on screen unasked.
 window.__keys = { showMindKey, revealMindKey };
+// The seam the browser gate drives. Exported so the checks exercise the real picker and
+// the real payment path rather than a copy of them.
+window.__minds = { openMindBuy, closeMindBuy, confirmMindBuy, unitsAsUsd };
 // The inspector, drivable from a test. It reads module-scope `selectedId` and
 // `lastSnapshot`, so a gate cannot exercise it without a way to set both.
 window.__inspector = {
@@ -5226,6 +5395,12 @@ document.querySelectorAll(".card-tools button").forEach((btn) => {
   });
 });
 document.getElementById("rightCardsClose")?.addEventListener("click", () => setAgentsOpen(false));
+document.getElementById("mindBuyConfirm")?.addEventListener("click", confirmMindBuy);
+// The generic card-close already hides the panel; this clears what was picked, so
+// reopening it does not offer to buy a model the visitor walked away from.
+document
+  .querySelector("#mindBuyPanel .card-close")
+  ?.addEventListener("click", closeMindBuy);
 
 // The camera moves between ticks, so the viewport ring would lag a second behind the
 // scene if it only redrew on a snapshot.

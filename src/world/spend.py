@@ -135,6 +135,33 @@ def commit(spend: SpendBook, agent_id, units: int, tick: int, note: str = "") ->
     return _raise_notices(spend, tick)
 
 
+def settle(
+    spend: SpendBook,
+    agent_id,
+    reserved: int,
+    actual: int,
+    tick: int,
+    note: str = "",
+) -> list[dict]:
+    """Close out a spend that was reserved at an estimate and cost something else.
+
+    Exists because `commit` releases the reservation it is committing, so a caller that
+    also released its own estimate would give back more than it ever took. Reservations
+    are one shared pool: over-releasing does not just lose a number, it hands one payer's
+    headroom to whatever else is in flight. With several minds thinking at once that is
+    money appearing from nowhere.
+
+    So the outstanding reservation is first made to equal what is actually being charged,
+    in whichever direction — a model that rambled past its estimate has genuinely spent
+    more, and refusing to record that would be the more expensive lie.
+    """
+    if actual > reserved:
+        spend.reserved_units += actual - reserved
+    else:
+        release(spend, reserved - actual)
+    return commit(spend, agent_id, actual, tick, note=note)
+
+
 def _raise_notices(spend: SpendBook, tick: int) -> list[dict]:
     """One notice per threshold per envelope, so a busy world does not send the same
     warning every tick for the rest of its life."""
