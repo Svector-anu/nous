@@ -3513,15 +3513,20 @@ async function openMindBuy(agentId) {
     // Two different reasons buying can be unavailable, and they are not the same problem
     // to whoever is reading this. Saying only "not available" would leave somebody
     // waiting for a thing nobody is working on.
+    // Plain words. "steers" is what this is called in the code and means nothing to
+    // somebody deciding whether to spend money, and the first version of the paused
+    // message said "the world tops up what it pays models with" — a euphemism for an
+    // empty wallet, which is worse than saying nothing.
+    const priced =
+      `Prices are an estimate for about ${body.steers_quoted || 1000} thoughts. ` +
+      `You pay for what your model actually uses.`;
     let unavailable = "";
     if (!body.buying) {
       unavailable = body.configured
-        ? " Buying is paused while the world tops up what it pays models with — these are today's real prices."
-        : " Buying is not switched on yet, so this is a price list for now.";
+        ? " Can't buy yet — the world is out of credit with the marketplace. Prices below are live."
+        : " Can't buy yet — not switched on. Prices below are live.";
     }
-    intro.textContent =
-      `Price shown is roughly ${body.steers_quoted || 1000} steers. It is an estimate — ` +
-      `you are charged what the model actually uses.` + unavailable;
+    intro.textContent = priced + unavailable;
   }
 
   // Nothing can be bought while the world cannot pay for it, so the button says so
