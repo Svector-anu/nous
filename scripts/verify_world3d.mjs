@@ -1269,12 +1269,16 @@ const buying = await page.evaluate(async () => {
 
   await window.__minds.openMindBuy(7);
   const panel = document.getElementById("mindBuyPanel");
+  // Measured, not asked. Checking for the `open` class passed while the panel sat inside
+  // a hidden strip and rendered nothing at all — a green test measuring the wrong thing,
+  // which is exactly how the payments panel shipped broken.
+  const shown = panel.getBoundingClientRect();
   const rows = [...document.querySelectorAll("#mindModelList .model-row")];
   const confirm = document.getElementById("mindBuyConfirm");
   const disabledBeforePicking = confirm.disabled;
   rows[0]?.click();
   const state = {
-    open: panel.classList.contains("open"),
+    open: panel.classList.contains("open") && shown.width > 0 && shown.height > 0,
     rows: rows.length,
     costs: rows.map((r) => r.querySelector(".model-cost").textContent),
     disabledBeforePicking,

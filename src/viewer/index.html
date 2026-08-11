@@ -3485,6 +3485,11 @@ async function openMindBuy(agentId) {
   if (!panel || !list) return;
 
   panel.classList.add("open");
+  // The strip is `display: none` until something in it is open, and a child of a hidden
+  // parent does not render however open it thinks it is. Without this the panel worked
+  // only because the inspector had already opened the strip — the same shape as the
+  // payments button that lit up and showed nothing.
+  syncBottomStrip();
   confirm.disabled = true;
   delete confirm.dataset.blocked;
   const loadingBadge = document.getElementById("mindBuyBadge");
@@ -3575,6 +3580,7 @@ async function openMindBuy(agentId) {
 
 function closeMindBuy() {
   document.getElementById("mindBuyPanel")?.classList.remove("open");
+  syncBottomStrip();
   mindBuyFor = null;
   mindBuyModel = "";
 }
