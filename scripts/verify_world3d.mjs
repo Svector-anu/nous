@@ -1632,14 +1632,22 @@ const ownership = await page.evaluate(() => {
   };
 });
 // Paying required opening a browser console until now, which is not a product.
-const payUi = await page.evaluate(() => {
+const payUi = await page.evaluate(async () => {
   window.__wallet.applyChainConfig({
     chain_id: 4663, chain_name: "Robinhood Chain", x402_enabled: true,
     x402_price: "0.10", x402_currency: "USDG", identity_enabled: true, ready: true,
     explorer_url: "https://robinhoodchain.blockscout.com",
   });
   document.querySelector('#bottomDock .dock-btn[data-panel="legendPanel"]').click();
-  const button = document.querySelector("#legend .nudge");
+  // The legend renders from the next snapshot, so reading straight after the click was a
+  // race: usually the button was there, sometimes it was not, and the check failed for
+  // reasons that had nothing to do with paying.
+  let button = null;
+  for (let waited = 0; waited < 5000; waited += 100) {
+    button = document.querySelector("#legend .nudge");
+    if (button) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
   const paysFor = window.__mine.chainPaysFor();
   document.querySelector('#bottomDock .dock-btn[data-panel="legendPanel"]').click();
   return { paysFor, present: !!button, label: button ? button.textContent : "" };
@@ -2067,9 +2075,19 @@ if (await findBtn.isVisible().catch(() => false)) {
   if (await restBtn.isVisible().catch(() => false)) {
     const beforeText = await restBtn.textContent();
     await restBtn.click();
-    // The server applies the toggle on the next tick; wait for the snapshot to arrive.
-    await mobilePage.waitForTimeout(2200);
-    const afterText = await mobilePage.locator("#inspector .rest-toggle").first().textContent();
+    // The server applies the toggle on the next tick and the viewer waits for the next
+    // snapshot. A fixed sleep here was a coin toss — it assumed a tick and a websocket
+    // round trip always fit inside 2.2s, and under load they do not, so this check failed
+    // at random and taught everybody to re-run the gate instead of reading it.
+    let afterText = beforeText;
+    for (let waited = 0; waited < 12000; waited += 250) {
+      afterText = await mobilePage
+        .locator("#inspector .rest-toggle")
+        .first()
+        .textContent();
+      if (afterText.trim() !== beforeText.trim()) break;
+      await mobilePage.waitForTimeout(250);
+    }
     const resting =
       (beforeText.toLowerCase().includes("rest") && afterText.toLowerCase().includes("resume")) ||
       (beforeText.toLowerCase().includes("resume") && afterText.toLowerCase().includes("rest"));
