@@ -48,11 +48,30 @@ CONFIG = WorldConfig(
 )
 
 
+class FundedBuyer(surplus.Buyer):
+    """A buyer whose wallet answer is scripted."""
+
+    def __init__(self, *, balance=0.0, credit=0.0, allowance=0.0, key="inf_test"):
+        super().__init__(api_key=key)
+        self.payload = {
+            "balance_usdc": balance,
+            "credit_balance_usdc": credit,
+            "allowance_usdc": allowance,
+            "wallet": "0xabc",
+        }
+
+    async def _fetch_me(self):
+        return self.payload
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("X402_RECIPIENT_ADDRESS", "0x" + "c" * 40)
     with TestClient(create_app(CONFIG, tmp_path / "w.db")) as client:
         client.app.state.mind_catalog = FakeCatalog()
+        # A world that can pay. The gate below is tested explicitly; every other test here
+        # is about what happens once the world is genuinely able to sell.
+        client.app.state.mind_buyer = FundedBuyer(balance=5.0, allowance=100.0)
         yield client
 
 
@@ -97,12 +116,15 @@ def test_every_quoted_cost_is_called_an_estimate(client):
         assert not any(key == "units_per_steer" for key in model)
 
 
-def test_the_catalog_says_whether_anything_can_actually_be_bought(client):
-    """A price list with no key behind it is a shop window. Visitors should be able to see
-    what a mind costs before one can be sold, but not be told it is for sale."""
+def test_a_world_with_no_key_is_a_shop_window(client):
+    """Visitors should see what a mind costs before one can be sold, but must not be told
+    it is for sale. Distinct from the funded-but-empty case below: this one nobody has set
+    up, and the ui says so differently."""
+    client.app.state.mind_buyer = surplus.Buyer()  # no key
     body = client.get("/minds/catalog").json()
 
     assert body["buying"] is False
+    assert body["configured"] is False
     assert body["models"], "the list should still show prices"
 
 
@@ -193,3 +215,104 @@ def test_buying_is_refused_when_minds_are_switched_off(tmp_path, monkeypatch):
         response = client.post("/agents/1/mind/buy", json={"model": "cheap"}, headers=_paid())
 
     assert response.status_code == 403
+
+
+# --- selling only what the world can actually deliver -------------------------------
+#
+# A key proves somebody configured this. It does not prove the world can pay: settlement
+# pulls USDC from the operator's wallet per request, so an empty wallet means every call
+# fails *after* the visitor has paid. The catalog said "buying" while the wallet held
+# nothing, which is taking money for a mind that could never think.
+
+
+def _with_buyer(client, buyer):
+    client.app.state.mind_buyer = buyer
+    return client
+
+
+def test_a_funded_and_approved_wallet_can_sell(client):
+    _with_buyer(client, FundedBuyer(balance=5.0, allowance=100.0))
+    body = client.get("/minds/catalog").json()
+
+    assert body["buying"] is True
+    assert body["configured"] is True
+
+
+def test_an_empty_wallet_cannot_sell(client):
+    """The live failure. A key was set, the catalog said buying, and the wallet held
+    nothing."""
+    _with_buyer(client, FundedBuyer(balance=0.0, allowance=0.0))
+    body = client.get("/minds/catalog").json()
+
+    assert body["buying"] is False
+    assert body["configured"] is True, "it is configured — the wallet is the problem"
+    assert body["models"], "prices should still be visible"
+
+
+def test_money_with_no_allowance_cannot_sell():
+    """Settlement pulls with transferFrom, so USDC nobody has approved is USDC the
+    marketplace cannot take."""
+    buyer = FundedBuyer(balance=50.0, allowance=0.0)
+    import asyncio
+
+    asyncio.run(buyer.refresh_funding())
+    assert buyer.ready is False
+
+
+def test_credit_needs_no_allowance():
+    """Marketplace credit spends without an on-chain pull, so requiring an allowance for
+    it would refuse a buyer who can genuinely pay."""
+    buyer = FundedBuyer(balance=0.0, credit=5.0, allowance=0.0)
+    import asyncio
+
+    asyncio.run(buyer.refresh_funding())
+    assert buyer.ready is True
+
+
+def test_a_buyer_that_has_never_checked_sells_nothing():
+    """The unchecked state must not sell. Defaulting the other way would mean any restart
+    briefly offered minds it could not deliver."""
+    assert surplus.Buyer(api_key="inf_test").ready is False
+
+
+def test_buying_is_refused_before_the_money_is_taken(client):
+    """The whole point. Refusing after payment would leave somebody having paid for
+    nothing."""
+    _with_buyer(client, FundedBuyer(balance=0.0, allowance=0.0))
+    agent = _agent(client)
+    response = client.post(
+        f"/agents/{agent}/mind/buy", json={"model": "cheap"}, headers=_paid()
+    )
+
+    assert response.status_code == 503
+    world = client.app.state.simulation.world
+    assert world.try_get(agent, AttachedMind) is None, "a mind was attached anyway"
+
+
+def test_a_refused_buy_does_not_burn_the_payment(client):
+    """The proof must still be spendable afterwards. Marking it used on a sale that never
+    happened would cost somebody a payment for nothing."""
+    _with_buyer(client, FundedBuyer(balance=0.0, allowance=0.0))
+    agent = _agent(client)
+    client.post(f"/agents/{agent}/mind/buy", json={"model": "cheap"}, headers=_paid())
+
+    _with_buyer(client, FundedBuyer(balance=5.0, allowance=100.0))
+    again = client.post(
+        f"/agents/{agent}/mind/buy", json={"model": "cheap"}, headers=_paid()
+    )
+    assert again.status_code == 202, again.text
+
+
+def test_an_outage_does_not_close_the_shop(client):
+    """A marketplace having a bad minute is not a reason to stop selling to everybody, so
+    a failed check keeps the last known answer."""
+    buyer = FundedBuyer(balance=5.0, allowance=100.0)
+    _with_buyer(client, buyer)
+    assert client.get("/minds/catalog").json()["buying"] is True
+
+    async def broken():
+        raise RuntimeError("surplus is down")
+
+    buyer._fetch_me = broken
+    buyer._funding_at = 0.0  # force a refresh
+    assert client.get("/minds/catalog").json()["buying"] is True

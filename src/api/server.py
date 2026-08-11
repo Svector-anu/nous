@@ -1528,11 +1528,21 @@ def create_app(
         """
         world = app.state.simulation.world
         catalog = app.state.mind_catalog
+        buyer = app.state.mind_buyer
         await catalog.refresh()
+        # Whether the world can actually pay, not merely whether somebody configured a
+        # key. Selling a mind that cannot think is taking money for nothing.
+        funding = await buyer.refresh_funding()
         return JSONResponse(
             {
                 "enabled": bool(world.config.attached_minds_enabled),
-                "buying": bool(app.state.mind_buyer.ready),
+                "buying": bool(buyer.ready),
+                # Split so the ui can say which of the two problems it is: nobody set this
+                # up, or it is set up and the wallet is empty.
+                "configured": bool(buyer.has_key),
+                "funded_usd": round(
+                    funding.get("balance_usdc", 0.0) + funding.get("credit_usdc", 0.0), 4
+                ),
                 "prompt_tokens": surplus.PROMPT_TOKENS,
                 "completion_tokens": surplus.COMPLETION_TOKENS,
                 "steers_quoted": surplus.STEERS_QUOTED,
@@ -1571,6 +1581,13 @@ def create_app(
         wanted = str((body or {}).get("model") or "").strip()
         if not wanted:
             raise HTTPException(400, "name a model")
+
+        # Refuse before taking the money, not after. Without this a visitor pays, the
+        # model attaches, and every call fails on an empty wallet — they bought nothing.
+        buyer = app.state.mind_buyer
+        await buyer.refresh_funding()
+        if not buyer.ready:
+            raise HTTPException(503, "buying a mind is not available right now")
 
         catalog = app.state.mind_catalog
         await catalog.refresh()
@@ -1828,6 +1845,10 @@ async def _run_bought_minds(app: FastAPI) -> None:
             buyer = getattr(app.state, "mind_buyer", None)
             if simulation is None or buyer is None:
                 continue
+            # Re-checked here rather than only at the door: a wallet that empties while
+            # the world runs must stop it calling out, and one that is funded mid-flight
+            # should start working without a deploy.
+            await buyer.refresh_funding()
             await bought_minds.run_once(simulation.world, app.state.mind_catalog, buyer)
         except asyncio.CancelledError:
             raise

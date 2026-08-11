@@ -3510,10 +3510,28 @@ async function openMindBuy(agentId) {
   // Said plainly rather than left to be discovered on the bill.
   const intro = document.getElementById("mindBuyIntro");
   if (intro) {
+    // Two different reasons buying can be unavailable, and they are not the same problem
+    // to whoever is reading this. Saying only "not available" would leave somebody
+    // waiting for a thing nobody is working on.
+    let unavailable = "";
+    if (!body.buying) {
+      unavailable = body.configured
+        ? " Buying is paused while the world tops up what it pays models with — these are today's real prices."
+        : " Buying is not switched on yet, so this is a price list for now.";
+    }
     intro.textContent =
       `Price shown is roughly ${body.steers_quoted || 1000} steers. It is an estimate — ` +
-      `you are charged what the model actually uses.` +
-      (body.buying ? "" : " Buying is not switched on yet, so this is a price list for now.");
+      `you are charged what the model actually uses.` + unavailable;
+  }
+
+  // Nothing can be bought while the world cannot pay for it, so the button says so
+  // rather than taking money for a mind that would never think.
+  if (!body.buying) {
+    confirm.textContent = "Unavailable";
+    confirm.dataset.blocked = "1";
+  } else {
+    confirm.textContent = "Pay and attach";
+    delete confirm.dataset.blocked;
   }
 
   list.querySelectorAll(".model-row").forEach((row) =>
@@ -3522,7 +3540,9 @@ async function openMindBuy(agentId) {
       list.querySelectorAll(".model-row").forEach((other) =>
         other.setAttribute("aria-pressed", String(other === row))
       );
-      confirm.disabled = false;
+      // Picking is still allowed when buying is off — seeing what a model costs is the
+      // point of the list. Paying is what stays shut.
+      confirm.disabled = Boolean(confirm.dataset.blocked);
     })
   );
 }

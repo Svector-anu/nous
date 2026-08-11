@@ -49,8 +49,11 @@ class FakeCatalog(surplus.Catalog):
 class FakeBuyer(surplus.Buyer):
     """A buyer whose answers are scripted."""
 
-    def __init__(self, *answers, key="k"):
+    def __init__(self, *answers, key="k", funded=True):
         super().__init__(api_key=key)
+        # A buyer is not ready until its wallet is known to be able to pay. These tests
+        # are about what happens once it can, so they say so explicitly.
+        self.funded = funded
         self.answers = list(answers)
         self.asked = []
 

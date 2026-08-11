@@ -243,6 +243,20 @@ class Catalog:
 
 API_KEY_ENV = "SURPLUS_API_KEY"
 CHAT_PATH = "/v1/chat/completions"
+ME_PATH = "/v1/buyer/me"
+
+# Long enough not to hammer the marketplace on every page view, short enough that
+# funding a wallet turns buying on within a couple of minutes and needs no deploy.
+FUNDING_TTL_SECONDS = 120.0
+
+
+def _as_float(value) -> float:
+    """A third party's number, which may be a string, a null, or missing entirely."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
 
 SYSTEM_PROMPT = (
     "You are the mind of one agent in a persistent world. You will be given what your "
@@ -357,10 +371,84 @@ class Buyer:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        # False until proven otherwise. The failure this guards is charging somebody for a
+        # mind that cannot think, so the unchecked state must not sell.
+        self.funded = False
+        self.funding: dict = {}
+        self.funding_ttl = FUNDING_TTL_SECONDS
+        self._funding_at = 0.0
 
     @property
     def ready(self) -> bool:
+        """Whether a mind bought right now could actually think.
+
+        A key on its own is not enough, and treating it as enough was a way to take
+        somebody's money for nothing: settlement pulls USDC from the operator's wallet per
+        request, so an empty wallet or a missing allowance means every call fails *after*
+        the visitor has paid. The catalog said "buying" and the world could not buy.
+
+        `funded` is refreshed out of band by `refresh_funding`. It defaults to False, so a
+        world that has never checked sells nothing — the safe direction when the failure is
+        charging for a mind that cannot think.
+        """
+        return bool(self.api_key) and self.funded
+
+    @property
+    def has_key(self) -> bool:
+        """Configured, whatever the wallet says. Kept apart from `ready` so the ui can
+        tell "nobody has set this up" from "set up, but the wallet is empty" — two
+        different problems with two different fixes."""
         return bool(self.api_key)
+
+    async def refresh_funding(self, now: float | None = None) -> dict:
+        """Ask the marketplace whether this buyer can currently pay.
+
+        Cached, because it is a network call on a path that renders a page. Failure leaves
+        the last answer alone rather than declaring the wallet empty: a marketplace having
+        a bad minute is not a reason to stop selling to everyone.
+        """
+        import time as clock
+
+        moment = clock.monotonic() if now is None else now
+        if not self.api_key:
+            self.funded = False
+            self.funding = {"error": "no key configured"}
+            return dict(self.funding)
+        if self._funding_at and (moment - self._funding_at) < self.funding_ttl:
+            return dict(self.funding)
+
+        try:
+            payload = await self._fetch_me()
+        except Exception as error:  # noqa: BLE001 - never break the page
+            logger.warning("surplus buyer status unavailable (%s)", error)
+            self.funding = dict(self.funding) | {"error": str(error)[:120]}
+            return dict(self.funding)
+
+        balance = _as_float(payload.get("balance_usdc"))
+        credit = _as_float(payload.get("credit_balance_usdc"))
+        allowance = _as_float(payload.get("allowance_usdc"))
+        # Credit counts: it spends like balance and does not need an allowance, so a buyer
+        # holding only credit can still pay.
+        spendable = balance + credit
+        self.funded = spendable > 0 and (allowance > 0 or credit > 0)
+        self.funding = {
+            "balance_usdc": balance,
+            "credit_usdc": credit,
+            "allowance_usdc": allowance,
+            "wallet": str(payload.get("wallet") or ""),
+            "error": "",
+        }
+        self._funding_at = moment
+        return dict(self.funding)
+
+    async def _fetch_me(self) -> dict:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}{ME_PATH}",
+                headers={"authorization": f"Bearer {self.api_key}"},
+            )
+            response.raise_for_status()
+            return response.json()
 
     async def steer(self, model_id: str, perception: dict, max_tokens: int = 200) -> Steer:
         """Ask one model what this agent should do next. Never raises.
