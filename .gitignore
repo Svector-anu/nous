@@ -40,3 +40,6 @@ planish/
 .env
 .env.*
 !.env.example
+
+# planning notes stay on the machine that made them
+PLAN.md
