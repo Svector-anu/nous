@@ -40,7 +40,12 @@ from ..llm import surplus
 from ..llm.advisor import build_advisor
 from ..world import bought_minds, spend
 from ..world.systems import identity, leadership, markets, minds, resting, spawning
-from ..world.tick import Simulation, create_world, ensure_singletons
+from ..world.tick import (
+    Simulation,
+    create_world,
+    ensure_singletons,
+    rename_the_unprintable,
+)
 
 
 class PositionRequest(BaseModel):
@@ -448,6 +453,12 @@ def create_app(
             restored = ensure_singletons(world)
             if restored:
                 logger.info("added missing singletons to the resumed world: %s", ", ".join(restored))
+            # The name filter arrived after two thousand days of world, so it catches
+            # nothing already standing in it. Renamed on resume rather than deleted:
+            # somebody deployed each of these and it may be the only agent they have.
+            renamed = rename_the_unprintable(world)
+            if renamed:
+                logger.warning("renamed %d agents: %s", len(renamed), "; ".join(renamed))
         else:
             world = create_world(world_config)
             store.save(world)

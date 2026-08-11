@@ -35,6 +35,7 @@ from .components import (
 )
 from .config import TICKS_PER_DAY, WorldConfig
 from .errors import StaleWorldError
+from . import naming
 from .ecs import SystemRegistry, World
 from .rng import TickRng
 from . import spend
@@ -184,6 +185,28 @@ _SINGLETONS = (
     MarketBook,
     SpendBook,
 )
+
+
+def rename_the_unprintable(world: World) -> list[str]:
+    """Rename agents already carrying a name nobody else should have to read.
+
+    The filter went in after the world had been running for two thousand days, so it
+    catches nothing that is already standing in it — four agents named after Hitler and one
+    carrying a racial slur, in a settlement that could not be shown to anybody.
+
+    They are renamed, never removed. Each was deployed by somebody, has lived a life, and
+    may be the only one they have. Deleting it would be the operator taking something from
+    a visitor to solve the operator's problem, and the point here is only that everyone
+    else stops having to read it.
+    """
+    renamed = []
+    for entity in world.query(Agent):
+        agent = world.get(entity, Agent)
+        cleaned = naming.clean(agent.name, entity)
+        if cleaned != agent.name:
+            renamed.append(f"{entity}: {agent.name!r} -> {cleaned!r}")
+            agent.name = cleaned
+    return renamed
 
 
 def ensure_singletons(world: World) -> list[str]:
