@@ -47,12 +47,24 @@ def run(world: World, rng: TickRng) -> None:
         if owner is not None and world.is_alive(owner):
             held[owner] = held.get(owner, 0) + 1
 
+    # A rotating window, not the first N. `world.query` yields the same order every tick,
+    # so breaking after two hundred meant the same two hundred were examined forever and
+    # every building past them was immortal — with 622 huts on the live world, two thirds
+    # of them could never fall however long they stood.
+    buildings = list(world.query(Building))
+    total = len(buildings)
+    if total == 0:
+        return
+    window = min(MAX_CHECKED_PER_TICK, total)
+    # How many ticks pass between visits to any one building. Ageing by that much per
+    # visit keeps `decay` meaning ticks of neglect rather than "times we happened to
+    # look", so the same configured lifetime holds whatever the window is.
+    stride = -(-total // window)
+    start = (world.tick * window) % total
+
     doomed: list[int] = []
-    checked = 0
-    for entity in world.query(Building):
-        if checked >= MAX_CHECKED_PER_TICK:
-            break
-        checked += 1
+    for offset in range(window):
+        entity = buildings[(start + offset) % total]
         building = world.get(entity, Building)
         owner = building.owner
         alive = owner is not None and world.is_alive(owner)
@@ -63,7 +75,7 @@ def run(world: World, rng: TickRng) -> None:
             building.decay = 0
             continue
 
-        building.decay += 1
+        building.decay += stride
         # A lived-in hut lasts far longer than an abandoned one, but not forever. Forever
         # is what put two thirds of the world to sleep: at the cap nothing could fall, so
         # nothing could be rebuilt, and there was no work left to do.

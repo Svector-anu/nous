@@ -228,3 +228,41 @@ def test_the_number_of_huts_stays_near_the_cap():
 
     assert left > 0, "the world emptied out"
     assert left <= start * 1.5, f"{left} huts from {start} — it is growing again"
+
+
+def test_every_hut_is_eventually_examined():
+    """The scan was the first two hundred, every tick, forever. `world.query` yields the
+    same order each time, so on the live world 622 huts meant the same 200 were checked
+    and the other 422 were immortal — a decay system that could never reach two thirds of
+    what it was meant to decay.
+
+    Nothing caught it: the bounded-work test asserted no *more* than two hundred were
+    touched, which the broken version satisfied perfectly.
+    """
+    world = create_world(replace(CONFIG, hut_decay_ticks=10))
+    huts = [_hut(world, owner=None) for _ in range(decay.MAX_CHECKED_PER_TICK * 3)]
+
+    # Long enough for the window to come round to all of them several times.
+    Simulation(world).run(80)
+    assert not any(world.is_alive(h) for h in huts), (
+        f"{sum(1 for h in huts if world.is_alive(h))} huts were never looked at"
+    )
+
+
+def test_a_hut_ages_at_the_same_rate_whatever_the_window():
+    """`decay` counts ticks of neglect, not visits. Ageing by one per visit would make a
+    hut's life depend on how many other huts happen to exist, so the same configured
+    lifetime would mean something different on every world."""
+    small = create_world(replace(CONFIG, hut_decay_ticks=40))
+    lonely = _hut(small, owner=None)
+
+    crowded = create_world(replace(CONFIG, hut_decay_ticks=40))
+    for _ in range(decay.MAX_CHECKED_PER_TICK * 4):
+        _hut(crowded, owner=None)
+    crowd_hut = _hut(crowded, owner=None)
+
+    Simulation(small).run(45)
+    Simulation(crowded).run(45)
+
+    assert not small.is_alive(lonely)
+    assert not crowded.is_alive(crowd_hut), "a hut outlived its span by being in a crowd"
