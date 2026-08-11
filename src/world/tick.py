@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Protocol
 
 from .components import (
@@ -33,6 +34,7 @@ from .components import (
     Standing,
 )
 from .config import TICKS_PER_DAY, WorldConfig
+from .errors import StaleWorldError
 from .ecs import SystemRegistry, World
 from .rng import TickRng
 from . import spend
@@ -56,6 +58,8 @@ from .systems import (
     standing,
     trade,
 )
+
+logger = logging.getLogger("neociv")
 
 _NAME_PREFIXES = ("Ka", "Mor", "Tel", "Ash", "Rin", "Vos", "Dor", "Ely", "Bran", "Sev")
 _NAME_SUFFIXES = ("ra", "nix", "wyn", "dor", "sha", "lek", "mir", "tas", "ven", "oth")
@@ -244,7 +248,15 @@ class Simulation:
 
         save_every = self.world.config.save_every_ticks
         if self.store is not None and save_every > 0 and self.world.tick % save_every == 0:
-            self.store.save(self.world)
+            try:
+                self.store.save(self.world)
+            except StaleWorldError as error:
+                # Another process owns this world and is further ahead. This one is a
+                # leftover from a deploy: it keeps ticking in memory but must never write
+                # again, or it will rewind the world the moment it catches up.
+                self.store = None
+                self.stale = True
+                logger.error("%s; this process will not save again", error)
 
     def run(self, ticks: int) -> None:
         for _ in range(ticks):

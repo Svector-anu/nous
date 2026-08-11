@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import get_type_hints
 
 from ..world import components as component_module
+from ..world.errors import StaleWorldError
 from ..world.config import WorldConfig
 from ..world.ecs import World
 
@@ -124,6 +125,18 @@ class SqliteWorldStore:
         ).fetchone()
         return row is not None
 
+    def stored_tick(self) -> int | None:
+        """The tick already on disk, or None if nothing is saved."""
+        row = self._connection.execute(
+            "SELECT value FROM world_meta WHERE key = 'tick'"
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return int(row[0])
+        except (TypeError, ValueError):
+            return None
+
     def save(self, world: World) -> None:
         rows = [
             (entity, component_type.__name__, _encode(component))
@@ -142,6 +155,14 @@ class SqliteWorldStore:
         }
 
         with self._connection:
+            # Checked inside the transaction, so two writers cannot both read an older
+            # tick and then both decide they are the newer one.
+            on_disk = self.stored_tick()
+            if on_disk is not None and on_disk > world.tick:
+                raise StaleWorldError(
+                    f"refusing to save tick {world.tick} over tick {on_disk}: "
+                    "another process owns this world"
+                )
             self._connection.execute("DELETE FROM components")
             self._connection.execute("DELETE FROM entities")
             self._connection.execute("DELETE FROM world_meta")

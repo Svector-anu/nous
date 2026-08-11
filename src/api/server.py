@@ -25,6 +25,7 @@ from ..chain import x402
 from ..chain.x402 import PaymentProof, build_verifier
 from ..chain.x402 import price_units
 from ..persistence.sqlite_store import SqliteWorldStore
+from ..world.errors import StaleWorldError
 from ..world.components import (
     Agent,
     AttachedMind,
@@ -509,9 +510,15 @@ def create_app(
                     await task
             if world.advisor is not None:
                 world.advisor.close()
-            store.save(simulation.world)
+            try:
+                store.save(simulation.world)
+                logger.info("saved world at tick %d on shutdown", simulation.world.tick)
+            except StaleWorldError as error:
+                # The shutdown save is the most dangerous one during a deploy: this
+                # container is on its way out while the new one is already ahead, and
+                # writing here would rewind the world as the last thing it ever did.
+                logger.error("%s; shutting down without saving", error)
             store.close()
-            logger.info("saved world at tick %d on shutdown", simulation.world.tick)
 
     app = FastAPI(title="Nous", lifespan=lifespan)
     # Per-app rather than module-level so two apps in one test process cannot see each
