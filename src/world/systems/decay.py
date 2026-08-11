@@ -7,8 +7,13 @@ were invisible beneath the roofs. Neither is a world — one has finished and th
 suffocated.
 
 A hut whose owner is dead has nobody to keep it up, and after `hut_decay_ticks` it falls.
-A hut whose owner is alive never decays, however long that agent lives, so this thins the
-sprawl the dead left behind rather than the town people are living in.
+A hut somebody lives in lasts far longer — `hut_upkeep_ticks` — but not forever.
+
+Forever was the second dead end. Once every agent held its six the cap meant nothing could
+fall, so nothing could be rebuilt: no wood worth gathering, nothing to build, not hungry
+enough to eat. Two thirds of the live world sat in REST, and each of those decisions was
+individually correct. A world with a stable population of huts and no reason to touch any
+of them has finished just as surely as one that ran out of room.
 
 Runs after `build` so a hut raised this tick is not judged on the same one.
 """
@@ -30,6 +35,7 @@ def run(world: World, rng: TickRng) -> None:
     if limit <= 0:
         return
     keep = max(0, getattr(world.config, "max_huts_per_agent", 0))
+    upkeep = max(0, getattr(world.config, "hut_upkeep_ticks", 0))
 
     # How many each living owner holds. A hut only counts as lived-in while its owner is
     # within their allowance — the first version aged only the huts of the dead, and with
@@ -50,12 +56,19 @@ def run(world: World, rng: TickRng) -> None:
         building = world.get(entity, Building)
         owner = building.owner
         alive = owner is not None and world.is_alive(owner)
-        if alive and held.get(owner, 0) <= keep:
-            # Someone lives here and it is within what they can keep up. Never ages.
+        lived_in = alive and held.get(owner, 0) <= keep
+        if lived_in and upkeep <= 0:
+            # Someone lives here, it is within what they can keep up, and this world does
+            # not age those. Kept for worlds saved before upkeep existed.
             building.decay = 0
             continue
+
         building.decay += 1
-        if building.decay >= limit:
+        # A lived-in hut lasts far longer than an abandoned one, but not forever. Forever
+        # is what put two thirds of the world to sleep: at the cap nothing could fall, so
+        # nothing could be rebuilt, and there was no work left to do.
+        falls_at = upkeep if lived_in else limit
+        if building.decay >= falls_at:
             doomed.append(entity)
             if alive:
                 # Their surplus shrinks as it falls, so an owner stops losing huts the

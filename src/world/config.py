@@ -49,6 +49,17 @@ class WorldConfig:
     # Only *unowned* huts crumble — an owner who is alive keeps theirs standing however
     # long they live. So this thins the sprawl left by the dead, not the town.
     hut_decay_ticks: int = 900
+    # How long a hut lasts while its owner is alive and within their allowance. Zero
+    # means forever, which is what every world saved before this had.
+    #
+    # Forever turned out to be its own dead end. Once every agent held its six, nothing
+    # could fall, so nothing could be rebuilt: no wood to gather, nothing to build, not
+    # hungry enough to eat — and the state machine put two thirds of the world to sleep.
+    # The cap stopped the sprawl and took all the work with it.
+    #
+    # A hut that ages slowly gives the work back. An owner loses one every so often and
+    # builds it again, so the count stays near the cap while the world keeps moving.
+    hut_upkeep_ticks: int = 0
     global_build_stop_fraction: float = 0.6
 
     blackboard_ttl_ticks: int = 300

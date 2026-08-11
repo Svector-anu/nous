@@ -140,3 +140,91 @@ def test_a_fallen_hut_gives_its_owner_the_allowance_back():
     assert agent.huts_owned == standing, (
         f"counter says {agent.huts_owned}, {standing} huts actually stand"
     )
+
+
+# --- a world at its cap still has work in it ---------------------------------------
+#
+# The second dead end. Decay gave the world a size it could settle at, and then the
+# settling itself became the problem: once every agent held its six, nothing could fall,
+# so nothing could be rebuilt. No wood worth gathering, nothing to build, not hungry
+# enough to eat. On the live world two thirds of the agents sat in REST, and every one of
+# those decisions was individually correct.
+
+
+def test_a_hut_somebody_lives_in_eventually_falls():
+    world = create_world(replace(CONFIG, hut_upkeep_ticks=40, max_huts_per_agent=6))
+    owner = next(iter(world.query(Agent)))
+    hut = _hut(world, owner=owner)
+
+    Simulation(world).run(60)
+    assert not world.is_alive(hut)
+
+
+def test_a_lived_in_hut_outlasts_an_abandoned_one():
+    """The whole point of two numbers. A home is not a ruin, it just is not permanent."""
+    world = create_world(replace(CONFIG, hut_decay_ticks=5, hut_upkeep_ticks=200))
+    owner = next(iter(world.query(Agent)))
+    mine = _hut(world, owner=owner)
+    theirs = _hut(world, owner=None)
+
+    Simulation(world).run(30)
+    assert not world.is_alive(theirs), "an abandoned hut should be long gone"
+    assert world.is_alive(mine), "a home fell as fast as a ruin"
+
+
+def test_upkeep_of_zero_keeps_the_old_behaviour():
+    """Every world saved before this existed keeps its homes standing exactly as it did."""
+    world = create_world(replace(CONFIG, hut_upkeep_ticks=0, max_huts_per_agent=6))
+    owner = next(iter(world.query(Agent)))
+    hut = _hut(world, owner=owner)
+
+    Simulation(world).run(300)
+    assert world.is_alive(hut)
+
+
+def test_a_world_at_its_cap_still_builds_something():
+    """The property this exists for.
+
+    Every agent starts holding its full allowance, which is exactly the state the live
+    world reached: 606 huts, 94 agents, a cap of six. With permanent huts nothing can
+    fall, so nothing is ever built again — no wood worth gathering, nothing to build, not
+    hungry enough to eat, and two thirds of the world sits in REST.
+
+    New buildings are the sharp signal. Counting how many agents look busy is not: a
+    hungry agent walking to a berry looks identical either way, which is why the first
+    version of this test passed against the very bug it was written for.
+    """
+    config = replace(
+        CONFIG, agent_count=8, resource_count=60, max_huts_per_agent=3, hut_upkeep_ticks=60
+    )
+    world = create_world(config)
+    for entity in world.query(Agent):
+        world.get(entity, Agent).huts_owned = config.max_huts_per_agent
+        for _ in range(config.max_huts_per_agent):
+            _hut(world, owner=entity)
+    before = {e for e in world.query(Building)}
+
+    Simulation(world).run(900)
+    built = {e for e in world.query(Building)} - before
+
+    assert built, "not one hut was raised in 900 ticks — the world had finished"
+
+
+def test_the_number_of_huts_stays_near_the_cap():
+    """Upkeep must not empty the world either. Falling and rebuilding should hold the
+    count roughly where the cap puts it, not trend to zero."""
+    config = replace(
+        CONFIG, agent_count=6, resource_count=60, max_huts_per_agent=3, hut_upkeep_ticks=80
+    )
+    world = create_world(config)
+    for entity in world.query(Agent):
+        world.get(entity, Agent).huts_owned = config.max_huts_per_agent
+        for _ in range(config.max_huts_per_agent):
+            _hut(world, owner=entity)
+    start = len(list(world.query(Building)))
+
+    Simulation(world).run(600)
+    left = len(list(world.query(Building)))
+
+    assert left > 0, "the world emptied out"
+    assert left <= start * 1.5, f"{left} huts from {start} — it is growing again"

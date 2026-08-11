@@ -409,6 +409,10 @@ def apply_chain_env(config: WorldConfig) -> tuple[WorldConfig, list[str]]:
         # How long an abandoned hut stands. Zero switches decay off entirely, which is
         # what every world saved before it existed effectively had.
         ("hut_decay_ticks", "HUT_DECAY_TICKS", 0),
+        # How long a home lasts. The number that decides whether a settled world still
+        # has anything to do, so it wants tuning against a running world rather than a
+        # deploy.
+        ("hut_upkeep_ticks", "HUT_UPKEEP_TICKS", 0),
         ("llm_min_ticks_between_calls", "LLM_MIN_TICKS_BETWEEN_CALLS", 1),
         # What one clan decision costs the envelope, in micro-dollars. An estimate of the
         # call, not a reading of the tokens it used — so it wants tuning against the real
