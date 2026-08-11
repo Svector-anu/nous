@@ -32,8 +32,6 @@ MAX_CHECKED_PER_TICK = 200
 
 def run(world: World, rng: TickRng) -> None:
     limit = getattr(world.config, "hut_decay_ticks", 0)
-    if limit <= 0:
-        return
     keep = max(0, getattr(world.config, "max_huts_per_agent", 0))
     upkeep = max(0, getattr(world.config, "hut_upkeep_ticks", 0))
 
@@ -46,6 +44,22 @@ def run(world: World, rng: TickRng) -> None:
         owner = world.get(entity, Building).owner
         if owner is not None and world.is_alive(owner):
             held[owner] = held.get(owner, 0) + 1
+
+    # `huts_owned` is a counter, and a counter that is only ever adjusted by the code that
+    # remembers to adjust it will drift. It had: on the live world the counters claimed
+    # 1,307 huts while 176 stood, so every agent believed it was far past its allowance and
+    # not one of them could build again. They stood holding exactly a hut's worth of wood.
+    #
+    # Reconciled here against what is actually standing, every tick, from a number this
+    # system already has. Self-healing beats remembering.
+    for entity in world.query(Agent):
+        agent = world.get(entity, Agent)
+        standing = held.get(entity, 0)
+        if agent.huts_owned != standing:
+            agent.huts_owned = standing
+
+    if limit <= 0:
+        return
 
     # A rotating window, not the first N. `world.query` yields the same order every tick,
     # so breaking after two hundred meant the same two hundred were examined forever and

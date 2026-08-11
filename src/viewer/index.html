@@ -3520,11 +3520,14 @@ async function openMindBuy(agentId) {
     const priced =
       `Prices are an estimate for about ${body.steers_quoted || 1000} thoughts. ` +
       `You pay for what your model actually uses.`;
+    // A closed door beside a working one. "Drive it yourself" does the same job today —
+    // their agent, their model — so pointing at it beats a dead end. Not dressed up as a
+    // tier or a top-up: it is neither, and a visitor cannot fix it from here.
     let unavailable = "";
     if (!body.buying) {
-      unavailable = body.configured
-        ? " Can't buy yet — the world is out of credit with the marketplace. Prices below are live."
-        : " Can't buy yet — not switched on. Prices below are live.";
+      unavailable =
+        " Not open yet — prices below are live. You can drive your agent with your own" +
+        " model today: close this and pick Drive it yourself.";
     }
     intro.textContent = priced + unavailable;
   }
@@ -3532,7 +3535,7 @@ async function openMindBuy(agentId) {
   // Nothing can be bought while the world cannot pay for it, so the button says so
   // rather than taking money for a mind that would never think.
   if (!body.buying) {
-    confirm.textContent = "Unavailable";
+    confirm.textContent = "Not open yet";
     confirm.dataset.blocked = "1";
   } else {
     confirm.textContent = "Pay and attach";

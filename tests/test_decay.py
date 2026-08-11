@@ -266,3 +266,41 @@ def test_a_hut_ages_at_the_same_rate_whatever_the_window():
 
     assert not small.is_alive(lonely)
     assert not crowded.is_alive(crowd_hut), "a hut outlived its span by being in a crowd"
+
+
+def test_the_hut_counter_is_corrected_against_what_is_standing():
+    """`huts_owned` is a counter, and a counter only adjusted by the code that remembers
+    to adjust it will drift. It did: the live world's counters claimed 1,307 huts while
+    176 stood, so every agent believed it was far past its allowance and not one could
+    build again. They stood holding exactly a hut's worth of wood, in a world with room.
+    """
+    world = create_world(replace(CONFIG, max_huts_per_agent=6))
+    owner = next(iter(world.query(Agent)))
+    agent = world.get(owner, Agent)
+    for _ in range(2):
+        _hut(world, owner=owner)
+    agent.huts_owned = 19  # what the live world looked like
+
+    Simulation(world).run(2)
+    assert agent.huts_owned == 2, "the counter was not reconciled against reality"
+
+
+def test_an_owner_with_no_huts_is_reset_to_zero():
+    world = create_world(replace(CONFIG, max_huts_per_agent=6))
+    owner = next(iter(world.query(Agent)))
+    world.get(owner, Agent).huts_owned = 12
+
+    Simulation(world).run(2)
+    assert world.get(owner, Agent).huts_owned == 0
+
+
+def test_reconciliation_happens_even_with_decay_switched_off():
+    """The drift predates decay and is not caused by it. A world running without decay
+    must still not lock every agent out of building."""
+    world = create_world(replace(CONFIG, hut_decay_ticks=0, max_huts_per_agent=6))
+    owner = next(iter(world.query(Agent)))
+    _hut(world, owner=owner)
+    world.get(owner, Agent).huts_owned = 15
+
+    Simulation(world).run(2)
+    assert world.get(owner, Agent).huts_owned == 1
