@@ -1319,6 +1319,70 @@ check(
   `still open: ${!buying.closed}`
 );
 
+// --- 11s3. the paid path being shut is not a dead end -----------------------------
+// A disabled primary button reads as broken. When hosted minds cannot be sold the final
+// action becomes a working route into the path that is free and live, so a visitor still
+// leaves with a mind on their agent.
+const shut = await page.evaluate(async () => {
+  const catalog = {
+    enabled: true,
+    buying: false,
+    configured: true,
+    steers_quoted: 1000,
+    models: [
+      {
+        model: "cheap-one",
+        name: "Cheap One",
+        provider: "Somebody",
+        estimated_units_per_steer: 3,
+        estimated_units_per_1000_steers: 3000,
+      },
+    ],
+  };
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("/minds/catalog")) {
+      return new Response(JSON.stringify(catalog), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return real(url, options);
+  };
+  await window.__minds.openMindBuy(7);
+  const confirm = document.getElementById("mindBuyConfirm");
+  const state = {
+    label: confirm.textContent.trim(),
+    disabled: confirm.disabled,
+    badge: document.getElementById("mindBuyBadge").textContent.trim(),
+    intro: document.getElementById("mindBuyIntro").textContent,
+    prices: document.querySelectorAll("#mindModelList .model-row").length,
+  };
+  window.__minds.closeMindBuy();
+  window.fetch = real;
+  return state;
+});
+check(
+  "a shut paid path still leaves a working button",
+  !shut.disabled && /drive it yourself/i.test(shut.label),
+  `label="${shut.label}", disabled=${shut.disabled}`
+);
+check(
+  "the pause is stated plainly and quietly",
+  /open shortly/i.test(shut.badge) && /unavailable/i.test(shut.intro),
+  `badge="${shut.badge}"`
+);
+check(
+  "prices stay visible while buying is shut",
+  shut.prices === 1,
+  `${shut.prices} models listed`
+);
+check(
+  "the free path is not claimed to be equivalent",
+  !/same/i.test(shut.intro) && /your own model/i.test(shut.intro),
+  `intro="${shut.intro.slice(0, 100)}"`
+);
+
 // --- 11t. nothing opens off the bottom of the window ------------------------------
 // A strip card is a fixed height with a hidden overflow, which suits a market and clips
 // anything taller. The key panel put a twenty-line snippet in one and the bottom half was

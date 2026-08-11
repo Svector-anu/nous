@@ -1217,6 +1217,12 @@
   .model-by { color: var(--muted); font-size: 10px; }
   .model-cost { flex: 0 0 auto; color: #6ee274; font-variant-numeric: tabular-nums; }
   .model-note { color: var(--muted); font-size: 10.5px; line-height: 1.5; margin: 6px 0 0; }
+  /* Calm and small. A short operational pause should not be the loudest thing on a
+     panel that is otherwise showing a live marketplace. */
+  .mind-status {
+    margin-left: 10px; font-size: 10px; letter-spacing: .06em; text-transform: none;
+    color: var(--muted); font-weight: 400;
+  }
   #mindKeyPanel { display: none; }
   #mindKeyPanel.open {
     display: flex; flex-direction: column;
@@ -2101,7 +2107,7 @@
         </div>
       </div>
       <div class="floating-card" id="mindBuyPanel">
-        <h3 class="card-title">BUY A MIND
+        <h3 class="card-title">BUY A MIND<span class="mind-status" id="mindBuyBadge"></span>
           <span class="card-tools">
             <button class="card-close" title="Close" aria-label="Close">×</button>
           </span>
@@ -3480,6 +3486,9 @@ async function openMindBuy(agentId) {
 
   panel.classList.add("open");
   confirm.disabled = true;
+  delete confirm.dataset.blocked;
+  const loadingBadge = document.getElementById("mindBuyBadge");
+  if (loadingBadge) loadingBadge.textContent = "";
   status.textContent = "";
   list.innerHTML = `<p class="hint">Loading prices…</p>`;
 
@@ -3520,26 +3529,35 @@ async function openMindBuy(agentId) {
     const priced =
       `Prices are an estimate for about ${body.steers_quoted || 1000} thoughts. ` +
       `You pay for what your model actually uses.`;
-    // A closed door beside a working one. "Drive it yourself" does the same job today —
-    // their agent, their model — so pointing at it beats a dead end. Not dressed up as a
-    // tier or a top-up: it is neither, and a visitor cannot fix it from here.
+    // A closed door beside a working one. Not dressed up as a tier or a top-up: it is
+    // neither, and a visitor cannot fix it from here. And the free path is not claimed to
+    // be equivalent — it is more setup, and saying otherwise would be a promise the
+    // moment somebody tried it.
     let unavailable = "";
     if (!body.buying) {
       unavailable =
-        " Not open yet — prices below are live. You can drive your agent with your own" +
-        " model today: close this and pick Drive it yourself.";
+        " Hosted minds are unavailable for the moment. You can still run your own model" +
+        " and steer your agent from your machine — for free.";
     }
     intro.textContent = priced + unavailable;
   }
 
   // Nothing can be bought while the world cannot pay for it, so the button says so
   // rather than taking money for a mind that would never think.
+  // Never a dead primary button. A disabled final action is the thing most likely to
+  // read as broken, so when the paid path is shut this becomes a working button into the
+  // path that is not — the visitor still leaves with a mind on their agent.
+  const badge = document.getElementById("mindBuyBadge");
+  confirm.dataset.id = String(agentId);
   if (!body.buying) {
-    confirm.textContent = "Not open yet";
+    confirm.textContent = "drive it yourself →";
     confirm.dataset.blocked = "1";
+    confirm.disabled = false;
+    if (badge) badge.textContent = "hosted minds open shortly";
   } else {
     confirm.textContent = "Pay and attach";
     delete confirm.dataset.blocked;
+    if (badge) badge.textContent = "";
   }
 
   list.querySelectorAll(".model-row").forEach((row) =>
@@ -3566,8 +3584,17 @@ function closeMindBuy() {
 async function confirmMindBuy() {
   const confirm = document.getElementById("mindBuyConfirm");
   const status = document.getElementById("mindBuyStatus");
-  if (!confirm || mindBuyFor === null || !mindBuyModel) return;
+  if (!confirm || mindBuyFor === null) return;
 
+  // The paid path is shut, so this button is the way into the one that is not. Issues a
+  // key for this agent and shows it, exactly as the inspector's own button does.
+  if (confirm.dataset.blocked) {
+    await attachMind(confirm);
+    closeMindBuy();
+    return;
+  }
+
+  if (!mindBuyModel) return;
   confirm.disabled = true;
   status.textContent = "Waiting for the payment…";
   try {
