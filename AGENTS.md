@@ -1,6 +1,10 @@
 # AGENTS.md
 
-Read this before touching anything. `NEXT.md` has the current work.
+Read this before touching anything.
+
+Some working notes referenced below (`NEXT.md`, `plan/`, `planish/`) are deliberately kept
+off the repo — they are scratch, they go stale fastest, and a stale doc is worse than none.
+Everything needed to understand and run this is here or in the code.
 
 ## What this is
 
@@ -22,10 +26,7 @@ idle world cost money, it is wrong regardless of how good it looks.
 | What a system actually does | the code in `src/world/systems/` |
 | Every tunable | `src/world/config.py` |
 | Tick order and why | `build_registry()` in `src/world/tick.py` |
-| What is built / outstanding | `planish/IMPLEMENTATION_PLAN.md` |
-| Visual decisions and their measurements | `planish/VISUALS_AND_PROCEDURAL.md` |
 | Why a past decision was made | `git log` — commit bodies explain *why*, not what |
-| Current state and next task | `NEXT.md` |
 
 **When a doc and the code disagree, the code wins and the doc is a bug — fix the doc.** This
 has already happened once: `IMPLEMENTATION_PLAN.md` listed "no three.js viewer" as a non-goal

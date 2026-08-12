@@ -43,3 +43,16 @@ planish/
 
 # planning notes stay on the machine that made them
 PLAN.md
+
+# Working notes, local only. `planish/` above was ignored from the start but `plan/` was
+# not, so six phase documents were tracked in a repo that is now public. These stay on the
+# machine they are written on.
+plan/
+NEXT.md
+LAUNCH_PLAN.md
+CLAUDE.md
+
+# The playwright symlink for the browser gate. AGENTS.md is explicit that the correct
+# resting state is no node_modules in the repo — it was committed as a symlink to a path
+# in /tmp, which resolves to nothing on any other machine.
+node_modules
