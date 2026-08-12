@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import a2a
-from ..chain import escrow, siwe
+from ..chain import escrow, keeperhub, siwe
 from ..chain import settings as chain_settings
 from ..chain import x402
 from ..chain.x402 import PaymentProof, build_verifier
@@ -514,12 +514,20 @@ def create_app(
             lambda task: _report_stall(task, "bought minds")
         )
 
+        # Receipts for decisions the world has already made. Same placement and same
+        # reason: beside the loop, never inside it.
+        onchain_task = asyncio.create_task(_run_onchain_receipts(app))
+        app.state.onchain_task = onchain_task
+        onchain_task.add_done_callback(
+            lambda task: _report_stall(task, "onchain receipts")
+        )
+
         loop_task.add_done_callback(lambda task: _report_stall(task, "simulation loop"))
 
         try:
             yield
         finally:
-            for task in (loop_task, minds_task):
+            for task in (loop_task, minds_task, onchain_task):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
@@ -542,6 +550,9 @@ def create_app(
     # and so a world with no key still shows visitors what a mind would cost.
     app.state.mind_catalog = surplus.Catalog()
     app.state.mind_buyer = surplus.Buyer()
+    # Proof of onchain actions, in memory: see `_remember_receipt` for why this is not
+    # world state.
+    app.state.onchain_receipts = []
     app.state.nonces = siwe.NonceStore()
     app.state.sessions = SessionStore()
     # A default so the attribute always exists; lifespan replaces it with one built from
@@ -1519,6 +1530,24 @@ def create_app(
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )
 
+    @app.get("/onchain")
+    async def onchain_receipts() -> JSONResponse:
+        """Transactions this world put on a public chain, newest last.
+
+        Each is a receipt for a clan decision that already happened — the world did not
+        wait for the chain and does not read from it. `link` opens the transaction on a
+        block explorer, so the claim can be checked without trusting anything here.
+        """
+        return JSONResponse(
+            {
+                "enabled": keeperhub.enabled(),
+                "configured": keeperhub.configured(),
+                "chain_id": keeperhub.chain_id(),
+                "goals": list(ONCHAIN_GOALS),
+                "receipts": list(getattr(app.state, "onchain_receipts", [])),
+            }
+        )
+
     @app.get("/minds/catalog")
     async def mind_catalog() -> JSONResponse:
         """Models a visitor can buy a mind from, cheapest first.
@@ -1829,6 +1858,119 @@ def create_app(
 # of them is actually due, so this only has to be finer-grained than that — it is a poll
 # interval, not a rate.
 BOUGHT_MIND_INTERVAL_SECONDS = 5.0
+
+
+# Goals worth a receipt. `raid` is the only decision in this world that costs another clan
+# something, which is what makes it worth proving to somebody who does not trust this
+# server's own log. Every value here must exist in ClanGoal — a goal that does not is a
+# receipt that never fires, silently.
+ONCHAIN_GOALS = ("raid",)
+
+# How often the world is checked for decisions owed a receipt. Slower than the tick loop on
+# purpose: this is bookkeeping about decisions already made, and nothing in the world is
+# waiting on it.
+ONCHAIN_INTERVAL_SECONDS = 15.0
+
+# Bounded, like every accumulator in a world that runs forever.
+ONCHAIN_RECEIPT_LIMIT = 50
+
+
+def _decisions_owed_a_receipt(world, seen: set) -> list[dict]:
+    """Recorded decisions that should be proven onchain and have not been yet.
+
+    Reads the log the world already keeps and writes nothing back. That direction is the
+    whole point: the world decides on its own and this observes, so a chain that is slow,
+    broken or absent cannot change what the clans did.
+    """
+    from ..world.components import DecisionLog
+
+    entity = world.first(DecisionLog)
+    if entity is None:
+        return []
+    owed = []
+    for entry in world.get(entity, DecisionLog).entries:
+        if entry.get("goal") not in ONCHAIN_GOALS:
+            continue
+        mark = (entry.get("tick"), entry.get("clan"))
+        if mark in seen:
+            continue
+        owed.append(entry)
+    return owed
+
+
+async def _run_onchain_receipts(app: FastAPI) -> None:
+    """Put a transaction onchain for consequential decisions the world has already made.
+
+    Deliberately not a system. A system runs inside the tick loop, and a network round trip
+    there would stall the world and make its history depend on someone else's uptime —
+    which is the one thing AGENTS.md says never to do. This runs beside the loop, reads
+    what was recorded, and never writes back into simulation state.
+
+    Which means the receipt is exactly that: proof attached to a decision, not a decision.
+    Turning KeeperHub off changes nothing about how this world behaves.
+    """
+    seen: set = set()
+    while True:
+        try:
+            await asyncio.sleep(ONCHAIN_INTERVAL_SECONDS)
+            if not keeperhub.enabled():
+                continue
+            simulation = getattr(app.state, "simulation", None)
+            if simulation is None:
+                continue
+
+            for entry in _decisions_owed_a_receipt(simulation.world, seen):
+                tick, clan = entry.get("tick"), entry.get("clan")
+                # Marked before the call, not after. A failure must not queue the same
+                # decision for every pass from now until the log rotates it out, and
+                # KeeperHub's idempotency key covers the case where this process restarts
+                # and forgets: the same decision derives the same key and is answered from
+                # the stored response rather than executed twice.
+                seen.add((tick, clan))
+                memo = f"nous clan {clan} {entry.get('goal')} tick {tick}"
+                tx_hash = await keeperhub.fire_action(memo=memo)
+                if not tx_hash:
+                    continue
+                _remember_receipt(
+                    app,
+                    {
+                        "tick": tick,
+                        "clan": clan,
+                        "goal": entry.get("goal"),
+                        "reason": str(entry.get("reason") or "")[:160],
+                        "tx": tx_hash,
+                        "link": keeperhub.explorer_link(tx_hash),
+                    },
+                )
+
+            # The log is bounded, so `seen` must be too, or it becomes the unbounded
+            # accumulator this project has been eaten by before.
+            if len(seen) > ONCHAIN_RECEIPT_LIMIT * 4:
+                seen.clear()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - one bad pass must not end the job
+            logger.exception("onchain receipt pass failed; continuing")
+
+
+def _remember_receipt(app: FastAPI, receipt: dict) -> None:
+    """Kept in memory rather than in world state, and that is deliberate.
+
+    `DecisionLog` is persisted and therefore part of `state_hash`. Writing a transaction
+    hash into it would make the world's saved state depend on when a third party answered,
+    so the same seed replayed would no longer produce the same world — the exact failure
+    the "no network call from the simulation core" rule exists to prevent.
+
+    So the proof lives beside the world instead of inside it, served from the api. It is
+    the same trade the session store makes: a restart loses it, which costs nothing,
+    because the chain is the durable record and this is only an index into it.
+    """
+    receipts = getattr(app.state, "onchain_receipts", None)
+    if receipts is None:
+        receipts = []
+        app.state.onchain_receipts = receipts
+    receipts.append(receipt)
+    del receipts[:-ONCHAIN_RECEIPT_LIMIT]
 
 
 async def _run_bought_minds(app: FastAPI) -> None:
