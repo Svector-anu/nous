@@ -446,38 +446,58 @@ def test_a_world_without_the_queue_owes_nothing():
 # --- what the payment bought --------------------------------------------------------
 
 
+def _clan(world, clan_id=3, goal="expand", reason="we have the wood", source="llm", at=900):
+    from src.world.components import Clan
+
+    clan = Clan(clan_id=clan_id)
+    clan.goal = goal
+    clan.goal_reason = reason
+    clan.goal_source = source
+    clan.goal_set_tick = at
+    world.add(world.create_entity(), clan)
+    return clan
+
+
 def test_the_receipt_names_the_goal_the_payment_bought():
-    world = _paid_world(
-        applied=[_payment()],
-        decisions=[{"tick": 900, "clan": 3, "goal": "expand", "reason": "we have the wood"}],
-    )
+    world = _paid_world(applied=[_payment()])
+    _clan(world)
     chose = _what_the_leader_chose(world, 3, 900)
     assert chose["goal"] == "expand"
     assert chose["reason"] == "we have the wood"
+    assert chose["source"] == "llm"
 
 
-def test_a_decision_from_another_tick_is_not_credited_to_this_payment():
-    """`social` decides on the same tick the payment applies. Anything else belongs to a
-    review that would have happened anyway, and claiming it would be a lie."""
-    world = _paid_world(
-        applied=[_payment()],
-        decisions=[{"tick": 872, "clan": 3, "goal": "rally", "reason": "drifting"}],
-    )
-    assert _what_the_leader_chose(world, 3, 900) == {}
+def test_a_review_that_kept_its_goal_still_names_it():
+    """The one the first live run got wrong.
 
-
-def test_another_clan_decision_on_the_same_tick_is_not_credited():
-    world = _paid_world(
-        applied=[_payment()],
-        decisions=[{"tick": 900, "clan": 11, "goal": "raid", "reason": "starving"}],
-    )
-    assert _what_the_leader_chose(world, 3, 900) == {}
-
-
-def test_no_matching_decision_names_no_goal_rather_than_guessing():
-    """Empty is honest. A receipt naming the wrong goal is worse than one naming none."""
+    `social` logs a decision only when the goal *changes*, so a leader that reconsidered
+    and stayed put left no entry — and a receipt built from that log said nothing at all.
+    A paid review that confirms a goal is still a decision somebody paid for.
+    """
     world = _paid_world(applied=[_payment()], decisions=[])
+    _clan(world, goal="rally", reason="", source="rules")
+    chose = _what_the_leader_chose(world, 3, 900)
+    assert chose["goal"] == "rally"
+
+
+def test_another_clan_is_never_credited():
+    world = _paid_world(applied=[_payment()])
+    _clan(world, clan_id=11, goal="raid")
     assert _what_the_leader_chose(world, 3, 900) == {}
+
+
+def test_a_clan_that_no_longer_exists_names_nothing():
+    """Empty is honest. A receipt naming the wrong goal is worse than one naming none."""
+    world = _paid_world(applied=[_payment()])
+    assert _what_the_leader_chose(world, 3, 900) == {}
+
+
+def test_the_receipt_says_when_the_goal_was_actually_set():
+    """A review that confirmed an older goal and one that set a new one are different
+    outcomes, and the tick is what tells them apart."""
+    world = _paid_world(applied=[_payment()])
+    _clan(world, at=812)
+    assert _what_the_leader_chose(world, 3, 900)["decided_at_tick"] == 812
 
 
 # --- the endpoint -------------------------------------------------------------------

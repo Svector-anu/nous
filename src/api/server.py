@@ -1904,22 +1904,30 @@ def _decisions_owed_a_receipt(world, seen: set) -> list[dict]:
 def _what_the_leader_chose(world, clan_id, tick) -> dict:
     """What the paid-for decision actually came out as.
 
-    `apply_forced_decisions` resets the clan's review clock and `social` runs immediately
-    after it in the same tick, so the decision this payment bought is the log entry with
-    that clan and that tick. Matching on both is what keeps a receipt from claiming credit
-    for a decision the payment had nothing to do with.
+    Read from the clan itself rather than from `DecisionLog`, because the log records
+    *changes* and a review is not always a change. `social` only logs when the chosen goal
+    differs from the one already held, so a leader that reconsidered and kept its goal —
+    the common case in a settled world — leaves no entry at all. Reading the log meant a
+    receipt that said nothing, which is exactly what the first live run produced.
 
-    Returns empty when there is no match rather than guessing: a receipt that names the
-    wrong goal is worse than one that names none.
+    The goal on the clan is what that review concluded, whether or not it moved, so this
+    reports the decision the payment actually bought.
     """
-    from ..world.components import DecisionLog
+    from ..world.components import Clan
 
-    entity = world.first(DecisionLog)
-    if entity is None:
-        return {}
-    for entry in reversed(world.get(entity, DecisionLog).entries):
-        if entry.get("clan") == clan_id and entry.get("tick") == tick:
-            return entry
+    for entity in world.query(Clan):
+        clan = world.get(entity, Clan)
+        if clan.clan_id != clan_id:
+            continue
+        return {
+            "goal": clan.goal,
+            "reason": str(getattr(clan, "goal_reason", "") or ""),
+            "source": str(getattr(clan, "goal_source", "") or ""),
+            # Whether this review moved the clan or confirmed where it already was. Both
+            # are real outcomes and a receipt that conflated them would overstate what the
+            # payment changed.
+            "decided_at_tick": int(getattr(clan, "goal_set_tick", 0) or 0),
+        }
     return {}
 
 
@@ -1964,6 +1972,7 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                         "clan": clan,
                         "goal": chose.get("goal", ""),
                         "reason": str(chose.get("reason") or "")[:160],
+                        "source": chose.get("source", ""),
                         # The payment that bought the decision. Both hashes together are
                         # the whole claim: a stranger paid, an agent decided, and neither
                         # half has to be taken on trust.
