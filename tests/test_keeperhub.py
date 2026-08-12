@@ -91,6 +91,13 @@ def _live(monkeypatch, answer=None, raises=None):
 
 
 def _fire(**kwargs):
+    """The hash alone, which is what most of these assert on."""
+    executed = asyncio.run(keeperhub.fire_action(**kwargs))
+    return executed.tx_hash if executed is not None else None
+
+
+def _execute(**kwargs):
+    """The whole result, for the tests that care where the link came from."""
     return asyncio.run(keeperhub.fire_action(**kwargs))
 
 
@@ -527,3 +534,59 @@ def test_the_kept_receipts_are_bounded(tmp_path: pathlib.Path):
 
     assert len(body["receipts"]) == ONCHAIN_RECEIPT_LIMIT
     assert body["receipts"][-1]["tick"] == ONCHAIN_RECEIPT_LIMIT * 3 - 1
+
+
+# --- where the link comes from ------------------------------------------------------
+#
+# KeeperHub returns `transactionLink` for the chain it actually used. Deriving the url
+# here instead means guessing at an explorer, and a wrong explorer is a link that opens on
+# a page showing nothing — worse than no link, because it looks like proof.
+
+
+def test_the_link_keeperhub_returned_is_the_one_kept(monkeypatch):
+    _live(
+        monkeypatch,
+        FakeResponse(
+            202,
+            {
+                "executionId": "direct_1",
+                "status": "completed",
+                "transactionHash": TX,
+                "transactionLink": "https://sepolia.basescan.org/tx/" + TX,
+            },
+        ),
+    )
+    assert _execute(memo="m").link == "https://sepolia.basescan.org/tx/" + TX
+
+
+def test_a_link_for_an_overridden_chain_is_not_second_guessed(monkeypatch):
+    """The fallback only knows Base Sepolia. When KeeperHub names the chain it used, that
+    answer wins even though this world would never have built that url."""
+    monkeypatch.setenv(keeperhub.CHAIN_ID_ENV, "42161")
+    _live(
+        monkeypatch,
+        FakeResponse(
+            202,
+            {
+                "status": "completed",
+                "transactionHash": TX,
+                "transactionLink": "https://arbiscan.io/tx/" + TX,
+            },
+        ),
+    )
+    assert _execute(memo="m").link == "https://arbiscan.io/tx/" + TX
+
+
+def test_no_link_from_keeperhub_falls_back_to_the_one_chain_we_can_name(monkeypatch):
+    _live(monkeypatch, FakeResponse(202, {"status": "completed", "transactionHash": TX}))
+    assert _execute(memo="m").link == f"https://sepolia.basescan.org/tx/{TX}"
+
+
+def test_no_link_and_a_chain_we_cannot_name_offers_nothing(monkeypatch):
+    """Empty rather than a guess. The hash is still returned, so the receipt is not lost —
+    only the convenience of a click."""
+    monkeypatch.setenv(keeperhub.CHAIN_ID_ENV, "42161")
+    _live(monkeypatch, FakeResponse(202, {"status": "completed", "transactionHash": TX}))
+    executed = _execute(memo="m")
+    assert executed.tx_hash == TX
+    assert executed.link == ""

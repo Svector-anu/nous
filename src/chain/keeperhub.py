@@ -35,6 +35,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from dataclasses import dataclass
 
 import httpx
 
@@ -66,6 +67,20 @@ DEFAULT_AMOUNT = "0.000001"
 DEFAULT_TIMEOUT = 20.0
 
 _TRUE = {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True)
+class Execution:
+    """What one executed action leaves behind.
+
+    The link is carried rather than derived. KeeperHub returns `transactionLink` for the
+    chain it actually used, which is the only source that stays correct when the chain is
+    overridden — building the url here means guessing at an explorer, and a wrong explorer
+    is a link that quietly shows nothing.
+    """
+
+    tx_hash: str
+    link: str
 
 
 def enabled() -> bool:
@@ -145,8 +160,9 @@ async def fire_action(
     memo: str = "",
     *,
     timeout: float = DEFAULT_TIMEOUT,
-) -> str | None:
-    """Put one transaction onchain. Returns its hash, or None if anything at all went wrong.
+) -> Execution | None:
+    """Put one transaction onchain. Returns the hash and a link, or None if anything at all
+    went wrong.
 
     Never raises. The caller is a background job whose failure would be invisible, and a
     world that cannot reach KeeperHub must behave exactly like a world that was never
@@ -215,7 +231,10 @@ async def fire_action(
         logger.info("keeperhub replayed an earlier execution for this decision")
 
     logger.info("keeperhub executed %s", tx_hash)
-    return tx_hash
+    # Their link when they gave one, ours when they did not. The fallback only knows one
+    # chain, which is why it is the fallback.
+    link = str(answer.get("transactionLink") or "").strip() or explorer_link(tx_hash)
+    return Execution(tx_hash=tx_hash, link=link)
 
 
 def explorer_link(tx_hash: str) -> str:

@@ -1954,8 +1954,8 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                 seen.add((tick, clan))
                 chose = _what_the_leader_chose(simulation.world, clan, tick)
                 memo = f"nous clan {clan} paid decision tick {tick}"
-                tx_hash = await keeperhub.fire_action(memo=memo)
-                if not tx_hash:
+                executed = await keeperhub.fire_action(memo=memo)
+                if executed is None:
                     continue
                 _remember_receipt(
                     app,
@@ -1972,8 +1972,8 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                             "amount": str(entry.get("amount", "")),
                             "currency": str(entry.get("currency", "")),
                         },
-                        "tx": tx_hash,
-                        "link": keeperhub.explorer_link(tx_hash),
+                        "tx": executed.tx_hash,
+                        "link": executed.link,
                     },
                 )
 
