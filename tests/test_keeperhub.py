@@ -1,8 +1,8 @@
-"""Putting a clan's decision on a public chain.
+"""Putting a paid-for decision on a public chain.
 
-A leader deciding to raid is the most consequential thing that happens here, and until now
-it left no trace anybody outside could check. This writes a transaction when one happens,
-so the decision has a receipt that does not depend on trusting this server's own log.
+A visitor pays over x402 to make a clan leader reconsider; this writes a transaction when
+that happens, so the decision has a receipt that does not depend on trusting this server's
+own log.
 
 What these mostly guard is the direction of the dependency. The world decides on its own
 and the chain observes; a chain that is slow, broken, or absent must leave the world
@@ -345,3 +345,185 @@ def test_no_link_is_offered_for_a_chain_we_cannot_name(monkeypatch):
 
 def test_no_hash_is_no_link():
     assert keeperhub.explorer_link("") == ""
+
+
+# --- what earns a receipt -----------------------------------------------------------
+#
+# The first version of this scanned the decision log for `raid`, and it was wrong in a way
+# no unit test caught: a settled world never raids. Five thousand ticks of the live world
+# produced 101 rally, 99 gather_food and zero raids, so the feature was correct code wired
+# to an event that does not happen — trap 10, shipped.
+#
+# What earns a receipt now is a decision somebody paid for. Rare by construction, because
+# it costs money, and already recorded at a fixed tick by `apply_forced_decisions`.
+
+from src.api.server import _decisions_owed_a_receipt, _what_the_leader_chose  # noqa: E402
+from src.world.components import DecisionLog, ForceDecisionQueue  # noqa: E402
+from src.world.config import WorldConfig  # noqa: E402
+from src.world.ecs import World  # noqa: E402
+
+WORLD_CONFIG = WorldConfig(seed=5, grid_width=32, grid_height=32, agent_count=8, resource_count=20)
+
+
+def _paid_world(applied=(), decisions=()):
+    """A world carrying only what the reader looks at."""
+    world = World(WORLD_CONFIG)
+    queue = ForceDecisionQueue()
+    queue.applied.extend(applied)
+    world.add(world.create_entity(), queue)
+    log = DecisionLog()
+    log.entries.extend(decisions)
+    world.add(world.create_entity(), log)
+    return world
+
+
+def _payment(clan_id=3, tick=900):
+    return {
+        "clan_id": clan_id,
+        "tick": tick,
+        "proof": "tx:" + "b" * 64,
+        "amount": "0.10",
+        "currency": "USDG",
+    }
+
+
+def test_a_paid_decision_is_owed_a_receipt():
+    world = _paid_world(applied=[_payment()])
+    owed = _decisions_owed_a_receipt(world, set())
+    assert [(e["clan_id"], e["tick"]) for e in owed] == [(3, 900)]
+
+
+def test_the_payment_that_bought_it_is_carried_through():
+    """The x402 proof is half the claim. A receipt that dropped it would prove a decision
+    happened while losing the fact that somebody paid for it."""
+    world = _paid_world(applied=[_payment()])
+    owed = _decisions_owed_a_receipt(world, set())
+    assert owed[0]["proof"] == "tx:" + "b" * 64
+    assert owed[0]["currency"] == "USDG"
+
+
+def test_a_receipt_is_never_owed_twice():
+    """The list stays in world state for twenty entries. Without this the same payment
+    would buy a fresh transaction every fifteen seconds until it rotated out."""
+    world = _paid_world(applied=[_payment()])
+    assert _decisions_owed_a_receipt(world, {(900, 3)}) == []
+
+
+def test_two_payments_for_one_clan_are_two_receipts():
+    """Same clan, different ticks: somebody paid twice and is owed two."""
+    world = _paid_world(applied=[_payment(tick=900), _payment(tick=1400)])
+    owed = _decisions_owed_a_receipt(world, {(900, 3)})
+    assert [e["tick"] for e in owed] == [1400]
+
+
+def test_an_ordinary_decision_earns_no_receipt():
+    """The one that would have caught the raid bug.
+
+    A world busy deciding things nobody paid for owes nothing. This is what keeps the
+    chain free of a transaction every few seconds, and it is asserted against the goals
+    the live world actually produces rather than the one it never does.
+    """
+    busy = [
+        {"tick": 520000 + n * 28, "clan": n % 4, "goal": "rally" if n % 2 else "gather_food"}
+        for n in range(50)
+    ]
+    world = _paid_world(applied=[], decisions=busy)
+    assert _decisions_owed_a_receipt(world, set()) == []
+
+
+def test_a_world_without_the_queue_owes_nothing():
+    world = World(WORLD_CONFIG)
+    assert _decisions_owed_a_receipt(world, set()) == []
+
+
+# --- what the payment bought --------------------------------------------------------
+
+
+def test_the_receipt_names_the_goal_the_payment_bought():
+    world = _paid_world(
+        applied=[_payment()],
+        decisions=[{"tick": 900, "clan": 3, "goal": "expand", "reason": "we have the wood"}],
+    )
+    chose = _what_the_leader_chose(world, 3, 900)
+    assert chose["goal"] == "expand"
+    assert chose["reason"] == "we have the wood"
+
+
+def test_a_decision_from_another_tick_is_not_credited_to_this_payment():
+    """`social` decides on the same tick the payment applies. Anything else belongs to a
+    review that would have happened anyway, and claiming it would be a lie."""
+    world = _paid_world(
+        applied=[_payment()],
+        decisions=[{"tick": 872, "clan": 3, "goal": "rally", "reason": "drifting"}],
+    )
+    assert _what_the_leader_chose(world, 3, 900) == {}
+
+
+def test_another_clan_decision_on_the_same_tick_is_not_credited():
+    world = _paid_world(
+        applied=[_payment()],
+        decisions=[{"tick": 900, "clan": 11, "goal": "raid", "reason": "starving"}],
+    )
+    assert _what_the_leader_chose(world, 3, 900) == {}
+
+
+def test_no_matching_decision_names_no_goal_rather_than_guessing():
+    """Empty is honest. A receipt naming the wrong goal is worse than one naming none."""
+    world = _paid_world(applied=[_payment()], decisions=[])
+    assert _what_the_leader_chose(world, 3, 900) == {}
+
+
+# --- the endpoint -------------------------------------------------------------------
+#
+# Route bodies are not checked at import. Deleting a module constant the handler still
+# referenced left a NameError that nothing caught until a request arrived, which on a
+# world serving 24/7 means a stranger finds it first.
+
+import pathlib  # noqa: E402
+
+from starlette.testclient import TestClient  # noqa: E402
+
+from src.api.server import create_app  # noqa: E402
+
+APP_CONFIG = WorldConfig(seed=5, grid_width=32, grid_height=32, agent_count=8, resource_count=20)
+
+
+def test_the_endpoint_answers_on_a_world_that_never_switched_this_on(tmp_path: pathlib.Path):
+    """The common case by far: off, and still a real answer rather than a 500."""
+    app = create_app(APP_CONFIG, tmp_path / "k.db")
+    with TestClient(app) as client:
+        response = client.get("/onchain")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["receipts"] == []
+
+
+def test_the_endpoint_serves_a_receipt_once_there_is_one(tmp_path: pathlib.Path):
+    from src.api.server import _remember_receipt
+
+    app = create_app(APP_CONFIG, tmp_path / "k.db")
+    with TestClient(app) as client:
+        _remember_receipt(
+            app,
+            {"tick": 900, "clan": 3, "goal": "expand", "tx": TX, "link": "https://x/tx", "paid": {}},
+        )
+        body = client.get("/onchain").json()
+
+    assert [r["tx"] for r in body["receipts"]] == [TX]
+
+
+def test_the_kept_receipts_are_bounded(tmp_path: pathlib.Path):
+    """An accumulator on a world that runs forever. Every unbounded one added here has
+    eventually eaten the simulation."""
+    from src.api.server import ONCHAIN_RECEIPT_LIMIT, _remember_receipt
+
+    app = create_app(APP_CONFIG, tmp_path / "k.db")
+    with TestClient(app) as client:
+        for n in range(ONCHAIN_RECEIPT_LIMIT * 3):
+            _remember_receipt(app, {"tick": n, "clan": 1, "tx": f"0x{n:064x}"})
+        body = client.get("/onchain").json()
+
+    assert len(body["receipts"]) == ONCHAIN_RECEIPT_LIMIT
+    assert body["receipts"][-1]["tick"] == ONCHAIN_RECEIPT_LIMIT * 3 - 1

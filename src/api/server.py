@@ -1534,16 +1534,18 @@ def create_app(
     async def onchain_receipts() -> JSONResponse:
         """Transactions this world put on a public chain, newest last.
 
-        Each is a receipt for a clan decision that already happened — the world did not
-        wait for the chain and does not read from it. `link` opens the transaction on a
-        block explorer, so the claim can be checked without trusting anything here.
+        Each is a receipt for a decision somebody paid for: `paid.proof` is the x402
+        payment that bought it and `tx` is what this world wrote to a chain afterwards.
+        Both halves can be checked by a stranger, which is the point — the world did not
+        wait for the chain and does not read from it, so none of this changed what the
+        clan decided.
         """
         return JSONResponse(
             {
                 "enabled": keeperhub.enabled(),
                 "configured": keeperhub.configured(),
                 "chain_id": keeperhub.chain_id(),
-                "goals": list(ONCHAIN_GOALS),
+                "earns_a_receipt": "a decision a visitor paid for",
                 "receipts": list(getattr(app.state, "onchain_receipts", [])),
             }
         )
@@ -1860,12 +1862,6 @@ def create_app(
 BOUGHT_MIND_INTERVAL_SECONDS = 5.0
 
 
-# Goals worth a receipt. `raid` is the only decision in this world that costs another clan
-# something, which is what makes it worth proving to somebody who does not trust this
-# server's own log. Every value here must exist in ClanGoal — a goal that does not is a
-# receipt that never fires, silently.
-ONCHAIN_GOALS = ("raid",)
-
 # How often the world is checked for decisions owed a receipt. Slower than the tick loop on
 # purpose: this is bookkeeping about decisions already made, and nothing in the world is
 # waiting on it.
@@ -1876,26 +1872,55 @@ ONCHAIN_RECEIPT_LIMIT = 50
 
 
 def _decisions_owed_a_receipt(world, seen: set) -> list[dict]:
-    """Recorded decisions that should be proven onchain and have not been yet.
+    """Paid decisions that should be proven onchain and have not been yet.
 
-    Reads the log the world already keeps and writes nothing back. That direction is the
+    A visitor pays over x402 to make a clan leader reconsider, and `apply_forced_decisions`
+    banks that payment and records what it bought at a fixed tick. Those records are what
+    earn a receipt: somebody spent real money, an agent decided because of it, and both
+    halves can be checked by a stranger.
+
+    Deliberately not every decision. Clans re-decide roughly every 28 ticks between them,
+    which would be a transaction every few seconds forever — the receipt has to mark
+    something that is actually rare, or it marks nothing.
+
+    Reads the list the world already keeps and writes nothing back. That direction is the
     whole point: the world decides on its own and this observes, so a chain that is slow,
     broken or absent cannot change what the clans did.
+    """
+    from ..world.components import ForceDecisionQueue
+
+    entity = world.first(ForceDecisionQueue)
+    if entity is None:
+        return []
+    owed = []
+    for entry in world.get(entity, ForceDecisionQueue).applied:
+        mark = (entry.get("tick"), entry.get("clan_id"))
+        if mark in seen:
+            continue
+        owed.append(entry)
+    return owed
+
+
+def _what_the_leader_chose(world, clan_id, tick) -> dict:
+    """What the paid-for decision actually came out as.
+
+    `apply_forced_decisions` resets the clan's review clock and `social` runs immediately
+    after it in the same tick, so the decision this payment bought is the log entry with
+    that clan and that tick. Matching on both is what keeps a receipt from claiming credit
+    for a decision the payment had nothing to do with.
+
+    Returns empty when there is no match rather than guessing: a receipt that names the
+    wrong goal is worse than one that names none.
     """
     from ..world.components import DecisionLog
 
     entity = world.first(DecisionLog)
     if entity is None:
-        return []
-    owed = []
-    for entry in world.get(entity, DecisionLog).entries:
-        if entry.get("goal") not in ONCHAIN_GOALS:
-            continue
-        mark = (entry.get("tick"), entry.get("clan"))
-        if mark in seen:
-            continue
-        owed.append(entry)
-    return owed
+        return {}
+    for entry in reversed(world.get(entity, DecisionLog).entries):
+        if entry.get("clan") == clan_id and entry.get("tick") == tick:
+            return entry
+    return {}
 
 
 async def _run_onchain_receipts(app: FastAPI) -> None:
@@ -1920,14 +1945,15 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                 continue
 
             for entry in _decisions_owed_a_receipt(simulation.world, seen):
-                tick, clan = entry.get("tick"), entry.get("clan")
+                tick, clan = entry.get("tick"), entry.get("clan_id")
                 # Marked before the call, not after. A failure must not queue the same
-                # decision for every pass from now until the log rotates it out, and
+                # decision for every pass from now until the list rotates it out, and
                 # KeeperHub's idempotency key covers the case where this process restarts
                 # and forgets: the same decision derives the same key and is answered from
                 # the stored response rather than executed twice.
                 seen.add((tick, clan))
-                memo = f"nous clan {clan} {entry.get('goal')} tick {tick}"
+                chose = _what_the_leader_chose(simulation.world, clan, tick)
+                memo = f"nous clan {clan} paid decision tick {tick}"
                 tx_hash = await keeperhub.fire_action(memo=memo)
                 if not tx_hash:
                     continue
@@ -1936,14 +1962,22 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                     {
                         "tick": tick,
                         "clan": clan,
-                        "goal": entry.get("goal"),
-                        "reason": str(entry.get("reason") or "")[:160],
+                        "goal": chose.get("goal", ""),
+                        "reason": str(chose.get("reason") or "")[:160],
+                        # The payment that bought the decision. Both hashes together are
+                        # the whole claim: a stranger paid, an agent decided, and neither
+                        # half has to be taken on trust.
+                        "paid": {
+                            "proof": str(entry.get("proof", "")),
+                            "amount": str(entry.get("amount", "")),
+                            "currency": str(entry.get("currency", "")),
+                        },
                         "tx": tx_hash,
                         "link": keeperhub.explorer_link(tx_hash),
                     },
                 )
 
-            # The log is bounded, so `seen` must be too, or it becomes the unbounded
+            # The list is bounded, so `seen` must be too, or it becomes the unbounded
             # accumulator this project has been eaten by before.
             if len(seen) > ONCHAIN_RECEIPT_LIMIT * 4:
                 seen.clear()

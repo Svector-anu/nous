@@ -1,9 +1,14 @@
-"""Execute one onchain action through KeeperHub when a clan commits to something.
+"""Execute one onchain action through KeeperHub when somebody pays for a decision.
 
-A clan leader deciding to raid is the most consequential thing that happens in this world,
-and until now it left no trace anybody outside could check. This puts a transaction on a
-public chain when it happens, so the decision has a receipt that does not depend on
-trusting this server's own log.
+A visitor can pay this world over x402 to make a clan leader reconsider its goal. That is
+the one moment here where real money meets an autonomous decision, and until now it left
+no trace anybody outside could check. This puts a transaction on a public chain when it
+happens, so the decision has a receipt that does not depend on trusting this server's own
+log.
+
+An earlier version fired on raids instead, and was wrong in a way no unit test caught: a
+settled world never raids, so it was correct code wired to an event that does not occur.
+Whatever earns a receipt has to be something that actually happens *and* stays rare.
 
 Three things constrain the design, all of them from AGENTS.md rather than preference.
 
