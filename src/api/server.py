@@ -1943,6 +1943,8 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
     Turning KeeperHub off changes nothing about how this world behaves.
     """
     seen: set = set()
+    # Whether this process has taken stock of what was already paid for before it started.
+    caught_up = False
     while True:
         try:
             await asyncio.sleep(ONCHAIN_INTERVAL_SECONDS)
@@ -1952,7 +1954,37 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
             if simulation is None:
                 continue
 
-            for entry in _decisions_owed_a_receipt(simulation.world, seen):
+            owed = _decisions_owed_a_receipt(simulation.world, seen)
+
+            if not caught_up:
+                # Everything already in the queue belongs to a process that came before
+                # this one, and almost certainly already has its receipt. `seen` does not
+                # survive a restart but the queue does, so without this a deploy re-fires
+                # every recent paid decision.
+                #
+                # KeeperHub's idempotency window makes that harmless for 24 hours and
+                # dangerous after: past the window the stored response is gone and the same
+                # key executes again, for real. A world that is redeployed a day later
+                # would mint a second transaction for a decision that already has one.
+                #
+                # So the rule is structural rather than a bet on a deadline: this process
+                # only ever writes receipts for decisions it watched arrive. The cost is a
+                # payment whose receipt was still in flight when the container was replaced
+                # — a fifteen second window, and a missing proof rather than a double one.
+                # That is the right way round: a receipt can be reissued, a transaction on
+                # a public chain cannot be taken back.
+                for entry in owed:
+                    seen.add((entry.get("tick"), entry.get("clan_id")))
+                caught_up = True
+                if owed:
+                    logger.info(
+                        "onchain receipts: %d paid decision(s) predate this process; "
+                        "leaving them to the receipts they already have",
+                        len(owed),
+                    )
+                continue
+
+            for entry in owed:
                 tick, clan = entry.get("tick"), entry.get("clan_id")
                 # Marked before the call, not after. A failure must not queue the same
                 # decision for every pass from now until the list rotates it out, and

@@ -610,3 +610,104 @@ def test_no_link_and_a_chain_we_cannot_name_offers_nothing(monkeypatch):
     executed = _execute(memo="m")
     assert executed.tx_hash == TX
     assert executed.link == ""
+
+
+# --- a restart must not mint a second transaction ------------------------------------
+#
+# `seen` lives in memory; ForceDecisionQueue.applied lives on the volume. So a redeploy
+# wakes up facing paid decisions it has no memory of having handled. KeeperHub's
+# idempotency window covers that for 24 hours and stops covering it after — past the
+# window the stored response is gone and the same key executes again, for real.
+#
+# The guard is therefore structural, not a bet on beating a deadline: a process only
+# writes receipts for decisions it watched arrive.
+
+from src.api.server import _run_onchain_receipts  # noqa: E402
+
+
+class FakeSim:
+    def __init__(self, world):
+        self.world = world
+
+
+async def _pump(app, passes):
+    """Run the receipt job for a fixed number of passes, then stop it."""
+    import src.api.server as server
+
+    original = server.ONCHAIN_INTERVAL_SECONDS
+    server.ONCHAIN_INTERVAL_SECONDS = 0
+    task = asyncio.create_task(_run_onchain_receipts(app))
+    try:
+        for _ in range(passes):
+            await asyncio.sleep(0)
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        server.ONCHAIN_INTERVAL_SECONDS = original
+
+
+class FakeApp:
+    """Only the two attributes the job touches."""
+
+    class _State:
+        pass
+
+    def __init__(self, world):
+        self.state = FakeApp._State()
+        self.state.simulation = FakeSim(world)
+        self.state.onchain_receipts = []
+
+
+def test_a_restart_does_not_reissue_receipts_for_older_decisions(monkeypatch):
+    """The live case: a deploy replaced the container while a paid decision was still in
+    the queue. Without this the job asks KeeperHub to execute it again."""
+    _live(monkeypatch)
+    world = _paid_world(applied=[_payment(tick=900), _payment(clan_id=7, tick=950)])
+    _clan(world)
+    app = FakeApp(world)
+
+    asyncio.run(_pump(app, passes=40))
+
+    assert FakeClient.sent == []
+    assert app.state.onchain_receipts == []
+
+
+def test_a_decision_paid_for_while_running_still_earns_one(monkeypatch):
+    """The catch-up must not become a permanent mute."""
+    _live(monkeypatch)
+    world = _paid_world(applied=[])
+    _clan(world)
+    app = FakeApp(world)
+
+    import src.api.server as server
+
+    original = server.ONCHAIN_INTERVAL_SECONDS
+    server.ONCHAIN_INTERVAL_SECONDS = 0
+
+    async def scenario():
+        task = asyncio.create_task(_run_onchain_receipts(app))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        # Somebody pays now, with the job already watching.
+        from src.world.components import ForceDecisionQueue
+
+        queue = world.get(world.first(ForceDecisionQueue), ForceDecisionQueue)
+        queue.applied.append(_payment())
+        for _ in range(60):
+            await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        server.ONCHAIN_INTERVAL_SECONDS = original
+
+    assert len(FakeClient.sent) == 1
+    assert [r["tx"] for r in app.state.onchain_receipts] == [TX]
