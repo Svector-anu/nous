@@ -14,7 +14,45 @@ package-lock.json
 # research media — raw video files, not project assets
 *.mp4
 
+# The beds in src/viewer/beds/ are CC0, so they are tracked: the world should have music
+# on a fresh clone rather than only on the machine that downloaded them. Anything you add
+# under a licence that forbids redistribution belongs here instead.
+
+# design references and screenshots — pasted in to describe intent, not project assets.
+# They are large, they date instantly, and none of them are read at runtime.
+Screenshot*
+*.jpg
+*.jpeg
+inspo.png
+nav.png
+
+# agent scratch: local tool config and any notes an agent writes for itself.
+# Only AGENTS.md and CLAUDE.md are tracked docs; the rest drifts out of date.
+.claude/
+CHAIN_SHIP.md
+
+# planning notes and the research screenshots behind them: kept on the author's machine
+# by request. They were tracked before that was decided, which is why they need naming
+# here rather than simply never being added.
+planish/
+
 # secrets: real keys live here, .env.example is the tracked template
 .env
 .env.*
 !.env.example
+
+# planning notes stay on the machine that made them
+PLAN.md
+
+# Working notes, local only. `planish/` above was ignored from the start but `plan/` was
+# not, so six phase documents were tracked in a repo that is now public. These stay on the
+# machine they are written on.
+plan/
+NEXT.md
+LAUNCH_PLAN.md
+CLAUDE.md
+
+# The playwright symlink for the browser gate. AGENTS.md is explicit that the correct
+# resting state is no node_modules in the repo — it was committed as a symlink to a path
+# in /tmp, which resolves to nothing on any other machine.
+node_modules

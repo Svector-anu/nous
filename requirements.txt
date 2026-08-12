@@ -5,3 +5,7 @@ httpx==0.28.1
 
 # only needed when llm_enabled=True; the sim runs without it
 anthropic==0.120.2
+
+# only needed when chain_identity_enabled=True; imported lazily so the sim runs without
+# it and wallet verification fails closed rather than crashing when it is absent
+eth-account==0.13.7

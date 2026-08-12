@@ -223,6 +223,19 @@ class ThreadedAdvisor(ABC):
     def available(self) -> bool:
         return self._ensure_client() is not None
 
+    @property
+    def unavailable_reason(self) -> str:
+        """Why this advisor cannot answer, or "" if nothing has stopped it.
+
+        Unlike `available`, this never builds a client — it reports what has already
+        happened. That matters because the status endpoint reads it: asking "are you
+        working?" must not be the thing that decides whether it works.
+
+        Empty is not a promise. An advisor that has never been asked for anything has
+        nothing to report yet, and bad credentials only surface on the first real call.
+        """
+        return self._unavailable_reason or ""
+
     def _ensure_client(self) -> Any:
         if self._client is not None:
             return self._client

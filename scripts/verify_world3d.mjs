@@ -6,7 +6,7 @@
 // browser against a running server and asserts on renderer.info and on the view's own
 // state rather than on how the picture looks.
 //
-//   1. start the sim:  .venv/bin/python -m uvicorn src.api.server:app --factory
+//   1. start the sim:  .venv/bin/python -m uvicorn src.api.server:create_app --factory
 //   2. one-time setup: npm i playwright   (dev-only; never a project dependency)
 //   3. node scripts/verify_world3d.mjs
 //
@@ -23,6 +23,32 @@ function check(name, ok, detail) {
   results.push(`  ${ok ? "pass" : "FAIL"}  ${name}${detail ? `  — ${detail}` : ""}`);
   if (!ok) failures.push(name);
 }
+
+async function openCameraTours() {
+  const panel = await page.locator("#objectivesCard").first();
+  if (await panel.isVisible().catch(() => false)) return;
+  await page.click('[data-panel="settingsPanel"]');
+  await page.click("#settingsShowTours");
+  await panel.waitFor({ state: "visible" });
+}
+
+async function cleanupMobileGateAgents() {
+  // The gate deploys a "MobileGate" agent every run; remove stale ones so the
+  // world log and My Agents list do not accumulate test spam.
+  try {
+    const list = await (await fetch(`${BASE_URL}agents`)).json();
+    const ids = (list.agents || [])
+      .filter((a) => a.name === "MobileGate")
+      .map((a) => a.id);
+    for (const id of ids) {
+      await fetch(`${BASE_URL}agents/${id}`, { method: "DELETE" });
+    }
+  } catch (error) {
+    console.warn("could not clean up MobileGate agents:", error.message);
+  }
+}
+
+await cleanupMobileGateAgents();
 
 const browser = await chromium.launch({ channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
@@ -297,6 +323,7 @@ check("collapsed container keeps a finite aspect", edges.collapsed);
 // Autopilot has to be off for this: projecting 40-odd agents and raycasting each takes real
 // time, and a camera gliding underneath it invalidates every projection computed before it
 // moved. That alone pushed misses from 2 to 8.
+await openCameraTours();
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyDensest");
 await page.waitForTimeout(1200);
@@ -336,7 +363,13 @@ const picking = await page.evaluate((TORSO_Y) => {
     else if (got === null) missed++;
     else {
       const other = positions.get(got);
-      if (other && range(other) <= range(q) + 1e-6) nearerWon++;
+      // A ray hits a surface; `range` measures to a torso centre. An agent standing
+      // shoulder to shoulder with the one aimed at can present a nearer surface while its
+      // centre sits marginally farther, so anything inside a body width is legitimate
+      // geometry rather than a mismapped instance. A humanoid here is about 0.3 world
+      // units across the shoulders (TILE * 0.076 either side of the spine, TILE = 2).
+      const BODY_WIDTH = 0.36;
+      if (other && range(other) <= range(q) + BODY_WIDTH) nearerWon++;
       else fartherWon++;
     }
   }
@@ -347,21 +380,21 @@ const picking = await page.evaluate((TORSO_Y) => {
 // *further away* than the one aimed at, which is the signature of a broken instanceId to
 // agent-id mapping and would hide behind a plain "mostly correct" assertion.
 //
-// Misses are environmental, not a fault: the world ticks once a second while this loop
-// projects and raycasts forty-odd agents, so some of them genuinely walk out from under the
-// cursor mid-loop. The invariant that actually detects a broken instanceId mapping is
-// fartherWon === 0, which is asserted exactly; the miss budget is loose on purpose so this
-// check fails for real reasons rather than for the sim being alive.
-// `fartherWon` compares distance to torso *centres*, but a hit can land anywhere on a body:
-// two agents standing close can have the nearest hit belong to the marginally farther
-// centre, which is legitimate geometry rather than a fault. Measured across four runs the
-// count sits at 0-2 of ~50. A genuinely broken instanceId mapping shows up as a large
-// fraction, not one in fifty, so the bar is a small proportion rather than exactly zero.
+// Misses used to be written off as the sim being alive, which was wrong — this whole loop
+// runs inside one synchronous evaluate, so no frame renders and no snapshot lands while it
+// is going. They were a real bug: InstancedMesh caches its bounding sphere on first raycast
+// and never refreshes it, so once agents wandered out of that stale sphere the ray
+// early-outed and clicking a plainly visible agent did nothing. With the sphere invalidated
+// on every pose the miss count is 0, so it is now asserted as 0 rather than budgeted.
+//
+// `fartherWon` stays a small proportion rather than exactly zero: it compares torso centres
+// while a ray hits a surface, and the BODY_WIDTH tolerance above absorbs the honest cases.
+// A genuinely broken instanceId mapping shows up as a large fraction, not one in forty.
 check(
   "clicking an agent never resolves to one behind it",
-  picking.fartherWon <= Math.max(2, picking.onScreen * 0.06) &&
+  picking.fartherWon <= Math.max(1, picking.onScreen * 0.04) &&
     picking.onScreen > 5 &&
-    picking.missed <= Math.max(3, picking.onScreen * 0.25),
+    picking.missed === 0,
   `${picking.exact}/${picking.onScreen} exact, ${picking.nearerWon} occluded by a nearer agent, ` +
     `${picking.fartherWon} resolved to a farther agent, ${picking.missed} moved out from under the cursor`
 );
@@ -462,10 +495,15 @@ const seized = await reading();
 check("dragging takes control immediately", seized.enabled === false);
 await page.waitForTimeout(2500);
 const stillHeld = await reading();
+const drift = (a, b) =>
+  ["theta", "phi", "distance", "x", "z"]
+    .map((k) => `${k}=${Math.abs(a[k] - b[k]).toExponential(1)}`)
+    .join(" ");
 check(
   "the camera stays put while you hold it",
   !moved(seized, stillHeld),
-  "a drifting camera after letting go means the goal was not pinned"
+  `a drifting camera after letting go means the goal was not pinned — ` +
+    `${drift(seized, stillHeld)}, director ${seized.enabled}->${stillHeld.enabled}`
 );
 
 // Autopilot leaks nothing: it drives flyTo every frame for a long stretch.
@@ -541,6 +579,7 @@ check(
 );
 
 // --- 11. street level is low and among the huts, not an aerial -------------
+await openCameraTours();
 await page.evaluate(() => window["__director"].disable());
 await page.click("#flyStreet");
 await page.waitForTimeout(2500);
@@ -564,9 +603,1602 @@ check(
     "(distance is height/cos(phi) at this angle, so a tall camera is also a distant one)"
 );
 
+// --- 11b. desktop navigation: one dock, one panel, nothing stuck open ------------
+// Guards the regression this refactor fixed: a duplicated CSS block forced every
+// overlay to display:flex on desktop, so panels clustered on top of the world and
+// their close buttons looked dead. Each dock click runs closeAllPanels(), so the
+// resulting visible set is deterministic no matter what earlier tests left open.
+const nav = await page.evaluate(() => {
+  const PANELS = [
+    "worldOverviewCard", "marketsCard", "messagesCard", "worldLogCard", "agentCards",
+    "deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard",
+  ];
+  const visible = () => PANELS.filter((id) => {
+    const el = document.getElementById(id);
+    return el && getComputedStyle(el).display !== "none";
+  });
+  const clickDock = (panelId) => {
+    document.querySelector(`#bottomDock .dock-btn[data-panel="${panelId}"]`).click();
+  };
+  clickDock("worldOverviewCard");
+  const afterWorld = visible();
+  clickDock("marketsCard");
+  const afterBets = visible();
+  clickDock("marketsCard"); // second click toggles it back off
+  const afterToggleOff = visible();
+  return {
+    afterWorld, afterBets, afterToggleOff,
+    dockButtons: document.querySelectorAll("#bottomDock .dock-btn").length,
+    // Navigation is one rail down the left edge. What matters is that it is a single
+    // vertical group — the old failure was navigation split across two places, which is
+    // why this asserts the shape rather than merely counting buttons.
+    rail: (() => {
+      const dock = document.getElementById("bottomDock");
+      const box = dock.getBoundingClientRect();
+      const first = dock.querySelector(".dock-btn").getBoundingClientRect();
+      const last = [...dock.querySelectorAll(".dock-btn")].pop().getBoundingClientRect();
+      return {
+        vertical: box.height > box.width,
+        onLeft: box.left < window.innerWidth / 2,
+        // Stacked, not laid out side by side.
+        stacked: last.top > first.top,
+        width: box.width,
+        // Hugs its items rather than stretching down the whole window. Pinned top and
+        // bottom it spread eight buttons over the full viewport and read as an empty
+        // sidebar. Measured as a fraction of the window so it holds at any height.
+        heightFraction: box.height / window.innerHeight,
+      };
+    })(),
+  };
+});
+check(
+  "opening World shows only the World panel",
+  nav.afterWorld.length === 1 && nav.afterWorld[0] === "worldOverviewCard",
+  `visible: ${nav.afterWorld.join(", ") || "none"}`
+);
+check(
+  "opening Bets replaces World — one panel at a time",
+  nav.afterBets.length === 1 && nav.afterBets[0] === "marketsCard",
+  `visible: ${nav.afterBets.join(", ") || "none"}`
+);
+check(
+  "toggling a dock button off hides its panel",
+  nav.afterToggleOff.length === 0,
+  `still visible: ${nav.afterToggleOff.join(", ") || "none"}`
+);
+check(
+  // 9 since Payments joined the rail. The count is asserted rather than left loose so a
+  // stray button cannot be added without somebody deciding the rail should grow.
+  "navigation is one vertical 9-button rail down the left edge",
+  nav.dockButtons === 9 && nav.rail.vertical && nav.rail.onLeft && nav.rail.stacked,
+  `buttons=${nav.dockButtons}, vertical=${nav.rail.vertical}, onLeft=${nav.rail.onLeft}, ` +
+    `stacked=${nav.rail.stacked}, width=${nav.rail.width.toFixed(0)}px`
+);
+check(
+  "the rail hugs its items instead of stretching down the window",
+  nav.rail.heightFraction < 0.8,
+  `rail is ${(nav.rail.heightFraction * 100).toFixed(0)}% of window height`
+);
+
+// Top bar: stat deltas and the "Following X" chip are pure derivations exposed on
+// window.__topbar, so they are asserted directly rather than raced against live snapshots.
+const topbar = await page.evaluate(() => {
+  const t = window.__topbar;
+  const delta = document.getElementById("topAgentsDelta");
+  t.setStatDelta("topAgentsDelta", 5, 3);
+  const up = { text: delta.textContent, cls: delta.className };
+  t.setStatDelta("topAgentsDelta", 2, 6);
+  const down = { text: delta.textContent, cls: delta.className };
+  t.setStatDelta("topAgentsDelta", 4, 4);
+  const same = { text: delta.textContent, cls: delta.className };
+
+  // The day counter gained its own delta with the two-row bar; it is a distinct element
+  // from the agent counter, so it is asserted separately.
+  const dayDelta = document.getElementById("topDayDelta");
+  t.setStatDelta("topDayDelta", 251, 250);
+  const day = { text: dayDelta ? dayDelta.textContent : null, cls: dayDelta ? dayDelta.className : null };
+
+  const chip = document.getElementById("followChip");
+  const subject = document.getElementById("followSubject");
+  const isActive = () => chip.classList.contains("active");
+  t.setFollowFromLabel("vista · Ada is following food");
+  const followed = { active: isActive(), subject: subject.textContent };
+
+  // The chip sits between the shelf status and the control hints. It overlapped both when
+  // it was absolutely centred, so its box is measured against theirs while it is showing.
+  const box = (el) => { const b = el.getBoundingClientRect(); return { l: b.left, r: b.right, w: b.width }; };
+  const chipBox = box(chip);
+  const statusBox = box(document.querySelector("#topBar .shelf-status"));
+  const hintsBox = box(document.querySelector("#topBar .shelf-hints"));
+  const overlaps = (a, b) => a.w > 0 && b.w > 0 && a.l < b.r && b.l < a.r;
+  const layout = {
+    overlapsStatus: overlaps(chipBox, statusBox),
+    overlapsHints: overlaps(chipBox, hintsBox),
+    chipWidth: chipBox.w,
+  };
+
+  t.setFollowFromLabel("whole world");
+  const cleared = { active: isActive(), subject: subject.textContent };
+  return { up, down, same, day, followed, cleared, layout };
+});
+check(
+  "a rising stat shows a green ▲delta",
+  topbar.up.text === "▲2" && topbar.up.cls.includes("up"),
+  `text="${topbar.up.text}" cls="${topbar.up.cls}"`
+);
+check(
+  "a falling stat shows a red ▼delta",
+  topbar.down.text === "▼4" && topbar.down.cls.includes("down"),
+  `text="${topbar.down.text}" cls="${topbar.down.cls}"`
+);
+check(
+  "an unchanged stat shows no delta",
+  topbar.same.text === "" && !/\b(up|down)\b/.test(topbar.same.cls),
+  `text="${topbar.same.text}" cls="${topbar.same.cls}"`
+);
+check(
+  "the day counter has its own rising delta",
+  topbar.day.text === "▲1" && topbar.day.cls.includes("up"),
+  `text="${topbar.day.text}" cls="${topbar.day.cls}"`
+);
+check(
+  "following a subject shows the chip with just the subject name",
+  topbar.followed.active === true && topbar.followed.subject === "Ada",
+  `active=${topbar.followed.active}, subject="${topbar.followed.subject}"`
+);
+check(
+  "returning to the whole world hides the follow chip",
+  topbar.cleared.active === false && topbar.cleared.subject === "",
+  `active=${topbar.cleared.active}, subject="${topbar.cleared.subject}"`
+);
+check(
+  "the follow chip clears the shelf status and the control hints",
+  topbar.layout.chipWidth > 0 && !topbar.layout.overlapsStatus && !topbar.layout.overlapsHints,
+  `width=${topbar.layout.chipWidth}, status=${topbar.layout.overlapsStatus}, hints=${topbar.layout.overlapsHints}`
+);
+
+// --- 11a. the wallet control --------------------------------------------------
+// There is no wallet extension in this browser, so the states are driven through
+// window.__wallet rather than through a real signature. What is asserted is the part the
+// spectator sees: a feature that is off costs the bar no chrome, a half-configured server
+// says so instead of failing silently, and a connected wallet actually authorizes calls.
+const walletUi = await page.evaluate(() => {
+  const w = window.__wallet;
+  const button = document.getElementById("walletBtn");
+  const label = document.getElementById("walletLabel");
+  const read = () => ({
+    shown: button.classList.contains("show"),
+    disabled: button.disabled,
+    label: label.textContent,
+    connected: button.classList.contains("connected"),
+  });
+
+  w.setWalletSession("", "");
+  w.applyChainConfig({ identity_enabled: false, ready: false });
+  const off = read();
+
+  w.applyChainConfig({ identity_enabled: true, ready: false });
+  const halfConfigured = read();
+
+  w.applyChainConfig({ identity_enabled: true, ready: true });
+  const idle = read();
+  const anonymousHeaders = w.walletAuthHeaders();
+
+  w.setWalletSession("0xabcdef0123456789abcdef0123456789abcdef01", "session-token-xyz");
+  const connected = read();
+  const authHeaders = w.walletAuthHeaders();
+
+  // Disconnecting must actually drop the token, or "log out" is a lie.
+  w.setWalletSession("", "");
+  const afterDisconnect = { ...read(), headers: w.walletAuthHeaders() };
+
+  w.applyChainConfig({ identity_enabled: false, ready: false });
+  return { off, halfConfigured, idle, connected, anonymousHeaders, authHeaders, afterDisconnect };
+});
+check(
+  "the wallet control stays out of the bar while wallet identity is off",
+  walletUi.off.shown === false,
+  `shown=${walletUi.off.shown}`
+);
+// The button's copy, in one place. It says what the control is for rather than how it
+// works, so it is the kind of text that gets rewritten — and three checks depend on it.
+const WALLET_IDLE_LABEL = "Claim your agents";
+const WALLET_OFF_LABEL = "Claiming off";
+
+check(
+  "a server that cannot verify signatures shows a disabled wallet button, not a dead one",
+  walletUi.halfConfigured.shown === true && walletUi.halfConfigured.disabled === true &&
+    walletUi.halfConfigured.label === WALLET_OFF_LABEL,
+  `shown=${walletUi.halfConfigured.shown}, disabled=${walletUi.halfConfigured.disabled}, label="${walletUi.halfConfigured.label}"`
+);
+check(
+  "a ready server invites a claim and sends no authorization",
+  walletUi.idle.shown === true && walletUi.idle.disabled === false &&
+    walletUi.idle.label === WALLET_IDLE_LABEL &&
+    walletUi.anonymousHeaders.Authorization === undefined,
+  `label="${walletUi.idle.label}", disabled=${walletUi.idle.disabled}, auth=${walletUi.anonymousHeaders.Authorization}`
+);
+// Every wallet failure used to read "Cancelled" or "Failed". A locked wallet and a
+// rejected signature both raise 4001, so the case the user caused and the case they
+// cannot even see said the same thing — and these paths only run when a wallet
+// misbehaves, which is exactly the code nobody notices breaking.
+const trouble = await page.evaluate(() => {
+  const t = window.__wallet.walletTrouble;
+  const of = (e) => { const r = t(e); return { label: r.label, hint: r.hint }; };
+  return {
+    locked: of({ code: 4001, message: "wallet must has at least one account" }),
+    rejected: of({ code: 4001, message: "User rejected the request." }),
+    pending: of({ code: -32002, message: "Request already pending" }),
+    disconnected: of({ code: 4900, message: "disconnected" }),
+  };
+});
+// A phone has no extensions at all, so "install one and reload" is advice that cannot
+// be followed there — the page has to say something different depending on where it is.
+const noWallet = await page.evaluate(() => {
+  const t = window.__wallet.walletTrouble;
+  const real = navigator.userAgent;
+  const at = (ua) => {
+    Object.defineProperty(navigator, "userAgent", { value: ua, configurable: true });
+    const r = t({ message: "no provider" });
+    Object.defineProperty(navigator, "userAgent", { value: real, configurable: true });
+    return r;
+  };
+  return {
+    phone: at("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"),
+    desktop: at("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"),
+  };
+});
+check(
+  "a phone is not told to install a browser extension",
+  noWallet.phone.label === "Open in wallet" &&
+    /wallet app/i.test(noWallet.phone.hint) &&
+    !/install/i.test(noWallet.phone.hint) &&
+    /install/i.test(noWallet.desktop.hint),
+  `phone="${noWallet.phone.label}", desktop="${noWallet.desktop.label}"`
+);
+check(
+  "a locked wallet is not reported as a cancelled one",
+  trouble.locked.label === "Unlock wallet" && trouble.rejected.label === "Cancelled" &&
+    trouble.locked.hint !== trouble.rejected.hint,
+  `locked="${trouble.locked.label}", rejected="${trouble.rejected.label}"`
+);
+check(
+  "each wallet failure explains what to do about it",
+  [trouble.locked, trouble.rejected, trouble.pending, trouble.disconnected]
+    .every((t) => t.hint.length > 30 && /\b(open|install|finish|sign)/i.test(t.hint)),
+  `hints: ${[trouble.locked, trouble.pending, trouble.disconnected].map((t) => t.label).join(", ")}`
+);
+check(
+  "a connected wallet shows its address and authorizes requests",
+  walletUi.connected.connected === true && walletUi.connected.label === "0xabcd…ef01" &&
+    walletUi.authHeaders.Authorization === "Bearer session-token-xyz",
+  `label="${walletUi.connected.label}", auth=${walletUi.authHeaders.Authorization}`
+);
+check(
+  "disconnecting drops the session token",
+  walletUi.afterDisconnect.connected === false &&
+  walletUi.afterDisconnect.label === WALLET_IDLE_LABEL &&
+    walletUi.afterDisconnect.headers.Authorization === undefined,
+  `label="${walletUi.afterDisconnect.label}", auth=${walletUi.afterDisconnect.headers.Authorization}`
+);
+
+// --- 11b. the three events a spectator must not miss ----------------------------
+// A death, a fight and a succession are rare and cannot be scheduled, so waiting for the
+// live world to produce one would make this gate flaky. Instead a pair of hand-built
+// snapshots is pushed through the real detector, the real log renderer and the real flash
+// spawner. Nothing here is a mock: window.__events.feed calls processWorldLog, and
+// view.update is the same method the websocket calls.
+const spectator = await page.evaluate(() => {
+  const agent = (id, name, extra = {}) => ({
+    id, name, x: 10 + id, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0, wood: 0,
+    clan: 1, user: false, personality: "steady", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "", ...extra,
+  });
+  const snap = (agents, clans, tick) => ({
+    tick, day: 1, agents, buildings: [], resources: [], clans,
+    grid: { width: 64, height: 64 },
+  });
+  const clan = (leader) => ({ id: 1, size: 2, goal: "gather food", leader, centre: [12, 10] });
+
+  const before = snap([agent(1, "Ada"), agent(2, "Bo")], [clan(1)], 1);
+  const kindsOf = (entries) => entries.map((e) => e.kind);
+
+  // 1. a death: the agent is simply absent from the next snapshot.
+  const died = window.__events.feed(before, snap([agent(2, "Bo")], [clan(2)], 2));
+
+  // 2. a raid: the winner's raids_won goes up.
+  const raided = window.__events.feed(
+    before,
+    snap([agent(1, "Ada", { raids_won: 1 }), agent(2, "Bo")], [clan(1)], 2)
+  );
+
+  // 3. a succession: same people, same place, new leader.
+  const led = window.__events.feed(before, snap([agent(1, "Ada"), agent(2, "Bo")], [clan(2)], 2));
+
+  // The flashes are counted on the real view. update() is what the socket calls.
+  const view = window["__world"];
+  view.update(before);
+  const flashesBefore = view.flashSprites.length;
+  view.update(snap([agent(2, "Bo")], [clan(2)], 2));
+  const flashesAfter = view.flashSprites.length;
+
+  return {
+    died: { kinds: kindsOf(died), label: died.find((e) => e.kind === "death")?.label },
+    raided: { kinds: kindsOf(raided), label: raided.find((e) => e.kind === "raid")?.label },
+    led: { kinds: kindsOf(led), label: led.find((e) => e.kind === "leader")?.label },
+    logText: document.getElementById("worldLog").textContent,
+    flashGain: flashesAfter - flashesBefore,
+    configured: Object.keys(view.flashTextures),
+  };
+});
+check(
+  "a death is reported in plain English",
+  spectator.died.kinds.includes("death") && /died/.test(spectator.died.label || ""),
+  `kinds=[${spectator.died.kinds}] label="${spectator.died.label}"`
+);
+check(
+  "a raid is reported in plain English",
+  spectator.raided.kinds.includes("raid") && /raid/.test(spectator.raided.label || ""),
+  `kinds=[${spectator.raided.kinds}] label="${spectator.raided.label}"`
+);
+check(
+  "a new clan leader is reported by name",
+  spectator.led.kinds.includes("leader") && /Bo now leads clan 1/.test(spectator.led.label || ""),
+  `kinds=[${spectator.led.kinds}] label="${spectator.led.label}"`
+);
+// A leader that reasoned says why, and that sentence must reach the log. It only appears
+// when a model actually answered — the rules leave goal_reason empty — so nothing in a
+// default $0 world would notice this breaking.
+const reasoned = await page.evaluate(() => {
+  const agent = (id) => ({
+    id, name: `A${id}`, x: 10, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0,
+    wood: 0, clan: 1, user: false, personality: "", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "",
+  });
+  const snap = (goal, reason) => ({
+    tick: 2, day: 1, agents: [agent(1)], buildings: [], resources: [],
+    clans: [{ id: 1, size: 2, goal, goal_reason: reason, leader: 1, centre: [12, 10] }],
+    grid: { width: 64, height: 64 },
+  });
+  const before = snap("gather food", "");
+  const after = snap("build huts", "The young cannot afford to wait.");
+  const events = window.__events.findEvents(before, after);
+  window.__events.feed(before, after);
+  const goalEvent = events.find((e) => e.kind === "goalChange");
+  return {
+    carried: Boolean(goalEvent && goalEvent.reason),
+    rendered: !!document.querySelector("#worldLog .feed-reason"),
+    text: document.querySelector("#worldLog .feed-reason")?.textContent || "",
+  };
+});
+// A payment that leaves no trace is indistinguishable from one that did nothing. This
+// only fires when somebody actually pays, so nothing else in the suite would notice it
+// breaking — and it is the one path that involves real money.
+const receipt = await page.evaluate(() => {
+  // The link needs an explorer, which normally arrives from /chain/config. Set it
+  // explicitly so this checks the receipt rather than the timing of a fetch.
+  window.__wallet.applyChainConfig({
+    chain_id: 4663, chain_name: "Robinhood Chain",
+    explorer_url: "https://robinhoodchain.blockscout.com",
+    identity_enabled: true, ready: true, x402_enabled: true,
+  });
+  const agent = (id) => ({
+    id, name: `A${id}`, x: 10, y: 10, state: "IDLE", energy: 50, hunger: 50, food: 0,
+    wood: 0, clan: 1, user: false, personality: "", wants: "", huts: 0, raids_won: 0,
+    raids_lost: 0, received: 0, target: null, standing: 0, rank: "", rest_mode: false,
+    owner: "",
+  });
+  const snap = (paid) => ({
+    tick: 2, day: 1, agents: [agent(1)], buildings: [], resources: [], paid,
+    clans: [{ id: 1, size: 2, goal: "rally", goal_reason: "", leader: 1, centre: [12, 10] }],
+    grid: { width: 64, height: 64 },
+  });
+  const before = snap([]);
+  const after = snap([{ clan_id: 1, tick: 2, proof: "tx:0xfeed1234" }]);
+  const events = window.__events.findEvents(before, after);
+  window.__events.feed(before, after);
+  const link = document.querySelector("#worldLog .feed-proof");
+  return {
+    reported: events.some((e) => e.kind === "paid"),
+    linked: !!link,
+    href: link ? link.getAttribute("href") : "",
+  };
+});
+check(
+  "a payment is announced in the world with a checkable receipt",
+  receipt.reported && receipt.linked && /0xfeed1234$/.test(receipt.href),
+  `reported=${receipt.reported}, linked=${receipt.linked}, href=${receipt.href.slice(-30)}`
+);
+check(
+  "a leader's reasoning reaches the world log",
+  reasoned.carried && reasoned.rendered && /young cannot afford/.test(reasoned.text),
+  `carried=${reasoned.carried}, rendered=${reasoned.rendered}, text=${reasoned.text.slice(0, 48)}`
+);
+check(
+  "the world log actually renders the event text",
+  /now leads clan/.test(spectator.logText),
+  `log="${spectator.logText.replace(/\s+/g, " ").trim().slice(0, 80)}"`
+);
+check(
+  "death and succession have their own map flashes",
+  spectator.configured.includes("death") && spectator.configured.includes("leader"),
+  `configured: ${spectator.configured.join(", ")}`
+);
+check(
+  "a death and a succession put flashes on the map",
+  spectator.flashGain >= 2,
+  `${spectator.flashGain} new flashes (expected a death and a leader change)`
+);
+
+// Hand the view and the log back a real snapshot. Without this the next socket message is
+// diffed against a two-agent fixture, which would report the whole population as dead.
+await page.evaluate(async () => {
+  const real = await (await fetch("/state")).json();
+  window["__world"].update(real);
+  window.__events.feed(real, real);
+});
+
+// --- 11w. the world log does not call a stranger's agent "yours" ------------------
+// The director kept its own copy of "is this mine?" and read agent.user, which only means
+// "some visitor deployed this". So the log labelled every player's agent "(yours)" to
+// everyone — za, 0xSkyway, prabowo and the rest, all announced as the viewer's own, long
+// after My Agents and the inspector had been fixed. Third copy of one bug.
+const logOwnership = await page.evaluate(async () => {
+  const { findEvents } = await import("/static/director.js");
+  const mine = { id: 1, name: "mine", user: true, owner: "", x: 1, y: 1, raids_won: 0, raids_lost: 0, state: "IDLE" };
+  const theirs = { id: 2, name: "stranger", user: true, owner: "", x: 2, y: 2, raids_won: 0, raids_lost: 0, state: "IDLE" };
+  const world = (agents) => ({ agents, clans: [], paid: [], buildings: [] });
+  const snap = world([mine, theirs]);
+  const userLabels = (previous, fn) =>
+    findEvents(previous, snap, fn)
+      .filter((e) => e.kind === "user")
+      .map((e) => e.label);
+  return {
+    withPredicate: userLabels(world([mine, theirs]), (a) => a.id === 1),
+    // No predicate at all must claim nothing, rather than claiming everything.
+    withoutPredicate: userLabels(world([mine, theirs])),
+  };
+});
+check(
+  "the world log calls only my own agent mine",
+  logOwnership.withPredicate.filter((l) => l.includes("(yours)")).length === 1 &&
+    logOwnership.withPredicate.some((l) => l === "mine (yours)") &&
+    logOwnership.withPredicate.some((l) => l === "stranger"),
+  logOwnership.withPredicate.join(" | ")
+);
+check(
+  "with no way to tell, the log claims nothing is mine",
+  logOwnership.withoutPredicate.every((l) => !l.includes("(yours)")),
+  logOwnership.withoutPredicate.join(" | ")
+);
+
+// --- 11u. every dock button actually shows its panel -----------------------------
+// The payments check below drove the renderer directly and asserted on the list's
+// contents, which passed while the panel was invisible: its card lived in the bottom
+// strip, and the strip decided whether to open from a hardcoded array the card was not
+// in. The button lit up and nothing appeared. So this presses each button the way a
+// person does and asserts something is actually on screen.
+const dockPanels = await page.evaluate(async () => {
+  const wait = () => new Promise((r) => setTimeout(r, 120));
+  const out = [];
+  for (const button of document.querySelectorAll("#bottomDock .dock-btn[data-panel]")) {
+    const id = button.dataset.panel;
+    button.click();
+    await wait();
+    const el = document.getElementById(id);
+    const box = el ? el.getBoundingClientRect() : { width: 0, height: 0 };
+    out.push({ id, visible: box.width > 0 && box.height > 0 });
+  }
+  return out;
+});
+const invisible = dockPanels.filter((p) => !p.visible).map((p) => p.id);
+check(
+  "every dock button opens a panel you can actually see",
+  invisible.length === 0,
+  invisible.length ? `opened nothing: ${invisible.join(", ")}` : `${dockPanels.length} panels`
+);
+
+// --- 11r. a wallet pays on the chain it is already on -----------------------------
+// The 402 offers every chain the world accepts, and reading only the first meant a base
+// wallet was asked to switch to a network it had probably never added, to spend an asset
+// it did not hold. Discoverable is not the same as payable.
+const railPick = await page.evaluate(async () => {
+  const detail = {
+    payment: { payable: true, chain_id: 4663, token: "0xUSDG", recipient: "0xr", amount_units: "100000" },
+    accepts: [
+      { chain_id: 4663, network: "Robinhood Chain", currency: "USDG", asset: "0xUSDG", recipient: "0xr", amount_units: "100000" },
+      { chain_id: 8453, network: "Base", currency: "USDC", asset: "0xUSDC", recipient: "0xr", amount_units: "100000" },
+    ],
+  };
+  const real = window.ethereum;
+  const pick = async (chainIdHex) => {
+    window.ethereum = chainIdHex ? { request: async () => chainIdHex } : undefined;
+    const rail = await window.__pay.railFor(detail);
+    window.ethereum = real;
+    return rail;
+  };
+  return {
+    onBase: await pick("0x2105"),      // 8453
+    onRobinhood: await pick("0x1237"), // 4663
+    noWallet: await pick(null),
+    // A world that offers nothing payable must not invent a rail.
+    nothingOffered: await (async () => {
+      const rail = await window.__pay.railFor({ accepts: [], payment: undefined });
+      return rail === undefined;
+    })(),
+  };
+});
+check(
+  "a wallet pays on the chain it is already on",
+  railPick.onBase.chain_id === 8453 &&
+    railPick.onBase.currency === "USDC" &&
+    railPick.onRobinhood.chain_id === 4663,
+  `base->${railPick.onBase.chain_id}/${railPick.onBase.currency}, robinhood->${railPick.onRobinhood.chain_id}`
+);
+// Driving railFor alone proved the picker and not that anything used it — reverting
+// fetchWithPayment to the old one-rail read left every check green. So this runs the
+// actual payment path against a fake wallet and asserts which token it moved.
+const railUsed = await page.evaluate(async () => {
+  const realFetch = window.fetch;
+  const realEth = window.ethereum;
+  const detail = {
+    payment: { payable: true, chain_id: 4663, token: "0xUSDG", recipient: "0xrecipient", amount_units: "100000" },
+    accepts: [
+      { chain_id: 4663, network: "Robinhood Chain", currency: "USDG", asset: "0xUSDG", recipient: "0xrecipient", amount_units: "100000" },
+      { chain_id: 8453, network: "Base", currency: "USDC", asset: "0xUSDC", recipient: "0xrecipient", amount_units: "100000" },
+    ],
+  };
+  let sentTo = null;
+  let retryChain = null;
+
+  window.fetch = async (url, options = {}) => {
+    if (!options.headers || !options.headers["X402-Transaction-Hash"]) {
+      return { status: 402, ok: false, json: async () => ({ detail }) };
+    }
+    retryChain = options.headers["X402-Chain-Id"];
+    return { status: 202, ok: true, json: async () => ({ funded: true }) };
+  };
+  window.ethereum = {
+    request: async ({ method, params }) => {
+      if (method === "eth_requestAccounts") return ["0xme"];
+      if (method === "eth_chainId") return "0x2105"; // base
+      if (method === "eth_sendTransaction") { sentTo = params[0].to; return "0xhash"; }
+      if (method === "eth_getTransactionReceipt") return { status: "0x1" };
+      return null;
+    },
+  };
+
+  try {
+    await window.__pay.fetchWithPayment("/world/fund", { method: "POST" });
+  } catch (error) {
+    return { error: String(error) };
+  } finally {
+    window.fetch = realFetch;
+    window.ethereum = realEth;
+  }
+  return { sentTo, retryChain };
+});
+check(
+  "the payment path moves the token for the wallet's own chain",
+  railUsed.sentTo === "0xUSDC" && railUsed.retryChain === "8453",
+  `sent to ${railUsed.sentTo}, retried naming chain ${railUsed.retryChain}${railUsed.error ? " · " + railUsed.error : ""}`
+);
+check(
+  "with no wallet it falls back to the first rail, and invents none",
+  railPick.noWallet.chain_id === 4663 && railPick.nothingOffered === true,
+  `fallback=${railPick.noWallet.chain_id}, invented=${!railPick.nothingOffered}`
+);
+
+// --- 11s. the key is not left sitting on screen ----------------------------------
+// It is a bearer credential for somebody's agent, and the moment it is on screen it is in
+// every screen recording and screenshot taken while it is. So it renders masked and the
+// copy buttons write the real thing.
+const keyPanel = await page.evaluate(() => {
+  const secret = "TOP-SECRET-KEY-abc123";
+  window.__keys.showMindKey({ agent_id: 42, token: secret });
+  const shownAtFirst = document.getElementById("mindKeyToken").textContent;
+  const snippetAtFirst = document.getElementById("mindKeySnippet").textContent;
+
+  const reveal = document.getElementById("mindKeyReveal");
+  reveal.click();
+  const afterReveal = document.getElementById("mindKeyToken").textContent;
+  reveal.click();
+  const afterHide = document.getElementById("mindKeyToken").textContent;
+
+  return {
+    secret,
+    shownAtFirst,
+    snippetLeaks: snippetAtFirst.includes(secret),
+    afterReveal,
+    afterHide,
+    hasCopy: Boolean(document.getElementById("mindKeyCopy")),
+    hasSnippetCopy: Boolean(document.getElementById("mindKeySnippetCopy")),
+  };
+});
+check(
+  "a freshly issued key is masked, not printed on screen",
+  !keyPanel.shownAtFirst.includes(keyPanel.secret) && !keyPanel.snippetLeaks,
+  `token shows "${keyPanel.shownAtFirst.slice(0, 12)}…", snippet leaks: ${keyPanel.snippetLeaks}`
+);
+check(
+  "it can still be copied, and revealed deliberately",
+  keyPanel.hasCopy && keyPanel.hasSnippetCopy &&
+    keyPanel.afterReveal === keyPanel.secret &&
+    !keyPanel.afterHide.includes(keyPanel.secret),
+  `copy=${keyPanel.hasCopy}, snippetCopy=${keyPanel.hasSnippetCopy}, revealed=${keyPanel.afterReveal === keyPanel.secret}`
+);
+
+// --- 11s2. buying a mind ----------------------------------------------------------
+// A visitor picks a model and pays for what it uses. Two things have to be true on screen
+// before anyone spends: the price has to be legible as money, and it has to be clear the
+// number is an estimate rather than a quote.
+const buying = await page.evaluate(async () => {
+  const catalog = {
+    enabled: true,
+    buying: true,
+    steers_quoted: 1000,
+    models: [
+      {
+        model: "cheap-one",
+        name: "Cheap One",
+        provider: "Somebody",
+        estimated_units_per_steer: 3,
+        estimated_units_per_1000_steers: 3000,
+      },
+      {
+        model: "dear-one",
+        name: "Dear One",
+        provider: "Somebody Else",
+        estimated_units_per_steer: 9000,
+        estimated_units_per_1000_steers: 9000000,
+      },
+    ],
+  };
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("/minds/catalog")) {
+      return new Response(JSON.stringify(catalog), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return real(url, options);
+  };
+
+  await window.__minds.openMindBuy(7);
+  const panel = document.getElementById("mindBuyPanel");
+  // Measured, not asked. Checking for the `open` class passed while the panel sat inside
+  // a hidden strip and rendered nothing at all — a green test measuring the wrong thing,
+  // which is exactly how the payments panel shipped broken.
+  const shown = panel.getBoundingClientRect();
+  const rows = [...document.querySelectorAll("#mindModelList .model-row")];
+  const confirm = document.getElementById("mindBuyConfirm");
+  const disabledBeforePicking = confirm.disabled;
+  rows[0]?.click();
+  const state = {
+    open: panel.classList.contains("open") && shown.width > 0 && shown.height > 0,
+    rows: rows.length,
+    costs: rows.map((r) => r.querySelector(".model-cost").textContent),
+    disabledBeforePicking,
+    disabledAfterPicking: confirm.disabled,
+    pressed: rows[0]?.getAttribute("aria-pressed"),
+    intro: document.getElementById("mindBuyIntro").textContent,
+    dollars: window.__minds.unitsAsUsd(3000),
+  };
+  window.__minds.closeMindBuy();
+  state.closed = !panel.classList.contains("open");
+  window.fetch = real;
+  return state;
+});
+check(
+  "the model picker lists what is on offer with a price",
+  buying.open && buying.rows === 2 && buying.costs.every((c) => c.startsWith("$")),
+  `open=${buying.open}, rows=${buying.rows}, costs=${JSON.stringify(buying.costs)}`
+);
+check(
+  "prices read as money, not as units",
+  buying.dollars === "$0.003",
+  `3000 units rendered as "${buying.dollars}"`
+);
+check(
+  "the spread between a cheap model and a dear one is visible",
+  buying.costs[0] !== buying.costs[1],
+  `both models quoted ${buying.costs[0]}`
+);
+check(
+  "nothing can be paid for until a model is picked",
+  buying.disabledBeforePicking && !buying.disabledAfterPicking && buying.pressed === "true",
+  `before=${buying.disabledBeforePicking}, after=${buying.disabledAfterPicking}, pressed=${buying.pressed}`
+);
+check(
+  "the panel says the price is an estimate before anybody pays",
+  /estimate/i.test(buying.intro),
+  `intro reads "${buying.intro.slice(0, 80)}…"`
+);
+check(
+  "closing the picker puts it away",
+  buying.closed,
+  `still open: ${!buying.closed}`
+);
+
+// --- 11s3. the paid path being shut is not a dead end -----------------------------
+// A disabled primary button reads as broken. When hosted minds cannot be sold the final
+// action becomes a working route into the path that is free and live, so a visitor still
+// leaves with a mind on their agent.
+const shut = await page.evaluate(async () => {
+  const catalog = {
+    enabled: true,
+    buying: false,
+    configured: true,
+    steers_quoted: 1000,
+    models: [
+      {
+        model: "cheap-one",
+        name: "Cheap One",
+        provider: "Somebody",
+        estimated_units_per_steer: 3,
+        estimated_units_per_1000_steers: 3000,
+      },
+    ],
+  };
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("/minds/catalog")) {
+      return new Response(JSON.stringify(catalog), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return real(url, options);
+  };
+  await window.__minds.openMindBuy(7);
+  const confirm = document.getElementById("mindBuyConfirm");
+  const state = {
+    label: confirm.textContent.trim(),
+    disabled: confirm.disabled,
+    badge: document.getElementById("mindBuyBadge").textContent.trim(),
+    intro: document.getElementById("mindBuyIntro").textContent,
+    prices: document.querySelectorAll("#mindModelList .model-row").length,
+  };
+  window.__minds.closeMindBuy();
+  window.fetch = real;
+  return state;
+});
+check(
+  "a shut paid path still leaves a working button",
+  !shut.disabled && /drive it yourself/i.test(shut.label),
+  `label="${shut.label}", disabled=${shut.disabled}`
+);
+check(
+  "the pause is stated plainly and quietly",
+  /open shortly/i.test(shut.badge) && /unavailable/i.test(shut.intro),
+  `badge="${shut.badge}"`
+);
+check(
+  "prices stay visible while buying is shut",
+  shut.prices === 1,
+  `${shut.prices} models listed`
+);
+check(
+  "the free path is not claimed to be equivalent",
+  !/same/i.test(shut.intro) && /your own model/i.test(shut.intro),
+  `intro="${shut.intro.slice(0, 100)}"`
+);
+
+// --- 11t. nothing opens off the bottom of the window ------------------------------
+// A strip card is a fixed height with a hidden overflow, which suits a market and clips
+// anything taller. The key panel put a twenty-line snippet in one and the bottom half was
+// simply gone — no scrollbar, nothing to drag, the content just was not there. A panel
+// that cannot be read is not open.
+const spill = await page.evaluate(async () => {
+  const wait = () => new Promise((r) => setTimeout(r, 140));
+  const offenders = [];
+  for (const button of document.querySelectorAll("#bottomDock .dock-btn[data-panel]")) {
+    button.click();
+    await wait();
+    const el = document.getElementById(button.dataset.panel);
+    if (!el) continue;
+    const box = el.getBoundingClientRect();
+    if (box.height <= 0) continue;
+    // Past the bottom edge, or taller than the window it lives in.
+    if (box.bottom > window.innerHeight + 1 || box.height > window.innerHeight) {
+      offenders.push(`${button.dataset.panel} bottom=${Math.round(box.bottom)} vs ${window.innerHeight}`);
+    }
+    // Content clipped with no way to reach it: taller than its box and not scrollable.
+    const body = el.querySelector(".card-body");
+    if (body && body.scrollHeight > body.clientHeight + 2) {
+      const overflow = getComputedStyle(body).overflowY;
+      if (overflow !== "auto" && overflow !== "scroll") {
+        offenders.push(`${button.dataset.panel} clips ${body.scrollHeight - body.clientHeight}px with overflow-y:${overflow}`);
+      }
+    }
+  }
+  return offenders;
+});
+check(
+  "no panel opens past the bottom of the window, or clips what it cannot scroll",
+  spill.length === 0,
+  spill.join("; ") || "every panel fits or scrolls"
+);
+
+// --- 11v. driving your own agent has a door -------------------------------------
+// The seam shipped with no way in: attaching a mind meant curling an endpoint and
+// copying a token out of json, which nobody does. A feature a visitor cannot reach is
+// not a feature. These assert the button appears only where the world will honour it,
+// and only on an agent that is actually yours.
+const mindUi = await page.evaluate(() => {
+  const m = window.__mine;
+  const inspector = window.__inspector;
+  localStorage.removeItem(m.MINE_KEY);
+  const mine = { id: 1, name: "mine", user: true, owner: "", x: 1, y: 1, state: "IDLE",
+                 hunger: 50, energy: 50, food: 0, wood: 0, clan: null, mind: false,
+                 rest_mode: false, raids_won: 0, raids_lost: 0, standing: 0, rank: "member" };
+  const theirs = { ...mine, id: 2, name: "stranger" };
+  m.rememberMine(mine);
+
+  const draw = (agent, mindsEnabled) =>
+    inspector.render({ agents: [agent], clans: [], paid: [], buildings: [],
+                       minds: { enabled: mindsEnabled } }, agent.id);
+
+  draw(mine, true);
+  const onMineEnabled = !!document.querySelector("#inspector .attach-mind");
+  draw(mine, false);
+  const onMineDisabled = !!document.querySelector("#inspector .attach-mind");
+  draw(theirs, true);
+  const onStranger = !!document.querySelector("#inspector .attach-mind");
+  draw({ ...mine, mind: true }, true);
+  const badge = document.querySelector("#inspector .mind-badge")?.textContent ?? "";
+
+  localStorage.removeItem(m.MINE_KEY);
+  return { onMineEnabled, onMineDisabled, onStranger, badge };
+});
+check(
+  "my own agent offers a way to drive it, a stranger's never does",
+  mindUi.onMineEnabled === true && mindUi.onStranger === false,
+  `mine=${mindUi.onMineEnabled}, stranger=${mindUi.onStranger}`
+);
+check(
+  "no such button on a world that would refuse it",
+  mindUi.onMineDisabled === false,
+  `offered with minds off: ${mindUi.onMineDisabled}`
+);
+check(
+  "an agent somebody is driving says so",
+  mindUi.badge.trim().length > 0,
+  `badge: "${mindUi.badge}"`
+);
+
+// --- 11x. nothing hides underneath the rail ---------------------------------------
+// The CLANS panel was pinned at a hardcoded left: 78px against an 88px rail inset 12px,
+// so its first 22px sat behind the rail: the title read "LANS", the body lost its first
+// character on every line, and each clan row showed only its Rethink button because the
+// clan's name and goal were the part underneath. --rail-clear exists precisely to stop
+// this and three panels were not using it.
+const railOverlap = await page.evaluate(() => {
+  const rail = document.getElementById("bottomDock").getBoundingClientRect();
+  const ids = ["deployPanel", "legendPanel", "settingsPanel", "controlsPanel", "objectivesCard", "paymentsCard"];
+  const hidden = [];
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.classList.add("open");
+    const box = el.getBoundingClientRect();
+    // Only panels that actually overlap the rail's column matter; ones docked right
+    // never come near it.
+    if (box.width > 0 && box.left < rail.right && box.right > rail.left) {
+      hidden.push(`${id} starts at ${Math.round(box.left)} vs rail ending at ${Math.round(rail.right)}`);
+    }
+    el.classList.remove("open");
+  }
+  return { railRight: Math.round(rail.right), hidden };
+});
+check(
+  "no panel opens underneath the navigation rail",
+  railOverlap.hidden.length === 0,
+  railOverlap.hidden.join("; ") || `rail ends at ${railOverlap.railRight}px, all panels clear it`
+);
+
+// --- 11y. payments are visible after the moment they happen -----------------------
+// The world log announced a payment on the tick it landed and then it scrolled away, so
+// every receipt the world held was invisible a minute later. This asserts the standing
+// list: the amount, and a link to the transaction it can be checked against.
+const payments = await page.evaluate(() => {
+  const render = window.__payments.renderPayments;
+  render({ paid: [] });
+  const empty = document.getElementById("paymentsList").textContent.trim();
+
+  // Chronological, the way the world appends them — the list reverses for display.
+  render({
+    paid: [
+      // Predates the world recording an amount: the row must not invent one.
+      { clan_id: 3, tick: 109000, proof: "tx:0xdef456" },
+      { clan_id: 7, tick: 110400, proof: "tx:0xabc123", amount: "0.10", currency: "USDG" },
+    ],
+  });
+  const list = document.getElementById("paymentsList");
+  const rows = [...list.querySelectorAll("li")];
+  return {
+    empty,
+    count: rows.length,
+    // Newest first, so the 0.10 receipt at the later tick leads.
+    first: rows[0]?.textContent.replace(/\s+/g, " ").trim() ?? "",
+    second: rows[1]?.textContent.replace(/\s+/g, " ").trim() ?? "",
+    links: rows.map((r) => r.querySelector("a.feed-proof")?.getAttribute("href") ?? ""),
+  };
+});
+check(
+  "a payment is listed with what it cost and a link to the transaction",
+  payments.count === 2 &&
+    payments.first.includes("0.10 USDG") &&
+    payments.first.includes("clan 7") &&
+    payments.links[0].includes("0xabc123"),
+  `${payments.first} | link=${payments.links[0] || "(none)"}`
+);
+check(
+  "a receipt with no recorded amount does not invent one",
+  !/\d+\.\d+/.test(payments.second) && payments.second.includes("clan 3"),
+  payments.second
+);
+check(
+  "an empty payments list says so rather than showing nothing",
+  payments.empty.length > 0,
+  payments.empty
+);
+// Paying for the world's thinking needs a door, the same way driving your own agent did.
+// A button that returns 403, or that a visitor with no wallet cannot use, is worse than
+// no button — so it appears only where the world will honour it and a wallet could pay.
+const fundUi = await page.evaluate(() => {
+  const w = window.__wallet;
+  const show = (funding, x402) => {
+    w.applyChainConfig({
+      chain_id: 4663, chain_name: "Robinhood Chain", x402_enabled: x402,
+      x402_price: "0.10", x402_currency: "USDG", identity_enabled: true, ready: true,
+      explorer_url: "https://robinhoodchain.blockscout.com",
+    });
+    window.__payments.renderPayments({ paid: [], spend: { funding_enabled: funding } });
+    const row = document.getElementById("fundRow");
+    return { shown: row ? !row.hidden : false, label: document.getElementById("fundButton")?.textContent ?? "" };
+  };
+  const on = show(true, true);
+  const fundingOff = show(false, true);
+  const noPayments = show(true, false);
+  return { on, fundingOff, noPayments };
+});
+check(
+  "the world can be funded from the page, and says what it costs",
+  fundUi.on.shown === true && /0\.10\s+USDG/.test(fundUi.on.label),
+  `shown=${fundUi.on.shown}, label="${fundUi.on.label}"`
+);
+check(
+  "no funding button on a world that would refuse it",
+  fundUi.fundingOff.shown === false && fundUi.noPayments.shown === false,
+  `fundingOff=${fundUi.fundingOff.shown}, paymentsOff=${fundUi.noPayments.shown}`
+);
+
+// The receipt link was styled only inside the world log, so in this panel it fell back to
+// the browser default: underlined blue, purple once visited, and butted straight against
+// the sentence before it. It looked like an unstyled page in the one screenshot anybody
+// would take of this feature.
+const proofStyle = await page.evaluate(() => {
+  window.__payments.renderPayments({
+    paid: [{ clan_id: 4, tick: 111000, proof: "tx:0xfeed", amount: "0.10", currency: "USDG" }],
+  });
+  const link = document.querySelector("#paymentsList a.feed-proof");
+  if (!link) return { found: false };
+  const style = getComputedStyle(link);
+  return {
+    found: true,
+    colour: style.color,
+    gap: parseFloat(style.marginLeft) || 0,
+    underlined: style.textDecorationLine.includes("underline"),
+  };
+});
+check(
+  "the receipt link is styled here, not left to the browser",
+  proofStyle.found &&
+    // The brand amber, not the default link blue.
+    proofStyle.colour.replace(/\s/g, "") === "rgb(210,153,34)" &&
+    proofStyle.gap > 0 &&
+    !proofStyle.underlined,
+  `colour=${proofStyle.colour}, gap=${proofStyle.gap}px, underlined=${proofStyle.underlined}`
+);
+
+// --- 11z. the link preview -------------------------------------------------------
+// A launch link with no og:image renders as a grey rectangle, and that rectangle is the
+// first thing most people ever see of this. The image is also asserted to actually load:
+// a tag pointing at a 404 looks correct in the html and shows nothing in a feed.
+const share = await page.evaluate(async () => {
+  const meta = (sel) => document.querySelector(sel)?.getAttribute("content") ?? "";
+  const image = meta('meta[property="og:image"]');
+  // The tag has to be absolute — a scraper resolves it against nothing — but the file it
+  // names is fetched from *this* server. Fetching the production url instead would make
+  // the gate pass or fail on whatever is deployed, which is not what it is checking.
+  let status = 0;
+  try {
+    status = (await fetch(new URL(image).pathname)).status;
+  } catch {
+    status = -1;
+  }
+  return {
+    image,
+    status,
+    card: meta('meta[name="twitter:card"]'),
+    twitterImage: meta('meta[name="twitter:image"]'),
+    description: meta('meta[property="og:description"]'),
+  };
+});
+check(
+  "a shared link carries an image that actually loads",
+  share.image.startsWith("https://") && share.status === 200 && share.twitterImage === share.image,
+  `${share.image || "(no og:image)"} -> ${share.status}`
+);
+check(
+  "the share card is the large format, not a thumbnail",
+  share.card === "summary_large_image",
+  `twitter:card=${share.card || "(unset)"}`
+);
+check(
+  "the share text claims no agent count",
+  !/\d+\s*agents/i.test(share.description),
+  share.description.slice(0, 80)
+);
+
+// --- 11a. "my agents" means mine ------------------------------------------------
+// agent.user means "deployed by a visitor" — any visitor. Filtering on it showed every
+// player every other player's agents under My Agents, with Rest and Claim on top of a
+// stranger's character. The most expensive bug in this build, and invisible on a laptop
+// where you are the only player.
+const ownership = await page.evaluate(() => {
+  const m = window.__mine;
+  localStorage.removeItem(m.MINE_KEY);
+  localStorage.removeItem(m.LEGACY_NAME_KEY);
+  // Two agents called "elsie": one a stranger's, one ours. This is the shape that was
+  // wrong on the live site — the local record was the *name*, so both looked ours.
+  const strangerElsie = { id: 1, name: "elsie", user: true, owner: "" };
+  const ourElsie = { id: 2, name: "elsie", user: true, owner: "" };
+  const snap = {
+    agents: [
+      strangerElsie,
+      ourElsie,
+      { id: 3, name: "bo", user: true, owner: "0xAAAA" },        // stranger's, claimed
+      { id: 4, name: "mine-claimed", user: true, owner: "0xBBBB" }, // ours, by wallet
+      { id: 9, name: "native", user: false, owner: "" },         // not a visitor's at all
+    ],
+  };
+  const ids = (list) => list.map((a) => a.id).sort();
+
+  window.__wallet.setWalletSession("", "");
+  const strangerSeesNothing = ids(m.myAgents(snap));
+
+  // A name in the old storage key must buy nothing at all.
+  localStorage.setItem(m.LEGACY_NAME_KEY, JSON.stringify(["elsie"]));
+  const legacyNameBuysNothing = ids(m.myAgents(snap));
+  localStorage.removeItem(m.LEGACY_NAME_KEY);
+
+  m.rememberMine(ourElsie);
+  const deployedOnly = ids(m.myAgents(snap));
+
+  window.__wallet.setWalletSession("0xbbbb", "session");
+  const withWallet = ids(m.myAgents(snap));
+
+  // The same predicate every control uses, checked directly: a stranger's agent must
+  // never be actionable, and our own must be — even sharing a name.
+  const strangerControls = m.isMine(strangerElsie);
+  const ownControls = m.isMine(ourElsie);
+
+  window.__wallet.setWalletSession("", "");
+  localStorage.removeItem(m.MINE_KEY);
+  return {
+    strangerSeesNothing,
+    legacyNameBuysNothing,
+    deployedOnly,
+    withWallet,
+    strangerControls,
+    ownControls,
+  };
+});
+// Paying required opening a browser console until now, which is not a product.
+const payUi = await page.evaluate(async () => {
+  window.__wallet.applyChainConfig({
+    chain_id: 4663, chain_name: "Robinhood Chain", x402_enabled: true,
+    x402_price: "0.10", x402_currency: "USDG", identity_enabled: true, ready: true,
+    explorer_url: "https://robinhoodchain.blockscout.com",
+  });
+  document.querySelector('#bottomDock .dock-btn[data-panel="legendPanel"]').click();
+  // The legend renders from the next snapshot, so reading straight after the click was a
+  // race: usually the button was there, sometimes it was not, and the check failed for
+  // reasons that had nothing to do with paying.
+  let button = null;
+  for (let waited = 0; waited < 5000; waited += 100) {
+    button = document.querySelector("#legend .nudge");
+    if (button) break;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  const paysFor = window.__mine.chainPaysFor();
+  document.querySelector('#bottomDock .dock-btn[data-panel="legendPanel"]').click();
+  return { paysFor, present: !!button, label: button ? button.textContent : "" };
+});
+check(
+  "paying does not require a console",
+  payUi.paysFor === true && payUi.present && /0\.10 USDG/.test(payUi.label),
+  `button=${payUi.present}, label="${payUi.label}"`
+);
+// A typed handle is not an identity — anyone can enter any name and collect another
+// starting balance. A connected wallet is, so it has to win.
+const who = await page.evaluate(() => {
+  const w = window.__wallet, m = window.__mine;
+  document.getElementById("whoami").value = "pretender";
+  w.setWalletSession("", "");
+  const guest = m.bettor();
+  w.setWalletSession("0xD0A2362c6cF02f8FdaCD3E2aBCbfBc625AA0f967", "s");
+  const owned = m.bettor();
+  w.setWalletSession("", "");
+  document.getElementById("whoami").value = "";
+  return { guest, owned };
+});
+check(
+  "a connected wallet bets as itself, not as a typed handle",
+  who.guest === "pretender" && who.owned !== "pretender" && /0xD0A2|0xd0a2/.test(who.owned),
+  `guest="${who.guest}", connected="${who.owned}"`
+);
+check(
+  "an agent sharing a name with mine is still not mine",
+  ownership.strangerControls === false && ownership.ownControls === true &&
+    JSON.stringify(ownership.deployedOnly) === JSON.stringify([2]),
+  `stranger=${ownership.strangerControls}, own=${ownership.ownControls}, mine=[${ownership.deployedOnly}]`
+);
+check(
+  "a visitor who deployed nothing owns nothing",
+  ownership.strangerSeesNothing.length === 0,
+  `saw: ${ownership.strangerSeesNothing.join(", ") || "nothing"}`
+);
+check(
+  "a name left in the old storage key claims nothing",
+  ownership.legacyNameBuysNothing.length === 0,
+  `saw: ${ownership.legacyNameBuysNothing.join(", ") || "nothing"}`
+);
+check(
+  "my agents never contains somebody else's agent",
+  JSON.stringify(ownership.deployedOnly) === JSON.stringify([2]) &&
+    JSON.stringify(ownership.withWallet) === JSON.stringify([2, 4]),
+  `deployed-only: [${ownership.deployedOnly}] · with wallet: [${ownership.withWallet}]`
+);
+
+// --- 11bis. a strip panel is long and horizontal, and nothing is cut off ----------
+// The failure this catches: PREDICTIONS opened as a full-width panel whose content was
+// stacked vertically, so a market was sliced in half by the bottom edge and the
+// leaderboard was never reachable at all.
+const strip = await page.evaluate(() => {
+  document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
+  const card = document.getElementById("marketsCard");
+  const body = card.querySelector(".card-body");
+  const markets = document.getElementById("markets");
+  const board = card.querySelector(".markets-board");
+  const dock = document.getElementById("bottomDock");
+  const box = (el) => el.getBoundingClientRect();
+  const cardBox = box(card);
+  const styles = getComputedStyle(body);
+  // Every market must fit inside the body, not just the first — the first one to render
+  // is often a short settled card, so testing only that one passed while open markets
+  // had their YES/NO buttons sliced off by the bottom edge.
+  const all = [...markets.querySelectorAll(".market")];
+  const bodyBottom = box(body).bottom;
+  const overflowBottom = all.reduce((worst, m) => Math.max(worst, box(m).bottom - bodyBottom), -Infinity);
+  // Measuring the card's box is not enough: with overflow-y on the card, the box fits
+  // neatly while the YES/NO buttons inside are scrolled out of sight. What a spectator
+  // actually loses is content, so compare each card's content height to its visible one.
+  const hiddenInside = all.reduce((worst, m) => Math.max(worst, m.scrollHeight - m.clientHeight), 0);
+  return {
+    wide: cardBox.width > 700,
+    row: styles.flexDirection === "row",
+    marketsRow: getComputedStyle(markets).flexDirection === "row",
+    boardVisible: board ? box(board).width > 0 : false,
+    // Clear of the rail: with navigation down the left edge, a panel that started at
+    // the window edge would sit underneath it.
+    gapToDock: cardBox.left - box(dock).right,
+    overflowBottom,
+    hiddenInside,
+    hasMarket: all.length > 0,
+    marketCount: all.length,
+  };
+});
+check(
+  "an open strip panel is long and horizontal",
+  strip.wide === true && strip.row === true && strip.marketsRow === true,
+  `width>700=${strip.wide}, body=row:${strip.row}, markets=row:${strip.marketsRow}`
+);
+check(
+  "the panel clears the rail instead of sliding under it",
+  strip.gapToDock > 8,
+  `${strip.gapToDock.toFixed(1)}px between rail and panel`
+);
+check(
+  "no market is cut off by the bottom of the panel",
+  strip.hasMarket === false || (strip.overflowBottom <= 1 && strip.hiddenInside <= 1),
+  `worst of ${strip.marketCount}: ${strip.overflowBottom.toFixed(0)}px past the body, ` +
+    `${strip.hiddenInside.toFixed(0)}px hidden inside the card`
+);
+check(
+  "the leaderboard is reachable, not pushed out of the panel",
+  strip.boardVisible === true,
+  `leaderboard column visible: ${strip.boardVisible}`
+);
+await page.evaluate(() => {
+  document.querySelector('#bottomDock .dock-btn[data-panel="marketsCard"]').click();
+});
+
+// --- 11d. paying on chain: the calldata must be exactly right --------------------
+// A wrong offset here sends real money to the wrong address, and no amount of testing
+// downstream would catch it. Asserted against a known-good encoding rather than by
+// driving a wallet, which the gate has no way to do.
+const pay = await page.evaluate(async () => {
+  const p = window.__pay;
+  const to = "0x1111111111111111111111111111111111111111";
+  const data = p.encodeTransfer(to, "100000");
+  // 402 handling: a response that is not payable must be returned as-is, never paid.
+  const notPayable = await p.fetchWithPayment("/chain/config");
+  return {
+    data,
+    selector: data.slice(0, 10),
+    length: data.length,
+    addressWord: data.slice(10, 74),
+    amountWord: data.slice(74, 138),
+    passesThroughNon402: notPayable.status,
+  };
+});
+check(
+  "an erc-20 transfer is encoded exactly",
+  // 4-byte selector + two 32-byte words = 4 + 32 + 32 bytes = 138 hex chars with 0x.
+  pay.selector === "0xa9059cbb" &&
+    pay.length === 138 &&
+    pay.addressWord === "0".repeat(24) + "1".repeat(40) &&
+    // 100000 = 0x186a0, right-aligned in its word.
+    pay.amountWord === "0".repeat(59) + "186a0",
+  `selector=${pay.selector} len=${pay.length} addr=…${pay.addressWord.slice(-6)} amt=…${pay.amountWord.slice(-6)}`
+);
+check(
+  "a response that is not a 402 is passed straight through",
+  pay.passesThroughNon402 === 200,
+  `status ${pay.passesThroughNon402}`
+);
+
+// --- 11c. ambient sound: silent by default, and never required -------------------
+// The bed is synthesised, so there is nothing to download and nothing to hear in a
+// headless browser. What matters is asserted instead: that it stays off until asked,
+// that the mood mapping tracks the world, and that the graph really starts and stops.
+const audioIdle = await page.evaluate(() => {
+  const a = window.__audio;
+  const agents = (n, state) => Array.from({ length: n }, (_, i) => ({ id: i + 1, state }));
+  return {
+    supported: a.supported(),
+    enabled: a.ambience.enabled,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    pressed: document.getElementById("soundToggle").getAttribute("aria-pressed"),
+    // Pure mapping, asserted without a speaker.
+    calm: a.moodFor({ agents: agents(10, "IDLE") }),
+    active: a.moodFor({ agents: [...agents(6, "GATHER"), ...agents(4, "IDLE")] }),
+    tense: a.moodFor({ agents: [...agents(9, "IDLE"), ...agents(1, "FLEE")] }),
+    empty: a.moodFor({ agents: [] }),
+  };
+});
+check(
+  "ambient sound is off until a spectator asks for it",
+  audioIdle.enabled === false && audioIdle.sounding === false && audioIdle.pressed === "false",
+  `enabled=${audioIdle.enabled}, sounding=${audioIdle.sounding}, pressed=${audioIdle.pressed}`
+);
+check(
+  "the bed follows what the world is doing",
+  audioIdle.calm === "calm" && audioIdle.active === "active" &&
+    audioIdle.tense === "tense" && audioIdle.empty === "calm",
+  `idle=${audioIdle.calm}, working=${audioIdle.active}, fleeing=${audioIdle.tense}, empty=${audioIdle.empty}`
+);
+
+// A real click, because a stored preference is not a gesture and a context started
+// without one stays suspended and silent.
+await page.click("#soundToggle");
+// Wait for the graph to exist before timing the fade. Loading and decoding the beds takes
+// however long it takes, so a fixed sleep would read the ramp part-way up on a slow decode
+// and call the music quiet when it is merely still arriving.
+await page.waitForFunction(() => window.__audio.ambience.enabled === true, { timeout: 20000 });
+await page.waitForTimeout(1500);
+const audioOn = await page.evaluate(() => {
+  const a = window.__audio;
+  return {
+    enabled: a.ambience.enabled,
+    running: a.ambience.ctx ? a.ambience.ctx.state : null,
+    voices: a.ambience.voices.length,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+    master: a.ambience.master ? a.ambience.master.gain.value : 0,
+    hasLimiter: !!a.ambience.limiter,
+    defaultVolume: a.DEFAULT_VOLUME,
+    usingBeds: a.ambience.usingBeds,
+    bedCount: a.ambience.bedNodes ? Object.keys(a.ambience.bedNodes).length : 0,
+  };
+});
+check(
+  "turning sound on builds a running audio graph",
+  audioOn.enabled === true && audioOn.sounding === true && audioOn.running !== "closed" &&
+    // Either path is a valid graph: real loops when the manifest names them, the synth
+    // when it does not. Asserting only one would go red the moment the beds changed.
+    (audioOn.usingBeds ? audioOn.bedCount === 3 : audioOn.voices >= 3),
+  `enabled=${audioOn.enabled}, ctx=${audioOn.running}, beds=${audioOn.usingBeds}, ` +
+    `bedCount=${audioOn.bedCount}, voices=${audioOn.voices}, stored=${audioOn.stored}`
+);
+// The shipped manifest names three CC0 loops, so this deployment must actually be playing
+// them. If it silently fell back to the synth the music would be wrong and nothing else
+// here would notice.
+check(
+  "the shipped loops are what plays, not the fallback synth",
+  audioOn.usingBeds === true && audioOn.bedCount === 3,
+  `usingBeds=${audioOn.usingBeds}, loaded=${audioOn.bedCount}`
+);
+check(
+  "the choice is remembered",
+  audioOn.stored === "on",
+  `localStorage nous.sound = ${audioOn.stored}`
+);
+// The whole point of the loudness pass: the master must actually sit high, and it must be
+// safe to do so. A high master with no limiter is how the old bed would have clipped.
+check(
+  "the music plays loud enough to hear, through a limiter",
+  audioOn.master >= 0.7 && audioOn.hasLimiter === true,
+  `master gain ${audioOn.master}, limiter ${audioOn.hasLimiter}, default ${audioOn.defaultVolume}`
+);
+
+const volume = await page.evaluate(async () => {
+  const a = window.__audio;
+  const slider = document.getElementById("musicVolume");
+  a.setVolume(0.3);
+  const lowered = a.ambience.volume;
+  // The graph is retargeted rather than set, so read the destination the ramp is heading
+  // for instead of racing it.
+  slider.value = "90";
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 120));
+  return {
+    lowered,
+    fromSlider: a.ambience.volume,
+    shown: document.getElementById("musicVolumeValue").textContent,
+    stored: (() => { try { return localStorage.getItem("nous.volume"); } catch { return null; } })(),
+    muteStillWorks: (() => { a.ambience.setVolume(0); return a.ambience.volume === 0; })(),
+  };
+});
+check(
+  "the volume control moves the music and is remembered",
+  Math.abs(volume.lowered - 0.3) < 1e-6 && Math.abs(volume.fromSlider - 0.9) < 1e-6 &&
+    volume.shown === "90" && Math.abs(parseFloat(volume.stored) - 0.9) < 1e-6,
+  `set=${volume.lowered}, slider=${volume.fromSlider}, shown=${volume.shown}, stored=${volume.stored}`
+);
+check(
+  "the volume control reaches silence",
+  volume.muteStillWorks === true,
+  `zero accepted: ${volume.muteStillWorks}`
+);
+
+await page.click("#soundToggle");
+await page.waitForTimeout(300);
+const audioOff = await page.evaluate(() => {
+  const a = window.__audio;
+  // The world must keep running with sound fully off — this is the path every visitor
+  // who never touches the button takes.
+  a.ambience.setMood("tense");
+  return {
+    enabled: a.ambience.enabled,
+    sounding: document.getElementById("soundToggle").classList.contains("sounding"),
+    stored: (() => { try { return localStorage.getItem("nous.sound"); } catch { return null; } })(),
+    live: document.getElementById("status").textContent.trim(),
+  };
+});
+check(
+  "turning it off silences it and the world carries on",
+  audioOff.enabled === false && audioOff.sounding === false && audioOff.stored === "off" &&
+    audioOff.live === "live",
+  `enabled=${audioOff.enabled}, stored=${audioOff.stored}, status=${audioOff.live}`
+);
+
+// --- 12. mobile viewport: usable at ~390px without horizontal breakage -----------
+// The desktop floating-card layout is too wide for a phone. This checks the adaptive
+// layout (bottom sheets, icon dock, capped pixel ratio) and that the deploy → find
+// → rest/resume flow can be driven with touch events.
+const mobileBrowser = await chromium.launch({ channel: "chrome" });
+const mobilePage = await mobileBrowser.newPage({
+  viewport: { width: 390, height: 844 },
+  isMobile: true,
+  hasTouch: true,
+  deviceScaleFactor: 2,
+});
+const mobileErrors = [];
+mobilePage.on("console", (m) => { if (m.type() === "error") mobileErrors.push(m.text()); });
+mobilePage.on("pageerror", (e) => mobileErrors.push(`pageerror: ${e.message}`));
+
+await mobilePage.goto(URL, { waitUntil: "networkidle" });
+await mobilePage.waitForFunction(
+  () => document.getElementById("status").textContent.trim() === "live",
+  { timeout: 20000 }
+);
+await mobilePage.waitForTimeout(2500);
+
+const mobileInfo = await mobilePage.evaluate(() => {
+  const view = window["__world"];
+  const docWidth = document.documentElement.scrollWidth;
+  const clientWidth = document.documentElement.clientWidth;
+  return {
+    ratio: view.renderer.getPixelRatio(),
+    docWidth,
+    clientWidth,
+    docOverflow: docWidth > clientWidth + 1,
+    activeCards: Array.from(document.querySelectorAll("#rightCards .floating-card.open, #agentCards.open, #deployPanel.open, #legendPanel.open, #settingsPanel.open")).map((el) => el.id),
+  };
+});
+check(
+  "mobile pixel ratio is capped to save GPU",
+  mobileInfo.ratio <= 1.3,
+  `ratio ${mobileInfo.ratio.toFixed(2)}`
+);
+check(
+  "mobile page has no horizontal overflow",
+  !mobileInfo.docOverflow,
+  `${mobileInfo.docWidth} vs ${mobileInfo.clientWidth}`
+);
+check(
+  "mobile panels start closed",
+  mobileInfo.activeCards.length === 0,
+  `open: ${mobileInfo.activeCards.join(", ")}`
+);
+
+// Open the deploy sheet, deploy an agent, then find it and rest it.
+await mobilePage.click('[data-panel="deployPanel"]');
+await mobilePage.waitForTimeout(300);
+await mobilePage.fill("#agentName", "MobileGate");
+await mobilePage.click('button[type="submit"]');
+// Wait for the agent to actually arrive rather than guessing at a duration. A deploy is
+// queued and spawns on the next tick, so the true wait is at least one tick plus a render
+// — 1200ms was enough on this machine and not on a slower ci runner, where this failed as
+// "0 agents". renderMyAgents runs on every snapshot whether or not the panel is open, so
+// the list is a fair thing to poll before opening it.
+await mobilePage
+  .waitForFunction(
+    () => document.querySelectorAll("#myAgentsList .my-agent-item").length > 0,
+    { timeout: 15000 }
+  )
+  .catch(() => {}); // let the check below report it rather than throwing here
+await mobilePage.click('[data-agents="1"]');
+await mobilePage.waitForTimeout(300);
+const deployedFlow = await mobilePage.evaluate(() => {
+  const list = document.getElementById("myAgentsList");
+  const items = list ? list.querySelectorAll(".my-agent-item").length : 0;
+  const deployOpen = document.getElementById("deployPanel").classList.contains("open");
+  const myAgentsOpen = document.getElementById("myAgentsCard").classList.contains("open");
+  return { items, deployOpen, myAgentsOpen };
+});
+check(
+  "mobile deploy adds an agent and switches to my agents",
+  deployedFlow.items > 0 && !deployedFlow.deployOpen && deployedFlow.myAgentsOpen,
+  `${deployedFlow.items} agents, deploy ${deployedFlow.deployOpen}, myAgents ${deployedFlow.myAgentsOpen}`
+);
+
+// The My Agents row has the same fault the inspector had: rebuilt every snapshot, so its
+// Locate / Rest / Copy buttons were destroyed once a second and a tap in flight hit a
+// detached node. This is the list ci actually caught it on, so it is asserted directly by
+// node identity rather than left to the timing of the click below.
+const rowSurvives = await mobilePage.evaluate(async () => {
+  const actions = () => document.querySelector("#myAgentsList .my-agent-actions");
+  const first = actions();
+  if (!first) return { tested: false };
+  await new Promise((resolve) => setTimeout(resolve, 3400));
+  return {
+    tested: true,
+    sameNode: actions() === first,
+    stillInDocument: document.contains(first),
+  };
+});
+check(
+  "the my-agents row survives the list redrawing around it",
+  rowSurvives.tested === true && rowSurvives.sameNode && rowSurvives.stillInDocument,
+  rowSurvives.tested
+    ? `sameNode=${rowSurvives.sameNode}, inDocument=${rowSurvives.stillInDocument}`
+    : "no agent row — nothing was tested"
+);
+
+const findBtn = await mobilePage.locator(".find-agent").first();
+if (await findBtn.isVisible().catch(() => false)) {
+  await findBtn.click();
+  await mobilePage.waitForTimeout(800);
+  const inspectorOpen = await mobilePage.evaluate(() =>
+    document.getElementById("agentCards").classList.contains("open")
+  );
+  check("mobile find agent opens inspector", inspectorOpen);
+
+  // The card is redrawn every snapshot. Its buttons used to be destroyed and rebuilt with
+  // it, so a tap in flight landed on a node that had already left the document and did
+  // nothing — rare with a mouse, routine with a finger, and reliable enough on a slow ci
+  // runner to fail the toggle check below every time. Node identity is the only thing that
+  // distinguishes the two cases: the card looks identical either way.
+  const survives = await mobilePage.evaluate(async () => {
+    const actions = () => document.querySelector("#inspector .agent-card-actions");
+    const first = actions();
+    if (!first) return { tested: false };
+    await new Promise((resolve) => setTimeout(resolve, 3400));
+    return {
+      tested: true,
+      sameNode: actions() === first,
+      stillInDocument: document.contains(first),
+    };
+  });
+  check(
+    "the inspector's buttons survive the card redrawing around them",
+    survives.tested === true && survives.sameNode && survives.stillInDocument,
+    survives.tested
+      ? `sameNode=${survives.sameNode}, inDocument=${survives.stillInDocument}`
+      : "inspector had no actions row — nothing was tested"
+  );
+
+  // Target the inspector's button specifically. ".rest-toggle" also matches the My Agents
+  // list, so .first() picked whichever happened to be earlier in the dom — a different
+  // control depending on which panel was open.
+  const restBtn = await mobilePage.locator("#inspector .rest-toggle").first();
+  if (await restBtn.isVisible().catch(() => false)) {
+    const beforeText = await restBtn.textContent();
+    await restBtn.click();
+    // The server applies the toggle on the next tick and the viewer waits for the next
+    // snapshot. A fixed sleep here was a coin toss — it assumed a tick and a websocket
+    // round trip always fit inside 2.2s, and under load they do not, so this check failed
+    // at random and taught everybody to re-run the gate instead of reading it.
+    let afterText = beforeText;
+    for (let waited = 0; waited < 12000; waited += 250) {
+      afterText = await mobilePage
+        .locator("#inspector .rest-toggle")
+        .first()
+        .textContent();
+      if (afterText.trim() !== beforeText.trim()) break;
+      await mobilePage.waitForTimeout(250);
+    }
+    const resting =
+      (beforeText.toLowerCase().includes("rest") && afterText.toLowerCase().includes("resume")) ||
+      (beforeText.toLowerCase().includes("resume") && afterText.toLowerCase().includes("rest"));
+    check("mobile rest toggle updates state", resting, `"${beforeText.trim()}" -> "${afterText.trim()}"`);
+  }
+}
+
+check("no mobile console errors", mobileErrors.length === 0, mobileErrors.slice(0, 3).join(" | "));
+await mobileBrowser.close();
+
+// --- 13. selection indicator appears after picking an agent ------------------
+await page.evaluate(() => {
+  window["__world"].overview();
+  window["__world"].settle();
+});
+await page.waitForTimeout(500);
+const pickingIndicator = await page.evaluate(() => {
+  const view = window["__world"];
+  // Pick any agent id from the current batches; the indicator is purely visual.
+  let id = null;
+  for (const entry of view.agentMeshes.values()) {
+    if (entry.count > 0) { id = entry.ids[0]; break; }
+  }
+  if (!id) return { selected: false, id: null };
+  const before = view.selectionIndicator.visible;
+  view.setSelected(id);
+  const after = view.selectionIndicator.visible;
+  return { selected: true, before, after, id };
+});
+check("selection indicator is hidden before picking", !pickingIndicator.before);
+check("selection indicator shows after picking", pickingIndicator.after);
+
+
+// Reset selection so later checks do not carry it.
+await page.evaluate(() => window["__world"].setSelected(null));
+
 check("no console errors from our code", consoleErrors.length === 0, consoleErrors.slice(0, 3).join(" | "));
 
 await browser.close();
+
+// Clean up the test agent deployed by the mobile browser. The server persists the
+// world, so this prevents repeated gate runs from filling the log with "MobileGate".
+await cleanupMobileGateAgents();
 
 console.log(results.join("\n"));
 if (failures.length) {

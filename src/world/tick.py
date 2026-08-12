@@ -3,47 +3,64 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Protocol
 
 from .components import (
     AdvisorState,
     Agent,
+    AttachedMind,
     Blackboard,
     Building,
     Clan,
     ClanRef,
     DecisionLog,
+    EscrowBook,
+    ForceDecisionQueue,
+    IdentityQueue,
     Inbox,
     Inventory,
     MarketBook,
     MessageLog,
+    MindQueue,
     Needs,
     Outbox,
     Position,
     ResourceKind,
     ResourceNode,
+    RestQueue,
     SpawnQueue,
+    SpendBook,
     Standing,
 )
 from .config import TICKS_PER_DAY, WorldConfig
+from .errors import StaleWorldError
+from . import naming
 from .ecs import SystemRegistry, World
 from .rng import TickRng
+from . import spend
 from .systems import (
     blackboard,
     build,
     combat,
+    decay,
     fsm,
+    identity,
     leadership,
     markets,
     messaging,
+    minds,
     movement,
     needs,
     regrowth,
+    resting,
     social,
     spawning,
     standing,
     trade,
 )
+
+logger = logging.getLogger("neociv")
 
 _NAME_PREFIXES = ("Ka", "Mor", "Tel", "Ash", "Rin", "Vos", "Dor", "Ely", "Bran", "Sev")
 _NAME_SUFFIXES = ("ra", "nix", "wyn", "dor", "sha", "lek", "mir", "tas", "ven", "oth")
@@ -59,14 +76,26 @@ def build_registry() -> SystemRegistry:
     one-tick lag."""
     registry = SystemRegistry()
     registry.register("spawning", spawning.run)
+    # Straight after spawning: a label attaches to an agent on the same tick it becomes
+    # visible. Writes only Agent.owner_address, which no system reads.
+    registry.register("identity", identity.run)
     registry.register("messaging", messaging.run)
     registry.register("needs", needs.run)
     registry.register("trade", trade.run)
+    registry.register("resting", resting.run)
     registry.register("combat", combat.run)
     registry.register("fsm", fsm.run)
+    # After the fsm and before movement. The state machine decides afresh every tick and
+    # writes `wants` itself, so a steer applied before it is overwritten within the same
+    # tick and never reaches the world; applied after it, the mind adjusts what the rules
+    # chose and movement acts on that immediately. The rules still decide *what state* the
+    # agent is in — a mind only ever changes what it is looking for.
+    registry.register("minds", minds.run)
     registry.register("movement", movement.run)
     registry.register("build", build.run)
     registry.register("regrowth", regrowth.run)
+    # After build, so a hut raised this tick is not judged on the same one.
+    registry.register("decay", decay.run)
     registry.register("leadership", leadership.run)
     registry.register("social", social.run)
     registry.register("standing", standing.run)
@@ -93,7 +122,15 @@ def create_world(config: WorldConfig) -> World:
     world.add(world.create_entity(), DecisionLog())
     world.add(world.create_entity(), MessageLog())
     world.add(world.create_entity(), AdvisorState())
+    world.add(world.create_entity(), RestQueue())
+    world.add(world.create_entity(), ForceDecisionQueue())
+    world.add(world.create_entity(), IdentityQueue())
+    world.add(world.create_entity(), EscrowBook())
     world.add(world.create_entity(), MarketBook())
+    # Disabled, unfunded and unhalted. A new world can no more spend money than an
+    # old one — the envelope starts at zero and only an operator raises it.
+    world.add(world.create_entity(), SpendBook())
+    world.add(world.create_entity(), MindQueue())
 
     for _ in range(config.resource_count):
         entity = world.create_entity()
@@ -132,6 +169,66 @@ def create_world(config: WorldConfig) -> World:
     return world
 
 
+# Singleton components a world needs one of. Kept as a list rather than inlined so adding
+# one is a single edit and cannot be half-done.
+_SINGLETONS = (
+    Blackboard,
+    SpawnQueue,
+    DecisionLog,
+    MessageLog,
+    MindQueue,
+    AdvisorState,
+    RestQueue,
+    ForceDecisionQueue,
+    IdentityQueue,
+    EscrowBook,
+    MarketBook,
+    SpendBook,
+)
+
+
+def rename_the_unprintable(world: World) -> list[str]:
+    """Rename agents already carrying a name nobody else should have to read.
+
+    The filter went in after the world had been running for two thousand days, so it
+    catches nothing that is already standing in it — four agents named after Hitler and one
+    carrying a racial slur, in a settlement that could not be shown to anybody.
+
+    They are renamed, never removed. Each was deployed by somebody, has lived a life, and
+    may be the only one they have. Deleting it would be the operator taking something from
+    a visitor to solve the operator's problem, and the point here is only that everyone
+    else stops having to read it.
+    """
+    renamed = []
+    for entity in world.query(Agent):
+        agent = world.get(entity, Agent)
+        cleaned = naming.clean(agent.name, entity)
+        if cleaned != agent.name:
+            renamed.append(f"{entity}: {agent.name!r} -> {cleaned!r}")
+            agent.name = cleaned
+    return renamed
+
+
+def ensure_singletons(world: World) -> list[str]:
+    """Give a resumed world any singleton component it was saved without.
+
+    A world saved before a component existed has no entity carrying it, and nothing in the
+    load path creates one — so the feature is silently unreachable on exactly the worlds
+    that have been running longest. SpendBook found this: the live world would have
+    reported spending permanently disabled with no way to enable it, and no error to say
+    why.
+
+    Additive and idempotent. Only ever creates what is missing, never touches what is
+    there, so a resumed world keeps its history and a fresh one is unchanged.
+    """
+    added = []
+    for component_type in _SINGLETONS:
+        if world.first(component_type) is None:
+            world.add(world.create_entity(), component_type())
+            added.append(component_type.__name__)
+    return added
+
+
 def state_hash(world: World) -> str:
     """Stable fingerprint of the whole world, used by the determinism tests."""
     digest = hashlib.blake2b(digest_size=16)
@@ -143,6 +240,14 @@ def state_hash(world: World) -> str:
             digest.update(f"{entity}:{component!r};".encode())
 
     return digest.hexdigest()
+
+
+def _paid_receipts(world: World) -> list[dict]:
+    """Recent paid decisions, newest last. Empty for the overwhelming majority of ticks."""
+    entity = world.first(ForceDecisionQueue)
+    if entity is None:
+        return []
+    return [dict(entry) for entry in world.get(entity, ForceDecisionQueue).applied]
 
 
 class Simulation:
@@ -166,7 +271,15 @@ class Simulation:
 
         save_every = self.world.config.save_every_ticks
         if self.store is not None and save_every > 0 and self.world.tick % save_every == 0:
-            self.store.save(self.world)
+            try:
+                self.store.save(self.world)
+            except StaleWorldError as error:
+                # Another process owns this world and is further ahead. This one is a
+                # leftover from a deploy: it keeps ticking in memory but must never write
+                # again, or it will rewind the world the moment it catches up.
+                self.store = None
+                self.stale = True
+                logger.error("%s; this process will not save again", error)
 
     def run(self, ticks: int) -> None:
         for _ in range(ticks):
@@ -215,6 +328,13 @@ class Simulation:
                         if world.has(entity, Standing)
                         else "member"
                     ),
+                    "rest_mode": agent.rest_mode,
+                    "owner": agent.owner_address,
+                    # Whether somebody outside this process is driving it. Shown so a
+                    # spectator can tell an agent running on rules from one a visitor
+                    # brought a mind for — which is the only visible difference between
+                    # them, since a mind confers no advantage.
+                    "mind": world.has(entity, AttachedMind),
                 }
             )
 
@@ -293,4 +413,13 @@ class Simulation:
                 "clanned": sum(1 for a in agents if a["clan"] is not None),
                 "user_agents": sum(1 for a in agents if a["user"]),
             },
+            "advisor": leadership.advisor_status(world),
+            # Real money the world may spend on itself. Surfaced so a monitor can
+            # alert on a halt or an exhausted envelope without reading world state.
+            "spend": spend.status(world),
+            "minds": minds.status(world),
+            # Receipts for paid decisions. A payment that leaves no trace in the world
+            # is indistinguishable from one that did nothing, so the world says who
+            # bought what and carries the transaction it was bought with.
+            "paid": _paid_receipts(world),
         }

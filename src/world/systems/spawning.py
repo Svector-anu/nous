@@ -27,6 +27,7 @@ from ..components import (
     Standing,
 )
 from ..ecs import Entity, World
+from .. import naming
 from ..rng import TickRng
 from . import markets
 
@@ -73,7 +74,10 @@ def _spawn(world: World, request: dict, rng: TickRng) -> Entity:
     world.add(
         entity,
         Agent(
-            name=str(request["name"]),
+            # Applied here rather than at the http door, so a name that arrives through
+            # any route — http, a2a, a replayed queue from an older save — gets the same
+            # treatment. The queue is the one place every spawn passes through.
+            name=naming.clean(str(request["name"]), entity),
             personality=str(request.get("personality", "")),
             user_deployed=True,
             spawn_tick=world.tick,

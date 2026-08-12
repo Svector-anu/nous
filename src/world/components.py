@@ -82,9 +82,16 @@ class Agent:
     received: int = 0
     personality: str = ""
     user_deployed: bool = False
+    rest_mode: bool = False
     raids_won: int = 0
     raids_lost: int = 0
     spawn_tick: int = 0
+    # A linked wallet address, lowercased, or "" for the overwhelming majority of agents.
+    # This is a *label*: nothing in src/world/systems reads it, and nothing may. Ownership
+    # is not advantage — a registered agent starves exactly like the rest (NEXT.md, "do
+    # not reopen"). It lives on the component rather than in a side table so it survives
+    # a save without a second persistence path.
+    owner_address: str = ""
 
     def clear_target(self) -> None:
         self.target_entity = None
@@ -124,8 +131,17 @@ class ResourceNode:
 
 @dataclass
 class Building:
+    """A hut. Somebody built it, and until now nothing ever removed one.
+
+    That was the whole reason the world had no equilibrium: buildings only ever
+    accumulated, so a low cap left every agent with nothing to do and a high one buried
+    the map. `decay` is how a hut forgets it was ever needed — reset whenever its owner
+    is alive to use it, climbing when nobody is.
+    """
+
     kind: str
     owner: Entity | None = None
+    decay: int = 0
 
 
 class ClanGoal(str, Enum):
@@ -346,6 +362,70 @@ class Clan:
 
 
 @dataclass
+class RestQueue:
+    """User rest-mode requests waiting for a fixed tick to be applied.
+
+    A spectator toggling their agent's rest state is an input to the world, not a
+    simulation event, so it queues and is drained at a fixed point in the tick.
+    """
+
+    pending: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class ForceDecisionQueue:
+    """Paid pay-to-force-decision requests waiting for a fixed tick.
+
+    The api verifies payment and appends; the world applies the *recorded* request on a
+    later tick. That ordering is the whole point: what history depends on is this queue
+    entry, never the http request or the rpc call that produced it, so a replay does not
+    need the network and a settlement that arrives late still lands at a definite tick.
+
+    `spent` remembers proofs that have already been honoured so the same payment cannot
+    buy two decisions. Bounded by `x402_spent_limit`.
+
+    `applied` is the receipt: what a payment actually bought, kept so a spectator can see
+    that somebody paid and check the transaction themselves. Bounded like everything else
+    here — an append-only log inside a 24/7 world is an unbounded accumulator.
+    """
+
+    pending: list[dict] = field(default_factory=list)
+    spent: list[str] = field(default_factory=list)
+    applied: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class IdentityQueue:
+    """Wallet-link requests waiting for a fixed tick to be applied.
+
+    Linking is an input to the world in exactly the way a deployment or a rest toggle is.
+    The signature is verified at the api boundary — nothing inside the simulation touches
+    a network or a curve — and only the verified outcome queues here.
+
+    Bounded by `identity_queue_limit`.
+    """
+
+    pending: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class EscrowBook:
+    """Real-money deposits and payout intents, held by a single world entity.
+
+    Deliberately inert unless `real_money_enabled`. The demo credit book (`MarketBook`)
+    is untouched by this and stays demo — the two never share a balance.
+
+    This records *intent*, and only ever from settled world state. It never sends value:
+    a payout is an entry an operator's settlement job reads and marks paid, because a
+    transfer inside the tick loop would put the network on the critical path of history.
+    """
+
+    deposits: dict[str, int] = field(default_factory=dict)
+    payouts: list[dict] = field(default_factory=list)
+    next_id: int = 1
+
+
+@dataclass
 class MarketBook:
     """Prediction markets on simulation events, held by a single world entity.
 
@@ -370,3 +450,121 @@ class MarketBook:
     balances: dict[str, int] = field(default_factory=dict)
     next_id: int = 1
     last_scheduled_tick: int = 0
+
+
+@dataclass
+class SpendBook:
+    """Real money the world is allowed to spend on its own thinking, and the governor
+    that stands between an agent's intent and the wallet.
+
+    Everything else in this file moves numbers that only mean something inside the
+    simulation. This one moves money that leaves it, autonomously, while nobody is
+    watching — so it is built as a permission system first and a ledger second.
+
+    Three independent brakes, because a single number is a limit and not a control:
+
+    - `budget_units` is an *envelope* an operator approved. Agents spend freely inside
+      it and nothing at all outside it. Raising it is a deliberate act, recorded in
+      `approvals`, which is why a runaway costs exactly one envelope rather than a card.
+    - `per_tick_units` stops a burst. Without it a single tick could drain the whole
+      envelope before any notice is read, which makes the envelope decorative.
+    - `halted` is the kill switch. Set once, spending stops, and nothing but an operator
+      clears it. It is checked before the budget so a halt beats any amount of headroom.
+
+    `notices` is what makes this different from caps alone: threshold crossings are
+    recorded here for the monitor to read and send on. A cap tells you how much you can
+    lose. A notice tells you that you are losing it, which is the part that was missing
+    when an advisor died quietly and nobody knew for two days.
+
+    Units are the token's smallest denomination, never a float — the same reason the
+    payment verifier uses Decimal. `reserved_units` holds money committed to a call that
+    has not settled, so two concurrent spends cannot both fit in the same headroom.
+    """
+
+    # Off unless an operator turns it on. A deploy must never begin spending by itself.
+    enabled: bool = False
+    halted: bool = False
+    budget_units: int = 0
+    spent_units: int = 0
+    reserved_units: int = 0
+    per_tick_units: int = 0
+    spent_this_tick: int = 0
+    # Which tick `spent_this_tick` counts, so the burst cap resets without a scheduler.
+    tick_of_spend: int = -1
+    # agent id -> units earned in world. A claim on the pool, not a wallet: the agent
+    # never holds a key, which is what keeps this a ledger rather than custody.
+    #
+    # Keyed by *string*, like MarketBook.balances and for the same reason: this dict is
+    # persisted as json, and json has no integer keys. Keyed by int it round-tripped to
+    # {"1": 500}, every lookup by agent id missed, and every agent's earnings silently
+    # read as zero after a restart — money that vanishes without an error.
+    balances: dict[str, int] = field(default_factory=dict)
+    # Envelope changes, oldest first. The audit trail for "who approved this spend".
+    approvals: list[dict] = field(default_factory=list)
+    # Threshold crossings waiting to be read. Bounded like every accumulator here.
+    notices: list[dict] = field(default_factory=list)
+    # Settled spends, newest last. Bounded.
+    spends: list[dict] = field(default_factory=list)
+
+
+@dataclass
+class AttachedMind:
+    """A visitor drives the agent they deployed, from outside this process.
+
+    The world holds around a hundred agents and can afford to think for almost none of
+    them. A mind a visitor brings arrives with its own budget, which is the only way the
+    number of thinking agents grows without the operator's bill growing with it.
+
+    **The mind calls in; the world never calls out.** An earlier version stored an endpoint
+    here and had the server post to it, which made Nous a http client of fifty strangers —
+    server-side request forgery, dns rebinding, redirect handling, connection pinning, and
+    a thread pool to keep it all off the tick. Inverting it deletes that entire class
+    rather than defending against it, and it costs nothing: the state machine already
+    covers every gap, so a mind that says nothing is a mind that changed nothing.
+
+    Deliberately the narrowest possible seam. A mind sets `wants` — food or wood — and may
+    say something. It picks *differently*, never *better*: both values were already
+    reachable by the state machine, the agent gains no reach, no speed and no exemption
+    from hunger, and one with a mind starves exactly as fast as one without.
+
+    `token_hash` is a sha256 of a bearer token handed to the owner once. The token itself
+    is never stored: world state is saved to disk and shipped in backups, and a credential
+    that only exists as a hash cannot leak from either.
+    """
+
+    # The wallet that attached it. Only that wallet may attach, detach or re-issue.
+    owner: str = ""
+    token_hash: str = ""
+    enabled: bool = True
+    # Last tick a steer from this mind was actually applied. Doubles as the rate limit
+    # and as staleness — a mind that stops posting simply stops steering, and the fsm
+    # takes over with nothing to detect and no failure counter to keep.
+    last_steer_tick: int = -1
+    last_said: str = ""
+    steers: int = 0
+    # A model the visitor bought instead of running one themselves. Empty means the
+    # original arrangement: they run the mind and push steers in.
+    #
+    # This is a model *name*, checked against a catalog the marketplace publishes, never a
+    # url. That distinction is what keeps the rule above intact — the world calls one
+    # fixed host it already trusts, not an address a stranger chose.
+    model: str = ""
+    # Spent on this mind's thinking, in micro-dollars. Their money, so they get to see
+    # what it went on.
+    spent_units: int = 0
+    # Why the last attempt bought nothing, shown to the owner. A mind that silently stops
+    # is the failure the whole advisor-status work existed to stop repeating.
+    last_error: str = ""
+
+
+@dataclass
+class MindQueue:
+    """Steers waiting for a fixed tick, exactly like SpawnQueue and RestQueue.
+
+    A steer is an input to the simulation, so applying it the moment the request lands
+    would make history depend on wall clock. It queues and drains at a fixed point in the
+    tick instead, which is what keeps the same seed plus the same steers at the same ticks
+    rebuilding the same world.
+    """
+
+    pending: list[dict] = field(default_factory=list)

@@ -41,6 +41,25 @@ class WorldConfig:
     node_max_amount: int = 12
 
     max_huts_per_agent: int = 5
+    # A hut nobody owns falls down. Buildings were permanent, so the world had no
+    # equilibrium at all: a low cap left every agent idle with nothing left to build, and
+    # a high one covered the map until the agents were invisible under the roofs. Decay
+    # gives it a ceiling it finds by itself.
+    #
+    # Only *unowned* huts crumble — an owner who is alive keeps theirs standing however
+    # long they live. So this thins the sprawl left by the dead, not the town.
+    hut_decay_ticks: int = 900
+    # How long a hut lasts while its owner is alive and within their allowance. Zero
+    # means forever, which is what every world saved before this had.
+    #
+    # Forever turned out to be its own dead end. Once every agent held its six, nothing
+    # could fall, so nothing could be rebuilt: no wood to gather, nothing to build, not
+    # hungry enough to eat — and the state machine put two thirds of the world to sleep.
+    # The cap stopped the sprawl and took all the work with it.
+    #
+    # A hut that ages slowly gives the work back. An owner loses one every so often and
+    # builds it again, so the count stays near the cap while the world keeps moving.
+    hut_upkeep_ticks: int = 0
     global_build_stop_fraction: float = 0.6
 
     blackboard_ttl_ticks: int = 300
@@ -90,9 +109,32 @@ class WorldConfig:
     # How many times a request that was in flight across a restart may be re-sent before
     # being abandoned. Bounded so a crash loop cannot retry forever.
     llm_max_recovery_attempts: int = 2
-    llm_min_ticks_between_calls: int = 300
+    # Per-clan cooldown, and the setting that decides what a world costs to run. Every
+    # clan is asked independently, so the spend scales with the clan count: at 300 ticks
+    # a mature world of ~23 clans asks about 13,000 times a real day, which was invisible
+    # when this default was chosen against a world that had three. 3000 keeps a live world
+    # answering roughly once a minute — still visible to anyone watching — for a twentieth
+    # of the calls. Override per deployment with LLM_MIN_TICKS_BETWEEN_CALLS.
+    llm_min_ticks_between_calls: int = 3000
+    # What one advisor call costs, in the token's smallest unit — micro-dollars, since
+    # both accepted assets use six decimals. Measured against this world's actual prompt
+    # shape (~750 in, ~120 out) at Opus-tier pricing: about $0.0068.
+    #
+    # An estimate rather than a reading of token usage. The error is fractions of a cent
+    # per call, the per-tick cap bounds any drift, and a number that is slightly wrong and
+    # visible beats one that is exact and never arrives.
+    llm_cost_units_per_call: int = 6800
     llm_timeout_seconds: float = 30.0
     llm_log_limit: int = 200
+    # Minds a visitor attached to their own agent. Off by default: an endpoint on
+    # somebody else's machine must never be reached until an operator says so.
+    attached_minds_enabled: bool = False
+    # Per agent, so one busy mind cannot crowd out another. 20 ticks is a decision every
+    # twenty seconds, which is frequent enough to look alive and slow enough that a
+    # visitor's own bill stays small.
+    attached_mind_cooldown_ticks: int = 20
+    # Seam for future x402 / pay-to-force-decision. Disabled by default.
+    llm_force_decision_enabled: bool = False
 
     # --- prediction markets ---------------------------------------------------
     # Spectators bet on world events. Reads world state, never writes to it.
@@ -109,6 +151,56 @@ class WorldConfig:
     # Demo money. There is no real currency in this system.
     market_starting_balance: int = 1000
     market_max_stake: int = 100
+
+    # --- chain identity and payments ------------------------------------------
+    # Robinhood Chain. These are network coordinates, not credentials: the rpc url can
+    # carry a provider key, so it lives in the environment (src/chain/settings.py) and
+    # never in this dataclass — WorldConfig is persisted verbatim into world_meta.
+    #
+    # Nothing here changes a simulation rule. An address is a label on an agent, worth
+    # exactly zero in-world; see AGENTS.md and the "do not reopen" note in NEXT.md.
+    chain_id: int = 4663
+    chain_testnet_id: int = 46630
+    chain_name: str = "Robinhood Chain"
+    chain_explorer_url: str = "https://robinhoodchain.blockscout.com"
+    # Wallet linking. Off by default: an unconfigured deploy must not advertise a
+    # connect button that cannot verify anything.
+    chain_identity_enabled: bool = False
+    # One link request per user agent is plenty, and the bound stops the queue from
+    # becoming the unbounded accumulator every other queue here is capped to avoid.
+    identity_queue_limit: int = 32
+    # A verified payment proof is remembered so it cannot be replayed. Bounded for the
+    # same reason.
+    x402_spent_limit: int = 256
+
+    # x402 pay-to-act. "header" trusts an upstream proxy's verdict (the existing seam,
+    # useful in tests and behind a gateway); "chain" verifies a transaction receipt
+    # against the rpc. Live payments need X402_ENABLED=true *and* a reachable rpc.
+    x402_enabled: bool = False
+    x402_verifier: str = "header"
+    x402_price: str = "0.10"
+    x402_currency: str = "USDG"
+
+    # Funding the world's own thinking. A visitor pays what they like and the amount is
+    # credited to the spend envelope, so the people watching pay for the minds instead of
+    # the operator. Off by default, because taking money for compute is a decision.
+    #
+    # The floor exists so a dust transfer cannot mint an approval: every credit is an
+    # entry in the audit trail, and one worth 0.000001 is noise in a record that is
+    # supposed to answer "who paid for this".
+    world_funding_enabled: bool = False
+    world_funding_minimum: str = "0.10"
+    # What share of a paid decision the clan's leader keeps as its own earnings. The rest
+    # stays in the envelope for any clan to draw on.
+    #
+    # This is the only way an agent earns, and deliberately so: a balance is a *claim* on
+    # the pool, so minting one for winning a raid or building a hut would create claims the
+    # world has no money behind. Earnings can only come from money that actually arrived.
+    agent_earning_share: float = 0.5
+
+    # Real-money markets. Off until an operator configures custody; the demo credit
+    # markets above are unaffected either way and stay labelled demo in the viewer.
+    real_money_enabled: bool = False
 
     goal_review_ticks: int = 120
     goal_bias_chance: float = 0.6

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import get_type_hints
 
 from ..world import components as component_module
+from ..world.errors import StaleWorldError
 from ..world.config import WorldConfig
 from ..world.ecs import World
 
@@ -36,7 +37,17 @@ COMPONENT_TYPES: tuple[type, ...] = (
     component_module.DecisionLog,
     component_module.MessageLog,
     component_module.AdvisorState,
+    component_module.RestQueue,
+    component_module.ForceDecisionQueue,
+    component_module.IdentityQueue,
+    component_module.EscrowBook,
     component_module.MarketBook,
+    # Registered in the same commit it was defined: a component missing from this tuple
+    # is silently dropped on reload, and money that evaporates without an error is the
+    # worst possible thing to discover late.
+    component_module.SpendBook,
+    component_module.AttachedMind,
+    component_module.MindQueue,
 )
 
 _BY_NAME = {component_type.__name__: component_type for component_type in COMPONENT_TYPES}
@@ -114,6 +125,18 @@ class SqliteWorldStore:
         ).fetchone()
         return row is not None
 
+    def stored_tick(self) -> int | None:
+        """The tick already on disk, or None if nothing is saved."""
+        row = self._connection.execute(
+            "SELECT value FROM world_meta WHERE key = 'tick'"
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            return int(row[0])
+        except (TypeError, ValueError):
+            return None
+
     def save(self, world: World) -> None:
         rows = [
             (entity, component_type.__name__, _encode(component))
@@ -132,6 +155,14 @@ class SqliteWorldStore:
         }
 
         with self._connection:
+            # Checked inside the transaction, so two writers cannot both read an older
+            # tick and then both decide they are the newer one.
+            on_disk = self.stored_tick()
+            if on_disk is not None and on_disk > world.tick:
+                raise StaleWorldError(
+                    f"refusing to save tick {world.tick} over tick {on_disk}: "
+                    "another process owns this world"
+                )
             self._connection.execute("DELETE FROM components")
             self._connection.execute("DELETE FROM entities")
             self._connection.execute("DELETE FROM world_meta")
@@ -170,5 +201,13 @@ class SqliteWorldStore:
         # Migration: MessageLog was added after some saves; older worlds resume without it.
         if world.first(component_module.MessageLog) is None:
             world.add(world.create_entity(), component_module.MessageLog())
+        if world.first(component_module.RestQueue) is None:
+            world.add(world.create_entity(), component_module.RestQueue())
+        if world.first(component_module.ForceDecisionQueue) is None:
+            world.add(world.create_entity(), component_module.ForceDecisionQueue())
+        if world.first(component_module.IdentityQueue) is None:
+            world.add(world.create_entity(), component_module.IdentityQueue())
+        if world.first(component_module.EscrowBook) is None:
+            world.add(world.create_entity(), component_module.EscrowBook())
 
         return world

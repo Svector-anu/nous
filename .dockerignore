@@ -1,0 +1,30 @@
+# Secrets. The Dockerfile copies only src/ and scripts/, so .env should never reach an
+# image anyway — this is the second lock, because a key baked into a layer is still in the
+# layer after you delete the file, and images get pushed to registries.
+.env
+.env.*
+!.env.example
+
+# The world lives on a mounted volume, not in the image. Copying it in would ship a
+# snapshot that every deploy silently reverts to.
+data/
+*.db
+*.db-journal
+
+# Local noise
+.git/
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.claude/
+.DS_Store
+
+# Design references and screenshots — large, and nothing reads them at runtime.
+*.png
+*.jpg
+*.jpeg
+*.mp4
+!src/viewer/**

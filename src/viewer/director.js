@@ -22,9 +22,11 @@ const SHOT_SECONDS = { establish: 8, orbit: 7, push: 6, follow: 7, survey: 9, vi
 const SCORE = {
   raid: 100,        // a raid resolved this tick
   death: 70,        // somebody died
+  leader: 55,       // a clan changed hands
   fleeing: 45,      // an agent running for its life
   building: 30,     // a hut went up
   arrival: 34,      // a user-deployed agent turned up
+  paid: 88,         // somebody paid to change a clan's mind
   goalChange: 22,   // a clan changed its mind
   crowd: 3,         // per agent standing in the densest cluster
   user: 18,         // a user-deployed agent, always a bit interesting
@@ -44,7 +46,13 @@ function makeRng(seed) {
 
 // What changed between two snapshots. This is where "interesting" comes from: a single
 // snapshot cannot tell you that a raid just happened, only that raid counts are non-zero.
-export function findEvents(previous, snapshot) {
+// `isMine` is passed in rather than assumed. `agent.user` only means "some visitor
+// deployed this" — it says nothing about *which* visitor. Reading it as ownership is the
+// same fault that put strangers' agents under My Agents and offered Rest on them; this
+// was the third copy of it, and the one that kept calling other people's agents "(yours)"
+// in the world log after the other two were fixed. The default is "nothing is mine",
+// because guessing wrong here tells somebody they own a character they do not.
+export function findEvents(previous, snapshot, isMine = () => false) {
   const events = [];
   if (!snapshot) return events;
 
@@ -66,9 +74,11 @@ export function findEvents(previous, snapshot) {
       events.push({ kind: "fleeing", score: SCORE.fleeing, x: agent.x, y: agent.y, agent: agent.id,
         label: `${agent.name} is fleeing` });
     }
+    // Every visitor-deployed agent still scores for the camera — a player's character is
+    // worth looking at whoever made it — but only the viewer's own is labelled as theirs.
     if (agent.user) {
       events.push({ kind: "user", score: SCORE.user, x: agent.x, y: agent.y, agent: agent.id,
-        label: `${agent.name} (yours)` });
+        label: isMine(agent) ? `${agent.name} (yours)` : `${agent.name}` });
     }
   }
 
@@ -87,12 +97,58 @@ export function findEvents(previous, snapshot) {
         label: "a hut goes up" });
     }
 
+    // A succession is the only major event with nothing to see: the same people stand in
+    // the same field, and only the name at the top has changed. Without a line in the log
+    // it passes completely unnoticed, so it is reported from the clan record rather than
+    // from anything visible on the map.
+    const names = new Map(snapshot.agents.map((a) => [a.id, a.name]));
+    const leaders = new Map(previous.clans.map((c) => [c.id, c.leader]));
+    for (const clan of snapshot.clans) {
+      if (!clan.centre || !clan.leader) continue;
+      // Only clans that existed last tick: a clan appearing with a leader already in place
+      // is a founding, not a succession.
+      if (!leaders.has(clan.id)) continue;
+      if (leaders.get(clan.id) === clan.leader) continue;
+      events.push({
+        kind: "leader", score: SCORE.leader, x: clan.centre[0], y: clan.centre[1],
+        agent: clan.leader,
+        label: `${names.get(clan.leader) ?? "someone"} now leads clan ${clan.id}`,
+      });
+    }
+
+    // Somebody paid. Worth reporting louder than an ordinary goal change, because a
+    // spectator watching a free world should notice the moment money touched it.
+    const paidBefore = new Set((previous.paid || []).map((p) => `${p.clan_id}:${p.tick}`));
+    for (const receipt of snapshot.paid || []) {
+      if (paidBefore.has(`${receipt.clan_id}:${receipt.tick}`)) continue;
+      const clan = snapshot.clans.find((c) => c.id === receipt.clan_id);
+      if (!clan || !clan.centre) continue;
+      events.push({
+        kind: "paid", score: SCORE.paid, x: clan.centre[0], y: clan.centre[1],
+        label: `somebody paid to make clan ${receipt.clan_id} reconsider`,
+        proof: receipt.proof || "",
+      });
+    }
+
     const goals = new Map(previous.clans.map((c) => [c.id, c.goal]));
     for (const clan of snapshot.clans) {
       if (!clan.centre) continue;
       if (goals.has(clan.id) && goals.get(clan.id) !== clan.goal) {
-        events.push({ kind: "goalChange", score: SCORE.goalChange, x: clan.centre[0], y: clan.centre[1],
-          label: `clan ${clan.id} decides to ${clan.goal}` });
+        // A leader that reasoned about it says why. That sentence was already in every
+        // snapshot and shown nowhere — it is the only place the world explains itself in
+        // its own words rather than being described from outside.
+        const because = (clan.goal_reason || "").trim();
+        events.push({
+          kind: "goalChange", score: SCORE.goalChange,
+          x: clan.centre[0], y: clan.centre[1],
+          label: because
+            ? `clan ${clan.id} decides to ${clan.goal} — “${because}”`
+            : `clan ${clan.id} decides to ${clan.goal}`,
+          // Kept apart from the label so the log can style the quote and the camera can
+          // rank a reasoned decision above a routine one.
+          reason: because,
+          reasoned: Boolean(because),
+        });
       }
     }
   }

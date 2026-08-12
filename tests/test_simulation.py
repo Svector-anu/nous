@@ -18,14 +18,26 @@ def _simulate(ticks: int) -> Simulation:
 def test_systems_run_in_the_documented_order():
     assert build_registry().names() == [
         "spawning",
+        # Straight after spawning: a wallet label attaches on the same tick the agent
+        # becomes visible. Writes only Agent.owner_address, which no system reads.
+        "identity",
         "messaging",
         "needs",
         "trade",
+        "resting",
         "combat",
         "fsm",
+        # After the fsm, before movement. The state machine writes `wants` itself every
+        # tick, so a steer applied before it is overwritten within the same tick and never
+        # reaches the world.
+        "minds",
         "movement",
         "build",
         "regrowth",
+        # After build, so a hut raised this tick is not judged on the same one. Buildings
+        # were permanent until this existed, which is why the world had no size it could
+        # settle at.
+        "decay",
         "leadership",
         "social",
         "standing",
@@ -90,6 +102,9 @@ def test_snapshot_shape():
     assert set(snapshot["agents"][0]) == {
         "id", "name", "x", "y", "state", "energy", "hunger", "food", "wood", "clan",
         "user", "personality", "wants", "huts", "raids_won", "raids_lost", "received",
-        "target", "standing", "rank",
+        "target", "standing", "rank", "rest_mode", "owner",
+        # Whether somebody outside this process is driving it. The only visible difference
+        # between an agent on rules and one a visitor brought a mind for.
+        "mind",
     }
     assert set(snapshot["resources"][0]) == {"id", "x", "y", "kind", "amount", "max"}
