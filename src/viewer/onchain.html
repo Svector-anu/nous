@@ -1,0 +1,165 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Nous — onchain receipts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Transactions this world put on a public chain: decisions somebody paid for, and the proof they happened.">
+<style>
+  :root {
+    --bg: #0a0e14; --panel: #11161d; --line: #1e2630;
+    --ink: #c9d1d9; --dim: #667080; --go: #6ee274; --link: #58a6ff;
+    --warn: #d29922; --bad: #f85149;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px 64px; background: var(--bg); color: var(--ink);
+    font: 14px/1.6 var(--mono);
+  }
+  main { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 6px; color: var(--ink); letter-spacing: .02em; }
+  .sub { color: var(--dim); margin: 0 0 28px; max-width: 62ch; }
+  a { color: var(--link); }
+  .status {
+    display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 12px 14px; margin-bottom: 24px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12px;
+  }
+  .status b { color: var(--ink); font-weight: 600; }
+  .status span { color: var(--dim); }
+  .card {
+    border: 1px solid var(--line); border-left: 2px solid var(--go); border-radius: 6px;
+    background: var(--panel); padding: 16px 18px; margin-bottom: 14px;
+  }
+  .head { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; margin-bottom: 12px; }
+  .goal { color: var(--go); font-size: 15px; font-weight: 600; }
+  .who { color: var(--dim); }
+  .row { display: grid; grid-template-columns: 92px 1fr; gap: 10px; padding: 3px 0; }
+  .k { color: var(--dim); }
+  .v { overflow-wrap: anywhere; }
+  .hash { font-size: 12px; }
+  .tag {
+    display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px;
+    border: 1px solid currentColor;
+  }
+  .ok { color: var(--go); } .unknown { color: var(--dim); } .no { color: var(--bad); }
+  .reason { color: var(--ink); border-left: 2px solid var(--line); padding-left: 10px; margin: 10px 0 0; }
+  .empty { border: 1px dashed var(--line); border-radius: 6px; padding: 28px; text-align: center; color: var(--dim); }
+  footer { margin-top: 32px; color: var(--dim); font-size: 12px; }
+</style>
+<main>
+  <h1>onchain receipts</h1>
+  <p class="sub">
+    Somebody paid this world to make a clan leader reconsider. Each receipt below is that
+    decision, written to a public chain — the payment that bought it, and the transaction
+    proving it happened. The world never waits on the chain and never reads from it.
+  </p>
+
+  <div class="status" id="status"><span>loading…</span></div>
+  <div id="list"></div>
+
+  <footer>
+    <a href="/">← the world</a> ·
+    <a href="/onchain" id="raw">raw json</a> ·
+    <a href="https://github.com/Svector-anu/nous">source</a>
+  </footer>
+</main>
+<script>
+const el = (t, c, s) => { const n = document.createElement(t); if (c) n.className = c; if (s !== undefined) n.textContent = s; return n; };
+
+function row(key, value, cls) {
+  const r = el("div", "row");
+  r.append(el("span", "k", key), el("span", "v " + (cls || ""), value));
+  return r;
+}
+
+function link(href, text) {
+  const a = el("a", "", text); a.href = href; a.target = "_blank"; a.rel = "noopener";
+  return a;
+}
+
+// null means nobody managed to ask, which is not the same as a check that came back
+// false — the first is our failure, the second is the chain's answer.
+function verdict(receipt) {
+  if (receipt.verified === true) return ["verified onchain", "ok"];
+  if (receipt.verified === false) return ["not verified", "no"];
+  return ["unconfirmed", "unknown"];
+}
+
+function card(receipt) {
+  const box = el("div", "card");
+  const head = el("div", "head");
+  head.append(
+    el("span", "goal", receipt.goal || "reconsidered"),
+    el("span", "who", `clan ${receipt.clan} · tick ${receipt.tick}`)
+  );
+  const [label, cls] = verdict(receipt);
+  const tag = el("span", "tag " + cls, label);
+  head.append(tag);
+  box.append(head);
+
+  const paid = receipt.paid || {};
+  if (paid.amount) box.append(row("paid", `${paid.amount} ${paid.currency || ""}`.trim()));
+  if (receipt.source) box.append(row("decided by", receipt.source));
+
+  const txRow = el("div", "row");
+  txRow.append(el("span", "k", "receipt"));
+  const txCell = el("span", "v hash");
+  txCell.append(receipt.link ? link(receipt.link, receipt.tx) : el("span", "", receipt.tx));
+  txRow.append(txCell);
+  box.append(txRow);
+
+  const proof = String(paid.proof || "");
+  const hash = proof.includes("tx:") ? proof.split("tx:")[1] : "";
+  if (hash) {
+    const payRow = el("div", "row");
+    payRow.append(el("span", "k", "payment"));
+    const cell = el("span", "v hash");
+    cell.append(link(`https://basescan.org/tx/${hash}`, hash));
+    payRow.append(cell);
+    box.append(payRow);
+  }
+
+  if (receipt.reason) box.append(el("p", "reason", receipt.reason));
+  return box;
+}
+
+async function load() {
+  const status = document.getElementById("status");
+  const list = document.getElementById("list");
+  let data;
+  try {
+    data = await (await fetch("/onchain", { headers: { accept: "application/json" } })).json();
+  } catch {
+    status.replaceChildren(el("span", "", "could not reach the world"));
+    return;
+  }
+
+  status.replaceChildren();
+  const bits = [
+    ["writing onchain", data.enabled ? "yes" : "no"],
+    ["configured", data.configured ? "yes" : "no"],
+    ["chain", data.chain_id === 84532 ? "base sepolia" : data.chain_id === 8453 ? "base" : String(data.chain_id)],
+    ["earns a receipt", data.earns_a_receipt || "—"],
+  ];
+  for (const [k, v] of bits) {
+    const s = el("span");
+    s.append(el("span", "", k + " "), el("b", "", v));
+    status.append(s);
+  }
+
+  const receipts = data.receipts || [];
+  if (!receipts.length) {
+    // Deliberate, not broken: receipts are held in memory beside the world, so a redeploy
+    // clears them. Saying so is better than an empty page that reads as a failure.
+    const box = el("div", "empty");
+    box.append(
+      el("div", "", "no receipts held right now."),
+      el("div", "", "they are kept in memory beside the world, so a restart clears them — the chain keeps the durable copy.")
+    );
+    list.replaceChildren(box);
+    return;
+  }
+  list.replaceChildren(...receipts.slice().reverse().map(card));
+}
+load();
+setInterval(load, 15000);
+</script>

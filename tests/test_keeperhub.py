@@ -819,3 +819,47 @@ def test_the_key_never_leaves_the_auth_header(monkeypatch):
     sent = FakeClient.sent[-1]
     assert sent["headers"]["authorization"] == f"Bearer {KEY}"
     assert KEY not in sent["url"]
+
+
+# --- one url, two audiences ----------------------------------------------------------
+#
+# /onchain is the url published in the project's own writeup, so it has to answer a person
+# who followed a link called "receipts" as well as a client that wants the data. Serving
+# json to the first wastes the only thing the endpoint exists to communicate.
+
+
+def test_a_browser_gets_a_page(tmp_path: pathlib.Path):
+    app = create_app(APP_CONFIG, tmp_path / "k.db")
+    with TestClient(app) as client:
+        response = client.get("/onchain", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "onchain receipts" in response.text
+
+
+def test_a_client_still_gets_json(tmp_path: pathlib.Path):
+    """The published contract. A page that broke this would break every caller."""
+    app = create_app(APP_CONFIG, tmp_path / "k.db")
+    with TestClient(app) as client:
+        response = client.get("/onchain", headers={"accept": "application/json"})
+
+    assert response.status_code == 200
+    assert response.json()["receipts"] == []
+
+
+def test_a_caller_that_asks_for_nothing_gets_json(tmp_path: pathlib.Path):
+    """curl sends */*. Defaulting that to html would hand a wall of markup to every script
+    that ever read this endpoint."""
+    app = create_app(APP_CONFIG, tmp_path / "k.db")
+    with TestClient(app) as client:
+        response = client.get("/onchain", headers={"accept": "*/*"})
+
+    assert response.json()["chain_id"] == keeperhub.DEFAULT_CHAIN_ID
+
+
+def test_the_page_never_carries_the_key():
+    """It is served to anyone. The api key is read server-side and must not be near it."""
+    page = pathlib.Path("src/viewer/onchain.html").read_text()
+    assert "kh_" not in page
+    assert "KEEPERHUB_API_KEY" not in page
