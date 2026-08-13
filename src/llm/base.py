@@ -48,6 +48,10 @@ class GoalBrief:
     # Leader's personality note, if any. Empty for genesis agents.
     leader_personality: str = ""
     leader_name: str = ""
+    # Per-clan model override. Empty means use the advisor's own default. Populated from
+    # Clan.advisor_model so a spectator's choice travels with the brief into the worker
+    # thread without touching the shared advisor instance.
+    model: str = ""
 
     def as_prompt(self) -> str:
         lines = [

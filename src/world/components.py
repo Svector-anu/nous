@@ -306,6 +306,11 @@ class Clan:
     goal_source: str = "rules"
     goal_reason: str = ""
     last_advisor_tick: int = -1
+    # Which model reasons for this clan's leader. Empty string means the world default
+    # (config.llm_model). Set by a spectator via POST /clans/{clan_id}/advisor-model;
+    # cleared by posting "" to revert to the world default. Safe for saves that predate
+    # this field: _decode uses **payload, so missing fields get the dataclass default.
+    advisor_model: str = ""
     # Who has robbed us: "attacker_clan_id" -> [times_raided, last_raid_tick].
     # Keys are strings because this round-trips through json, and kept sorted for the
     # same reason the blackboard is — a reloaded world must iterate identically.

@@ -39,6 +39,39 @@ DGRID_BASE_URL = "https://api.dgrid.ai/v1"
 _JSON_OBJECT = re.compile(r"\{.*\}", re.S)
 
 
+def list_models(base_url: str, api_key_env: str) -> list[str]:
+    """Fetch the model list from an OpenAI-compatible gateway.
+
+    Returns a sorted list of model IDs. An empty list means the gateway was
+    unreachable, returned an error, or the response was malformed — all failures
+    are contained here so the caller can serve a stale list or a static fallback.
+
+    Never call this from a system or the tick loop: it is a network round-trip.
+    """
+    import httpx
+
+    api_key = os.environ.get(api_key_env, "")
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        response = httpx.get(
+            f"{base_url.rstrip('/')}/models",
+            headers=headers,
+            timeout=8.0,
+        )
+        response.raise_for_status()
+        body = response.json()
+        ids = [
+            item["id"]
+            for item in (body.get("data") or [])
+            if isinstance(item, dict) and item.get("id")
+        ]
+        return sorted(ids)
+    except Exception:  # noqa: BLE001 — any failure returns empty list
+        return []
+
+
 class OpenAICompatibleAdvisor(ThreadedAdvisor):
     """Any endpoint exposing the OpenAI chat-completions contract."""
 
@@ -87,8 +120,10 @@ class OpenAICompatibleAdvisor(ThreadedAdvisor):
         return isinstance(error, RuntimeError) and "is not set" in str(error)
 
     def _payload(self, brief: GoalBrief) -> dict[str, Any]:
+        # Use the per-clan override when present; fall back to the advisor's own default.
+        model = brief.model or self.model
         return {
-            "model": self.model,
+            "model": model,
             "max_tokens": self.max_tokens,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
