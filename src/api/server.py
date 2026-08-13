@@ -1997,6 +1997,10 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                 executed = await keeperhub.fire_action(memo=memo)
                 if executed is None:
                     continue
+                # Ask their audit trail what the chain says, rather than serving our own
+                # reading of the write path's answer back to somebody who has no reason to
+                # trust us. Fail-soft: an unanswered check leaves the receipt intact.
+                executed = await keeperhub.confirm(executed)
                 _remember_receipt(
                     app,
                     {
@@ -2015,6 +2019,12 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                         },
                         "tx": executed.tx_hash,
                         "link": executed.link,
+                        # What KeeperHub's audit trail says, re-fetched from the chain.
+                        # None means nobody managed to ask, which is different from a
+                        # check that came back false.
+                        "verified": executed.verified,
+                        "receipt_status": executed.receipt_status,
+                        "execution_id": executed.execution_id,
                     },
                 )
 

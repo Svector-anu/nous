@@ -711,3 +711,111 @@ def test_a_decision_paid_for_while_running_still_earns_one(monkeypatch):
 
     assert len(FakeClient.sent) == 1
     assert [r["tx"] for r in app.state.onchain_receipts] == [TX]
+
+
+# --- their audit trail, not ours -----------------------------------------------------
+#
+# The transfer response says a transaction was sent. KeeperHub is explicit that
+# `transactionHash` is self-reported by the write path, while `receipts` on the status
+# endpoint is re-fetched from the chain. Serving our reading of the first one to somebody
+# who has no reason to trust this server is the trust-me problem one level up.
+
+
+class FakeGetClient(FakeClient):
+    """Same recorder, answering GET as well."""
+
+    async def get(self, url, headers=None):
+        FakeClient.sent.append({"url": url, "headers": headers, "method": "GET"})
+        if self.raises is not None:
+            raise self.raises
+        return self.answer
+
+
+def _status(monkeypatch, answer=None, raises=None):
+    monkeypatch.setenv(keeperhub.ENABLED_ENV, "true")
+    monkeypatch.setenv(keeperhub.API_KEY_ENV, KEY)
+    reply = answer if answer is not None else FakeResponse(
+        200, {"receipts": [{"verified": True, "receiptStatus": "success"}]}
+    )
+    monkeypatch.setattr(
+        keeperhub.httpx, "AsyncClient", lambda **kw: FakeGetClient(reply, raises=raises)
+    )
+
+
+def _confirm(execution):
+    return asyncio.run(keeperhub.confirm(execution))
+
+
+def test_the_execution_id_is_kept(monkeypatch):
+    """Dropped, there is nothing to ask the audit trail about."""
+    _live(monkeypatch)
+    assert _execute(memo="m").execution_id == "direct_1"
+
+
+def test_the_chain_verdict_is_read_from_their_audit_trail(monkeypatch):
+    _status(monkeypatch)
+    checked = _confirm(keeperhub.Execution(tx_hash=TX, link="", execution_id="direct_1"))
+    assert checked.verified is True
+    assert checked.receipt_status == "success"
+
+
+def test_the_status_call_goes_to_the_documented_endpoint(monkeypatch):
+    _status(monkeypatch)
+    _confirm(keeperhub.Execution(tx_hash=TX, link="", execution_id="direct_9"))
+    assert FakeClient.sent[-1]["url"] == (
+        "https://app.keeperhub.com/api/execute/direct_9/status"
+    )
+
+
+def test_a_failed_receipt_is_reported_as_such(monkeypatch):
+    """`verified: false` is an answer, not an error. A receipt that hid it would be
+    claiming more than the chain said."""
+    _status(
+        monkeypatch,
+        FakeResponse(200, {"receipts": [{"verified": False, "receiptStatus": "reverted"}]}),
+    )
+    checked = _confirm(keeperhub.Execution(tx_hash=TX, link="", execution_id="direct_1"))
+    assert checked.verified is False
+    assert checked.receipt_status == "reverted"
+
+
+@pytest.mark.parametrize(
+    "answer,raises",
+    [
+        (FakeResponse(500, {}, "upstream"), None),
+        (FakeResponse(200, None, "not json"), None),
+        (FakeResponse(200, {"receipts": []}), None),
+        (FakeResponse(200, {}), None),
+        (None, httpx.ConnectError("down")),
+    ],
+)
+def test_a_check_that_fails_never_costs_us_the_receipt(monkeypatch, answer, raises):
+    """The whole point of doing this second: a transaction hash in hand is worth more than
+    a verification we could not obtain."""
+    _status(monkeypatch, answer, raises=raises)
+    original = keeperhub.Execution(tx_hash=TX, link="L", execution_id="direct_1")
+    checked = _confirm(original)
+    assert checked.tx_hash == TX
+    assert checked.link == "L"
+    assert checked.verified is None
+
+
+def test_nothing_is_asked_without_an_execution_id(monkeypatch):
+    _status(monkeypatch)
+    _confirm(keeperhub.Execution(tx_hash=TX, link=""))
+    assert FakeClient.sent == []
+
+
+def test_a_disabled_world_asks_nothing(monkeypatch):
+    _status(monkeypatch)
+    monkeypatch.setenv(keeperhub.ENABLED_ENV, "false")
+    _confirm(keeperhub.Execution(tx_hash=TX, link="", execution_id="direct_1"))
+    assert FakeClient.sent == []
+
+
+def test_the_key_never_leaves_the_auth_header(monkeypatch):
+    _status(monkeypatch)
+    _confirm(keeperhub.Execution(tx_hash=TX, link="", execution_id="direct_1"))
+    sent = FakeClient.sent[-1]
+    assert sent["headers"]["authorization"] == f"Bearer {KEY}"
+    assert KEY not in sent["url"]
