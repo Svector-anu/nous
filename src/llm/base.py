@@ -293,8 +293,22 @@ class ThreadedAdvisor(ABC):
             try:
                 decision = future.result()
             except Exception as error:  # noqa: BLE001 - any failure falls back to rules
+                # Distinguish between a global credential failure (disable the
+                # shared advisor) and a per-brief model/auth issue. A mistyped or
+                # unsupported per-clan model can produce a 401/403 from some
+                # gateways; treat these as a failure for that clan only so one
+                # spectator cannot kill the world's advisor for everyone.
                 if self._is_auth_failure(error):
-                    self._disable(f"authentication failed: {error}")
+                    if getattr(brief, "model", ""):
+                        logger.warning(
+                            "clan %d: %s advisor auth failure for model %r, falling back to rules (not disabling advisor): %s",
+                            brief.clan_id,
+                            self.name,
+                            brief.model,
+                            error,
+                        )
+                    else:
+                        self._disable(f"authentication failed: {error}")
                 else:
                     logger.warning(
                         "clan %d: %s advisor failed (%s), falling back to rules",
