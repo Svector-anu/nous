@@ -43,6 +43,8 @@ planish/
 
 # planning notes stay on the machine that made them
 PLAN.md
+nous-demo-plan.md
+nous-ship-plan.md
 
 # Working notes, local only. `planish/` above was ignored from the start but `plan/` was
 # not, so six phase documents were tracked in a repo that is now public. These stay on the
