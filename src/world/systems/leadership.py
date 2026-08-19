@@ -100,6 +100,8 @@ def advisor_status(world: World) -> dict:
         "calls_made": calls_made,
         "max_calls": max_calls,
         "budget_spent": budget_spent,
+        # The world-wide default model. Per-clan overrides show up on the clan itself.
+        "model": getattr(config, "llm_model", ""),
     }
 
 
@@ -244,6 +246,9 @@ def _brief(world: World, clan: Clan, nearby: int):
         rules_goal=_choose_goal(world, clan).value,
         leader_personality=leader_agent.personality if leader_agent is not None else "",
         leader_name=leader_agent.name if leader_agent is not None else "",
+        # Carry the clan's chosen model override into the worker thread. Empty means
+        # "use the advisor's default"; the advisor resolves it without a shared mutation.
+        model=clan.advisor_model,
     )
 
 

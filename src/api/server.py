@@ -31,6 +31,7 @@ from ..world.components import (
     AttachedMind,
     Clan,
     ClanRef,
+    Standing,
     ForceDecisionQueue,
     Position,
     RestQueue,
@@ -38,6 +39,7 @@ from ..world.components import (
 from ..world.config import WorldConfig
 from ..llm import surplus
 from ..llm.advisor import build_advisor
+from ..llm.openai_advisor import DGRID_BASE_URL, list_models as _list_gateway_models
 from ..world import bought_minds, spend
 from ..world.systems import identity, leadership, markets, minds, resting, spawning
 from ..world.tick import (
@@ -99,6 +101,16 @@ class LinkRequest(BaseModel):
     session: str = Field(..., description="session token returned by /chain/verify")
 
 
+class AdvisorModelRequest(BaseModel):
+    """Set or clear a per-clan model override.
+
+    Posting an empty string clears the override and reverts the clan to the world default.
+    Posting a model name pins the next advisor call for this clan to that model.
+    """
+
+    model: str = Field(default="", description="model id (e.g. 'anthropic/claude-sonnet-4'), or '' to reset")
+
+
 logger = logging.getLogger("neociv")
 
 VIEWER_INDEX = Path(__file__).resolve().parent.parent / "viewer" / "index.html"
@@ -108,6 +120,24 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "world.db"
 # A proven wallet is remembered for this long, then must be proven again.
 SESSION_TTL_SECONDS = 24 * 60 * 60
 MAX_SESSIONS = 512
+
+# Cache for the advisor model list fetched from the gateway. Avoids hitting the remote
+# API on every request while still refreshing occasionally. Tuple of (fetched_at, models).
+_MODEL_LIST_CACHE: tuple[float, list[str]] | None = None
+_MODEL_LIST_TTL = 60.0  # seconds
+
+# Simple in-process rate limiter for model changes: clan_id -> list of recent timestamps
+_CLAN_MODEL_RATE: dict[int, list[float]] = {}
+# Allow at most this many changes per clan in `CLAN_RATE_WINDOW` seconds.
+CLAN_RATE_WINDOW = 60.0
+CLAN_RATE_LIMIT = 3
+
+# Static model list for the Anthropic native provider (no /v1/models endpoint).
+_ANTHROPIC_STATIC_MODELS = [
+    "claude-opus-5",
+    "claude-sonnet-4",
+    "claude-haiku-4",
+]
 
 
 class SessionStore:
@@ -1314,6 +1344,175 @@ def create_app(
                 "advisor": type(advisor).__name__ if advisor is not None else None,
                 "pending": advisor.pending() if advisor is not None else 0,
                 "entries": list(current.entries) if current is not None else [],
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.get("/advisor/models")
+    async def advisor_models() -> JSONResponse:
+        """Models available for clan-leader reasoning on this world.
+
+        For DGrid the list is fetched from the gateway and cached for a short period;
+        a failure or outage returns the last good list (or an empty one on first call).
+        The 'default' field is what `config.llm_model` resolves to right now.
+
+        The UI uses this to populate the per-clan model picker. Never call this from a
+        system or the tick loop — it is a network round trip.
+        """
+        global _MODEL_LIST_CACHE
+        world = app.state.simulation.world
+        config = world.config
+        provider = (getattr(config, "llm_provider", "") or "").strip().lower()
+        default_model = getattr(config, "llm_model", "")
+
+        if provider == "dgrid":
+            now = time.monotonic()
+            if _MODEL_LIST_CACHE is None or now - _MODEL_LIST_CACHE[0] > _MODEL_LIST_TTL:
+                api_key_env = getattr(config, "llm_api_key_env", "") or "DGRID_API_KEY"
+                base_url = (getattr(config, "llm_base_url", "") or "").strip() or DGRID_BASE_URL
+                loop = asyncio.get_running_loop()
+                fresh = await loop.run_in_executor(None, _list_gateway_models, base_url, api_key_env)
+                # Replace the cache on success. If the fetch failed and we have no
+                # prior cache, record the empty result too so callers do not hammer
+                # the gateway repeatedly during an outage. If a stale cache exists,
+                # keep it (don't overwrite with empty) so the UI still shows known
+                # models while the gateway is flaky.
+                if fresh:
+                    _MODEL_LIST_CACHE = (now, fresh)
+                elif _MODEL_LIST_CACHE is None:
+                    _MODEL_LIST_CACHE = (now, fresh)
+            models = _MODEL_LIST_CACHE[1] if _MODEL_LIST_CACHE else []
+        elif provider == "anthropic":
+            models = _ANTHROPIC_STATIC_MODELS
+        else:
+            models = []
+
+        return JSONResponse(
+            {
+                "provider": provider,
+                "default": default_model,
+                "models": models,
+                "llm_enabled": bool(getattr(config, "llm_enabled", False)),
+            },
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
+
+    @app.post("/clans/{clan_id}/advisor-model", status_code=200)
+    async def set_clan_advisor_model(clan_id: int, request: AdvisorModelRequest, http_request: Request) -> JSONResponse:
+        """Set or clear the per-clan model override for a clan leader.
+
+        Posting a non-empty model name pins the next advisor call for this clan to that
+        model, regardless of the world-wide llm_model setting. Posting an empty string
+        clears the override and reverts to the world default.
+
+        No payment required — model selection is the observation mechanic, not a paid
+        action. The world budget (llm_max_calls_per_session) is unaffected by which model
+        is chosen; it still limits total call count.
+        """
+        world = app.state.simulation.world
+        config = world.config
+
+        if not getattr(config, "llm_enabled", False):
+            raise HTTPException(403, "llm is not enabled on this world")
+
+        # Find the clan early so auth checks can inspect its membership.
+        target: Clan | None = None
+        for entity in world.query(Clan):
+            clan = world.get(entity, Clan)
+            if clan.clan_id == clan_id:
+                target = clan
+                break
+        if target is None:
+            raise HTTPException(404, f"clan {clan_id} not found")
+
+        # Require an authenticated session to change a clan's model, unless an
+        # operator override token is supplied. The session must own an `officer`
+        # in the clan to be authorized to change its model.
+        if not world.config.chain_identity_enabled:
+            raise HTTPException(403, "wallet identity must be enabled to change clan models")
+
+        # Operator override: an operator may set `OPERATOR_OVERRIDE_TOKEN` in the
+        # environment and present it via `X-Operator-Token` header to bypass auth.
+        op_token = http_request.headers.get("X-Operator-Token", "")
+        operator_bypass = False
+        if op_token and os.environ.get("OPERATOR_OVERRIDE_TOKEN", "") and op_token == os.environ.get("OPERATOR_OVERRIDE_TOKEN", ""):
+            operator_bypass = True
+
+        proven = ""
+        if not operator_bypass:
+            auth_header = http_request.headers.get("Authorization", "")
+            session_token = ""
+            if auth_header.startswith("Bearer "):
+                session_token = auth_header.removeprefix("Bearer ").strip()
+            # The viewer may also include a `session` field in the JSON body; accept it
+            # as a fallback for compatibility with some clients.
+            if not session_token:
+                session_token = getattr(request, "session", "") or ""
+
+            proven = app.state.sessions.address(session_token) if session_token else ""
+            if not proven:
+                raise HTTPException(401, "session is unknown or expired")
+
+            # Check ownership and rank: the proven address must own an officer in the clan.
+            allowed = False
+            for member in target.members:
+                agent = world.try_get(member, Agent)
+                if agent is None:
+                    continue
+                if agent.owner_address != proven:
+                    continue
+                standing = world.try_get(member, Standing)
+                if standing is not None and standing.rank == "officer":
+                    allowed = True
+                    break
+            if not allowed:
+                raise HTTPException(403, "session does not own an officer in that clan")
+
+        model = (request.model or "").strip()
+
+        # Validate the posted model against the available list for this provider.
+        if model:
+            provider = (getattr(config, "llm_provider", "") or "").strip().lower()
+            # Fetch the current model list (may refresh the short-lived cache).
+            if provider == "dgrid":
+                now = time.monotonic()
+                if _MODEL_LIST_CACHE is None or now - _MODEL_LIST_CACHE[0] > _MODEL_LIST_TTL:
+                    api_key_env = getattr(config, "llm_api_key_env", "") or "DGRID_API_KEY"
+                    base_url = (getattr(config, "llm_base_url", "") or "").strip() or DGRID_BASE_URL
+                    loop = asyncio.get_running_loop()
+                    fresh = await loop.run_in_executor(None, _list_gateway_models, base_url, api_key_env)
+                    # Only replace the cache if the fetch returned results; keep stale on failure.
+                    if fresh:
+                        _MODEL_LIST_CACHE = (now, fresh)
+                models = _MODEL_LIST_CACHE[1] if _MODEL_LIST_CACHE else []
+            elif provider == "anthropic":
+                models = _ANTHROPIC_STATIC_MODELS
+            else:
+                models = []
+
+            if model not in models:
+                # Reject unknown models rather than accepting them and letting a
+                # subsequent 401/403 take down the shared advisor.
+                raise HTTPException(422, f"model {model!r} is not available for provider {provider!r}")
+
+        # Rate limit per-clan to prevent rapid mass changes.
+        now = time.monotonic()
+        stamps = _CLAN_MODEL_RATE.get(clan_id, [])
+        # Keep only stamps inside the window
+        stamps = [t for t in stamps if now - t < CLAN_RATE_WINDOW]
+        if len(stamps) >= CLAN_RATE_LIMIT:
+            raise HTTPException(429, "too many model changes for this clan, try again later")
+        stamps.append(now)
+        _CLAN_MODEL_RATE[clan_id] = stamps
+
+        target.advisor_model = model
+        default_model = getattr(config, "llm_model", "")
+        return JSONResponse(
+            {
+                "clan_id": clan_id,
+                "model": model,
+                "default": default_model,
+                "effective": model or default_model,
             },
             headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
         )

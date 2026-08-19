@@ -1292,6 +1292,15 @@
   .nudge:disabled { opacity: .65; cursor: default; }
   #legend li { display: flex; align-items: center; gap: 7px; }
   .legend-clan { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .clan-model-picker {
+    margin-left: auto; flex: 0 0 auto;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 5px; color: var(--muted); font-size: 10px;
+    padding: 3px 6px; cursor: pointer; max-width: 110px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .clan-model-picker:hover { border-color: rgba(88,166,255,0.5); color: var(--text); }
+  .clan-model-picker:disabled { opacity: .5; cursor: default; }
   #whoami[readonly] { opacity: .8; cursor: default; }
 
   .claim-agent {
@@ -2640,6 +2649,43 @@ async function fundTheMinds(button) {
   }
 }
 
+// --- per-clan model picker -------------------------------------------------
+// Fetched from /advisor/models once (per panel open) and cached in JS.
+// A failed fetch leaves the list empty, which simply hides the picker — the
+// rest of the world keeps working. Never called from the tick render path.
+let advisorModels = null;  // { provider, default, models, llm_enabled } | null
+
+async function fetchAdvisorModels() {
+  if (advisorModels !== null) return advisorModels;
+  try {
+    const r = await fetch("/advisor/models");
+    if (r.ok) advisorModels = await r.json();
+  } catch (_) { /* network error — leave null, picker stays hidden */ }
+  return advisorModels;
+}
+
+async function setClanModel(clanId, model, select) {
+  select.disabled = true;
+  try {
+    const r = await fetch(`/clans/${clanId}/advisor-model`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+    });
+    if (!r.ok) {
+      // Revert on failure.
+      const advisor = lastSnapshot?.advisor;
+      select.value = "";
+      showHint(`Could not set model for clan ${clanId}.`, 4000);
+    }
+  } catch (_) {
+    select.value = "";
+    showHint(`Network error setting model for clan ${clanId}.`, 4000);
+  } finally {
+    select.disabled = false;
+  }
+}
+
 function renderLegend(snapshot) {
   legend.innerHTML = "";
   if (colourBy === "state") {
@@ -2658,6 +2704,12 @@ function renderLegend(snapshot) {
   const payNote = document.getElementById("legendPayNote");
   if (payNote) payNote.hidden = !chainPaysFor();
   const clans = (snapshot ? snapshot.clans : []).slice().sort((a, b) => b.size - a.size);
+  const llmOn = Boolean(snapshot?.advisor?.llm_enabled);
+
+  // Fetch the model list in the background — the picker only appears once it resolves.
+  if (llmOn) fetchAdvisorModels().then(() => renderLegend(lastSnapshot)).catch(() => {});
+  const amData = llmOn ? advisorModels : null;
+
   for (const clan of clans.slice(0, 10)) {
     const item = document.createElement("li");
     item.innerHTML =
@@ -2674,11 +2726,39 @@ function renderLegend(snapshot) {
           `and its leader decides again, right now.">` +
           `Rethink · ${payPrice()}</button>`
         : "");
+
+    // Per-clan model picker: only shown when LLM is enabled and model list is available.
+    if (amData && amData.models && amData.models.length > 0) {
+      const current = clan.advisor_model || "";
+      const sel = document.createElement("select");
+      sel.className = "clan-model-picker";
+      sel.title = `Model for clan ${clan.id}'s leader (world default: ${amData.default || "—"})`;
+      const defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      const defLabel = amData.default ? amData.default.split("/").pop() : "default";
+      defaultOpt.textContent = `⬡ ${defLabel} (default)`;
+      sel.appendChild(defaultOpt);
+      for (const m of amData.models) {
+        if (m === amData.default) continue;  // already in default slot
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m.includes("/") ? m.split("/").pop() : m;
+        sel.appendChild(opt);
+      }
+      sel.value = current;
+      sel.addEventListener("change", (e) => {
+        e.stopPropagation();
+        setClanModel(clan.id, sel.value, sel);
+      });
+      sel.addEventListener("click", (e) => e.stopPropagation());
+      item.appendChild(sel);
+    }
+
     if (clan.centre) {
-      item.className = "clickable";
+      item.className = (item.className ? item.className + " " : "") + "clickable";
       item.title = `fly to clan ${clan.id}`;
       item.addEventListener("click", (event) => {
-        if (event.target.closest(".nudge")) return;
+        if (event.target.closest(".nudge") || event.target.closest(".clan-model-picker")) return;
         flyToSim(clan.centre[0], clan.centre[1], `clan ${clan.id} · ${clan.size} members`, TILE_SPAN);
       });
     }
@@ -5209,7 +5289,8 @@ function updateThinking(advisor) {
     thinkingSince = performance.now();
   }
   const elapsed = Math.floor((performance.now() - thinkingSince) / 1000);
-  thinkingStatus.textContent = `Leader thinking… ~${elapsed}s`;
+  const modelLabel = advisor.model ? ` · ${advisor.model.split("/").pop()}` : "";
+  thinkingStatus.textContent = `Leader thinking${modelLabel}… ~${elapsed}s`;
   thinkingStatus.classList.add("show");
 }
 

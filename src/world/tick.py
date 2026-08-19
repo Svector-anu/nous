@@ -355,6 +355,8 @@ class Simulation:
                     # {"attacker_clan_id": [times, last_tick]} — the social history the
                     # viewer had no way to show before.
                     "grudges": {k: list(v) for k, v in clan.grudges.items()},
+                    # Which model reasons for this clan's leader. Empty means the world default.
+                    "advisor_model": clan.advisor_model,
                 }
             )
 

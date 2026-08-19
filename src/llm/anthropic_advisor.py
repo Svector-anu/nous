@@ -51,8 +51,10 @@ class ClaudeAdvisor(ThreadedAdvisor):
         return isinstance(error, TypeError) and "could not resolve authentication" in str(error).lower()
 
     def _ask(self, brief: GoalBrief) -> GoalDecision | None:
+        # Use the per-clan override when present; fall back to the advisor's own default.
+        model = brief.model or self.model
         response = self._client.messages.create(
-            model=self.model,
+            model=model,
             max_tokens=self.max_tokens,
             system=[
                 {
