@@ -2,9 +2,9 @@
 
 a civilization that runs itself, live in your browser.
 
-around a hundred agents forage, eat, starve, build huts, form clans, trade, hold grudges,
-raid each other when food runs short, and bury the ones who don't make it. nobody scripts
-any of it. you watch it happen.
+~100 agents forage, starve, build huts, form clans, trade, hold grudges, and raid each
+other when food runs short. nobody scripts any of it — you watch it happen, 24/7, whether
+or not anyone's watching. it's been running for days.
 
 **[nous.city](https://nous.city)** · one tick per second · an in-world day every 3m20s
 
@@ -12,37 +12,31 @@ any of it. you watch it happen.
 
 ## what it is
 
-a persistent world. it runs 24/7 whether or not anyone is watching, saves itself, and
-picks up exactly where it left off. there is no session and no save file to load — you
-open a page and drop into a world that has been going for days.
+a persistent world that never resets. it saves itself and picks up exactly where it left
+off — no session, no save file to load, just a page you open into a world already in
+progress. the camera directs itself like a nature documentary, finding the raid, the
+funeral, the settlement going up, cutting between them. grab it whenever you want.
 
-the camera directs itself like a nature documentary: it finds the raid, the funeral, the
-settlement going up, and cuts between them. you can grab it whenever you want.
+**watch.** free, no account, nothing to sign.
 
-**three things you can do:**
-
-**watch.** free, no account, nothing to sign. the world does not need you.
-
-**deploy an agent.** name it, give it a personality, drop it in. it lives by exactly the
-same rules as everyone else — it can starve, get raided, rise to lead a clan, or die
-unremarkably in a field. claim it with a wallet and it answers to you alone.
+**deploy an agent.** name it, give it a personality, drop it in. it lives — and can die —
+by exactly the same rules as everyone else. claim it with a wallet and it answers to you
+alone.
 
 **pay to change its mind.** send USDG on **Robinhood Chain** and a clan leader reconsiders
-its strategy on the spot. verified on-chain — right token, right recipient, right amount,
-and the same payment can never be spent twice.
+on the spot — verified on-chain, not just claimed back to you.
 
 ---
 
 ## the minds
 
-every agent is a state machine: hungry, so find food; tired, so rest; threatened, so run.
-that runs free, forever, at $0.
+every agent is a state machine — hungry, so find food; tired, so rest — running free,
+forever, at $0.
 
-clan **leaders** can be given something more. turn on `LLM_ENABLED` and leaders consult
-**Claude Opus**, which reads what the leader knows — clan size, hunger, stores, rivals
-nearby, raids suffered, and its own personality — and answers with a goal and a reason.
-
-that reason is not decoration. it appears in the world log, in the leader's own voice:
+clan **leaders** can be given something more. turn on `LLM_ENABLED` and they consult
+**Claude Opus**, which reads what the leader actually knows — clan size, hunger, stores,
+rivals, recent raids, its own personality — and answers with a goal and a reason, quoted
+straight into the world log:
 
 > **clan 3 decides to gather food**
 > *"mean hunger at 54 and three recent raids mean stores could collapse fast — rally is a
@@ -52,45 +46,36 @@ that reason is not decoration. it appears in the world log, in the leader's own 
 > *"mean hunger is critically low at 38 and 10 rival clans are nearby with a recent raid —
 > stores won't hold if members keep weakening."*
 
-rules stay the floor. a leader whose model is slow, over budget, or simply wrong still has
-a goal that tick — the model refines the decision rather than gating it. so the world never
-stalls waiting on an api, and never costs anything it wasn't told to.
-
-spending is capped in durable world state, not in memory, so restarting the server cannot
-buy more calls.
+rules are the floor, not a fallback that only shows up on failure — every clan gets a goal
+every tick regardless, and the model refines it when it lands. the world never stalls on an
+api, and never spends anything it wasn't told to.
 
 ---
 
 ## money
 
-**payments are real.** USDG on Robinhood Chain (chain 4663), sent from your own wallet to
-the operator's address. the server reads the transaction receipt back off the chain and
-checks the token, the recipient and the amount before anything happens. underpay and it
-refuses. replay the same transaction and it refuses. nous never holds your keys and never
-moves your money — your wallet does, and you approve it.
+**payments are real.** USDG on Robinhood Chain, sent from your wallet to the operator's —
+the server reads the transaction back off the chain and checks the token, the recipient,
+and the amount before anything happens. underpay or replay a transaction and it refuses.
+nous never holds your keys; your wallet moves the money, and you approve it.
 
 **predictions run on play credits.** markets open on their own — will this clan survive,
-will population fall below a line, will this truce hold, will that agent live — and settle
-from world state with no human deciding the answer. a clan wiped out settles the moment it
-happens, not when the clock runs out. winners split the pool.
-
-the credits are an experiment while real settlement is built. we want to see how people bet
-before money is on the table.
+will a truce hold — and settle straight from world state the moment the outcome is decided.
+no human oracle, winners split the pool.
 
 ---
 
 ## why it holds together
 
-**deterministic.** same seed, same inputs, same world — down to a hash over every component.
-every outside event, a deployment, a bet, a payment, queues and applies at a fixed tick, so
-history never depends on when an http request happened to land.
+**deterministic.** same seed, same inputs, same world, down to a hash over every component.
+every payment, bet, and deployment queues and applies at a fixed tick — history never
+depends on when a request happened to land.
 
-**cheap.** no build step, no framework, no cdn. one python process and a single html file.
-the 3d is vendored three.js. it runs on the smallest box you can rent.
+**cheap.** no build step, no framework, no cdn. one python process, one html file, vendored
+three.js. runs on the smallest box you can rent.
 
-**honest.** the boot screen only claims the chain is live because the server says it is. the
-prediction card says what its credits are. nothing in the interface asserts something the
-code cannot back.
+**honest.** the interface never asserts what the code can't back — the chain badge is only
+live because the server says so, and the prediction card says exactly what its credits are.
 
 ---
 

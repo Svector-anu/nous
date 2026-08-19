@@ -35,7 +35,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import httpx
 
@@ -81,6 +81,14 @@ class Execution:
 
     tx_hash: str
     link: str
+    # Kept so the execution can be checked against KeeperHub's own audit trail later.
+    # Dropping it meant the only account of what happened was ours, which is the problem
+    # this whole feature exists to solve, one level up.
+    execution_id: str = ""
+    # What KeeperHub's audit trail says once asked. Empty until `confirm` fills them, and
+    # empty is honest: it means nobody has checked, not that the check failed.
+    verified: bool | None = None
+    receipt_status: str = ""
 
 
 def enabled() -> bool:
@@ -234,7 +242,65 @@ async def fire_action(
     # Their link when they gave one, ours when they did not. The fallback only knows one
     # chain, which is why it is the fallback.
     link = str(answer.get("transactionLink") or "").strip() or explorer_link(tx_hash)
-    return Execution(tx_hash=tx_hash, link=link)
+    return Execution(
+        tx_hash=tx_hash,
+        link=link,
+        execution_id=str(answer.get("executionId") or "").strip(),
+    )
+
+
+STATUS_PATH = "/api/execute/{execution_id}/status"
+
+
+async def confirm(execution: Execution, *, timeout: float = DEFAULT_TIMEOUT) -> Execution:
+    """Ask KeeperHub's audit trail what actually happened onchain.
+
+    The transfer response tells us a transaction was sent, but KeeperHub is explicit that
+    `transactionHash` and `transactionLink` are *self-reported by the write path*, while
+    the `receipts` array on the status endpoint is re-fetched from the chain. So this is
+    the difference between "we believe we sent it" and "the chain says it happened", and
+    only the second is worth showing to somebody who has no reason to trust this server.
+
+    Additive and fail-soft: on any problem the execution is returned exactly as it came
+    in. A receipt with a transaction hash and no verification is still a receipt; losing
+    the hash because a second call failed would be strictly worse than not making it.
+    """
+    if not execution.execution_id or not enabled():
+        return execution
+    key = api_key()
+    if not key:
+        return execution
+
+    url = BASE_URL + STATUS_PATH.format(execution_id=execution.execution_id)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.get(url, headers={"authorization": f"Bearer {key}"})
+    except Exception as error:  # noqa: BLE001 - a failed check must not lose the receipt
+        logger.warning("keeperhub status unreachable (%s)", error)
+        return execution
+
+    if response.status_code >= 400:
+        logger.warning("keeperhub status refused: %s", response.status_code)
+        return execution
+    try:
+        answer = response.json()
+    except ValueError:
+        return execution
+    if not isinstance(answer, dict):
+        return execution
+
+    receipts = answer.get("receipts")
+    if not isinstance(receipts, list) or not receipts:
+        return execution
+    first = receipts[0]
+    if not isinstance(first, dict):
+        return execution
+
+    return replace(
+        execution,
+        verified=bool(first.get("verified")),
+        receipt_status=str(first.get("receiptStatus") or "").strip(),
+    )
 
 
 def explorer_link(tx_hash: str) -> str:

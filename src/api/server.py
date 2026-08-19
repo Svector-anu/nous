@@ -102,6 +102,7 @@ class LinkRequest(BaseModel):
 logger = logging.getLogger("neociv")
 
 VIEWER_INDEX = Path(__file__).resolve().parent.parent / "viewer" / "index.html"
+ONCHAIN_PAGE = VIEWER_INDEX.parent / "onchain.html"
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "world.db"
 
 # A proven wallet is remembered for this long, then must be proven again.
@@ -1531,7 +1532,7 @@ def create_app(
         )
 
     @app.get("/onchain")
-    async def onchain_receipts() -> JSONResponse:
+    async def onchain_receipts(request: Request) -> Response:
         """Transactions this world put on a public chain, newest last.
 
         Each is a receipt for a decision somebody paid for: `paid.proof` is the x402
@@ -1540,6 +1541,13 @@ def create_app(
         wait for the chain and does not read from it, so none of this changed what the
         clan decided.
         """
+        # A browser asking for this gets the page; anything else gets the json it came
+        # for. One url either way, because it is the url that was published — serving a
+        # wall of json to somebody who followed a link called "receipts" wastes the only
+        # thing this endpoint exists to communicate.
+        wants = request.headers.get("accept", "")
+        if "text/html" in wants and ONCHAIN_PAGE.exists():
+            return FileResponse(ONCHAIN_PAGE, media_type="text/html")
         return JSONResponse(
             {
                 "enabled": keeperhub.enabled(),
@@ -1997,6 +2005,10 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                 executed = await keeperhub.fire_action(memo=memo)
                 if executed is None:
                     continue
+                # Ask their audit trail what the chain says, rather than serving our own
+                # reading of the write path's answer back to somebody who has no reason to
+                # trust us. Fail-soft: an unanswered check leaves the receipt intact.
+                executed = await keeperhub.confirm(executed)
                 _remember_receipt(
                     app,
                     {
@@ -2015,6 +2027,12 @@ async def _run_onchain_receipts(app: FastAPI) -> None:
                         },
                         "tx": executed.tx_hash,
                         "link": executed.link,
+                        # What KeeperHub's audit trail says, re-fetched from the chain.
+                        # None means nobody managed to ask, which is different from a
+                        # check that came back false.
+                        "verified": executed.verified,
+                        "receipt_status": executed.receipt_status,
+                        "execution_id": executed.execution_id,
                     },
                 )
 
